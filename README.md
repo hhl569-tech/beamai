@@ -59,9 +59,10 @@ rebar3 shell
         }
     ],
     llm => #{
-        provider => zhipu,
-        model => <<"glm-4-flash">>,
-        api_key => list_to_binary(os:getenv("ZHIPU_API_KEY"))
+        provider => anthropic,
+        model => <<"glm-4.7">>,
+        api_key => list_to_binary(os:getenv("ZHIPU_API_KEY")),
+        base_url => <<"https://open.bigmodel.cn/api/anthropic">>
     }
 }).
 
@@ -297,13 +298,21 @@ ok = beamai_agent:restore_from_checkpoint(Agent, CheckpointId).
 ### LLM 配置
 
 ```erlang
+%% 方式 1: GLM-4.7 + Anthropic Provider
 LLMConfig = #{
-    provider => zhipu,        %% openai | anthropic | zhipu | ollama
-    model => <<"glm-4-flash">>,
+    provider => anthropic,
+    model => <<"glm-4.7">>,
     api_key => ApiKey,
-    timeout => 60000,           %% 可选，默认 300000
-    base_url => Url,            %% 可选，自定义 endpoint
-    max_retries => 3            %% 可选，默认 2
+    base_url => <<"https://open.bigmodel.cn/api/anthropic">>,
+    timeout => 60000
+}.
+
+%% 方式 2: GLM-4.6 + Zhipu Provider
+LLMConfig = #{
+    provider => zhipu,
+    model => <<"glm-4.6">>,
+    api_key => ApiKey,
+    timeout => 60000
 }.
 ```
 
@@ -382,12 +391,32 @@ Schema = #{
 
 ## 文档
 
-- **[DEPENDENCIES.md](DEPENDENCIES.md)** - 依赖关系详解
-- **[REFACTORING_REPORT.md](REFACTORING_REPORT.md)** - 重构总结报告
+### 核心文档
+
+- **[doc/API_REFERENCE.md](doc/API_REFERENCE.md)** - API 参考文档
 - **[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)** - 架构设计
+- **[doc/QUICK_START.md](doc/QUICK_START.md)** - 快速开始
+- **[DEPENDENCIES.md](DEPENDENCIES.md)** - 依赖关系详解
+
+### 模块文档
+
+| 模块 | 说明 | 文档 |
+|------|------|------|
+| **beamai_core** | 核心框架：Graph 引擎、Pregel 分布式计算、行为定义 | [README](apps/beamai_core/README.md) |
+| **beamai_llm** | LLM 客户端：支持 OpenAI、Anthropic、Zhipu、Ollama | [README](apps/beamai_llm/README.md) |
+| **beamai_agent** | Simple Agent：ReAct 模式、回调系统、Checkpoint | [README](apps/beamai_agent/README.md) |
+| **beamai_deepagent** | Deep Agent：任务规划、并行执行、自我反思 | [README](apps/beamai_deepagent/README.md) |
+| **beamai_memory** | 记忆管理：Checkpoint、Store、时间旅行 | [README](apps/beamai_memory/README.md) |
+| **beamai_tools** | 工具库：Provider 机制、工具注册表、内置工具 | [README](apps/beamai_tools/README.md) |
+| **beamai_a2a** | A2A 协议：Agent 间通信、服务端/客户端 | [README](apps/beamai_a2a/README.md) |
+| **beamai_mcp** | MCP 协议：Model Context Protocol 实现 | [README](apps/beamai_mcp/README.md) |
+| **beamai_rag** | RAG 功能：向量嵌入、相似度搜索 | [README](apps/beamai_rag/README.md) |
+
+### 其他文档
+
 - **[doc/DESIGN_PATTERNS.md](doc/DESIGN_PATTERNS.md)** - 设计模式
 - **[doc/OUTPUT_PARSER.md](doc/OUTPUT_PARSER.md)** - Output Parser 指南
-- **[doc/QUICK_START.md](doc/QUICK_START.md)** - 快速开始
+- **[REFACTORING_REPORT.md](REFACTORING_REPORT.md)** - 重构总结报告
 
 ## 运行示例
 
