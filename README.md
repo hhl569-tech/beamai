@@ -394,6 +394,7 @@ Schema = #{
 ### 核心文档
 
 - **[doc/API_REFERENCE.md](doc/API_REFERENCE.md)** - API 参考文档
+- **[doc/MIDDLEWARE.md](doc/MIDDLEWARE.md)** - Middleware 系统文档
 - **[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)** - 架构设计
 - **[doc/QUICK_START.md](doc/QUICK_START.md)** - 快速开始
 - **[DEPENDENCIES.md](DEPENDENCIES.md)** - 依赖关系详解

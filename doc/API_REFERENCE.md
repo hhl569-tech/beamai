@@ -5,6 +5,7 @@
 ## 目录
 
 - [beamai_agent - Simple Agent](#beamai_agent---simple-agent)
+- [Middleware 系统](#middleware-系统)
 - [beamai_deepagent - Deep Agent](#beamai_deepagent---deep-agent)
 - [beamai_llm - LLM 客户端](#beamai_llm---llm-客户端)
 - [beamai_memory - 记忆管理](#beamai_memory---记忆管理)
@@ -114,6 +115,123 @@ Config = #{
     callbacks => callback_map(),         %% 可选：回调函数
     middleware => [middleware_spec()]    %% 可选：中间件
 }.
+```
+
+---
+
+## Middleware 系统
+
+Agent 执行过程中的拦截器机制。详细文档：[MIDDLEWARE.md](MIDDLEWARE.md)
+
+### beamai_middleware 行为
+
+```erlang
+%% 所有回调都是可选的
+-callback init(Opts :: map()) -> middleware_state().
+-callback before_agent(State, MwState) -> middleware_result().
+-callback after_agent(State, MwState) -> middleware_result().
+-callback before_model(State, MwState) -> middleware_result().
+-callback after_model(State, MwState) -> middleware_result().
+-callback before_tools(State, MwState) -> middleware_result().
+-callback after_tools(State, MwState) -> middleware_result().
+```
+
+### 返回值类型
+
+```erlang
+-type middleware_result() ::
+    ok |                              %% 无修改
+    {update, map()} |                 %% 更新图状态
+    {goto, model | tools | '__end__'} |  %% 跳转
+    {update_goto, map(), goto_target()} |  %% 更新并跳转
+    {halt, term()} |                  %% 中止执行
+    {interrupt, interrupt_action()}.  %% 中断等待确认
+```
+
+### beamai_middleware_runner
+
+```erlang
+%% 初始化 Middleware 链
+-spec init([middleware_spec()]) -> middleware_chain().
+beamai_middleware_runner:init(Specs).
+
+%% Middleware 规格格式
+Specs = [
+    {middleware_module, Opts},           %% 模块 + 选项
+    {middleware_module, Opts, Priority}, %% 模块 + 选项 + 优先级
+    middleware_module                    %% 仅模块名
+].
+
+%% 执行钩子
+-spec run_hook(hook_name(), graph_state(), middleware_chain()) -> run_result().
+beamai_middleware_runner:run_hook(HookName, State, Middlewares).
+
+%% 获取 Middleware 状态
+-spec get_middleware_state(module(), middleware_chain()) -> {ok, state()} | {error, not_found}.
+beamai_middleware_runner:get_middleware_state(Module, Chain).
+```
+
+### beamai_middleware_presets
+
+```erlang
+%% 预设配置
+-spec default() -> [middleware_spec()].
+-spec minimal() -> [middleware_spec()].
+-spec production() -> [middleware_spec()].
+-spec development() -> [middleware_spec()].
+-spec human_in_loop() -> [middleware_spec()].
+
+%% 带选项的预设
+-spec default(map()) -> [middleware_spec()].
+beamai_middleware_presets:default(#{
+    call_limit => #{max_model_calls => 30},
+    summarization => #{window_size => 25}
+}).
+
+%% 单独 Middleware 配置
+-spec call_limit(map()) -> middleware_spec().
+-spec summarization(map()) -> middleware_spec().
+-spec human_approval(map()) -> middleware_spec().
+-spec tool_retry(map()) -> middleware_spec().
+```
+
+### 内置 Middleware
+
+| Middleware | 模块 | 主要配置 |
+|------------|------|----------|
+| 调用限制 | `middleware_call_limit` | `max_model_calls`, `max_tool_calls`, `max_iterations` |
+| 上下文摘要 | `middleware_summarization` | `window_size`, `max_tokens`, `summarize` |
+| 人工审批 | `middleware_human_approval` | `mode`, `timeout`, `tools` |
+| 工具重试 | `middleware_tool_retry` | `max_retries`, `backoff` |
+| 模型重试 | `middleware_model_retry` | `max_retries`, `retryable_errors` |
+| 模型降级 | `middleware_model_fallback` | `fallback_models`, `trigger_errors` |
+| PII 检测 | `middleware_pii_detection` | `action`, `types` |
+| 工具选择 | `middleware_tool_selector` | `strategy`, `whitelist` |
+
+### 自定义 Middleware 示例
+
+```erlang
+-module(my_logging_middleware).
+-behaviour(beamai_middleware).
+
+-export([init/1, before_model/2, after_model/2]).
+
+init(Opts) ->
+    #{log_level => maps:get(log_level, Opts, info)}.
+
+before_model(State, #{log_level := Level}) ->
+    Messages = graph_state:get(State, messages, []),
+    log(Level, "LLM Request: ~p messages", [length(Messages)]),
+    {update, #{request_start => erlang:system_time(millisecond)}}.
+
+after_model(State, #{log_level := Level}) ->
+    Start = graph_state:get(State, request_start, 0),
+    Duration = erlang:system_time(millisecond) - Start,
+    log(Level, "LLM Response: ~pms", [Duration]),
+    ok.
+
+log(info, Fmt, Args) -> logger:info(Fmt, Args);
+log(debug, Fmt, Args) -> logger:debug(Fmt, Args).
 ```
 
 ---
