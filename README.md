@@ -228,7 +228,7 @@ apps/
 └─────────────────────────────────┘
 ```
 
-详见 [DEPENDENCIES.md](DEPENDENCIES.md)
+详见 [DEPENDENCIES.md](doc/DEPENDENCIES.md)
 
 ## 核心概念
 
@@ -435,7 +435,7 @@ Schema = #{
 - **[doc/API_REFERENCE.md](doc/API_REFERENCE.md)** - API 参考文档
 - **[doc/MIDDLEWARE.md](doc/MIDDLEWARE.md)** - Middleware 系统文档
 - **[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)** - 架构设计
-- **[DEPENDENCIES.md](DEPENDENCIES.md)** - 依赖关系详解
+- **[DEPENDENCIES.md](doc/DEPENDENCIES.md)** - 依赖关系详解
 
 ### 模块文档
 
