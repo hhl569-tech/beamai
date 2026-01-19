@@ -397,13 +397,27 @@ llm_client:provider_info(Provider).
 
 ### 支持的 Provider
 
-| Provider | 模块 | 特性 |
-|----------|------|------|
-| `openai` | llm_provider_openai | 聊天、流式、工具调用 |
-| `anthropic` | llm_provider_anthropic | 聊天、流式、工具调用 |
-| `zhipu` | llm_provider_zhipu | 聊天、流式、工具调用、异步 |
-| `bailian` | llm_provider_bailian | 聊天、流式、工具调用 |
-| `ollama` | llm_provider_ollama | 聊天、流式 |
+| Provider | 模块 | API 模式 | 特性 |
+|----------|------|----------|------|
+| `openai` | llm_provider_openai | OpenAI | 聊天、流式、工具调用 |
+| `anthropic` | llm_provider_anthropic | Anthropic | 聊天、流式、工具调用 |
+| `zhipu` | llm_provider_zhipu | OpenAI 兼容 | 聊天、流式、工具调用、异步 |
+| `bailian` | llm_provider_bailian | DashScope 原生 | 聊天、流式、工具调用、联网搜索 |
+| `ollama` | llm_provider_ollama | OpenAI 兼容 | 聊天、流式 |
+
+### 阿里云百炼 (DashScope) 详细说明
+
+百炼 Provider 使用 DashScope 原生 API，自动根据模型类型选择端点：
+- **文本生成模型** (`qwen-plus`, `qwen-max`, `qwen-turbo`)：使用 `/api/v1/services/aigc/text-generation/generation`
+- **多模态模型** (`qwen-vl-plus`, `qwen-audio` 等)：使用 `/api/v1/services/aigc/multimodal-generation/generation`
+
+**特有参数：**
+- `enable_search => true`：启用联网搜索功能
+- `tool_choice => <<"required">>`：强制工具调用
+
+**流式输出：**
+- 请求头：`X-DashScope-SSE: enable`
+- 参数：`parameters.incremental_output: true`
 
 ### LLM 配置参数
 

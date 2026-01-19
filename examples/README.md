@@ -40,6 +40,19 @@ Deep Agent 高级功能示例：
 #### 🔌 example_llm_anthropic.erl
 使用智谱 GLM-4.7 通过 Anthropic API 兼容接口的示例
 
+#### ☁️ example_llm_bailian.erl
+阿里云百炼 (DashScope 原生 API) 示例：
+- **simple_chat/0**: 最简单的单轮对话
+- **chat_with_messages/0**: 使用自定义消息列表
+- **chat_with_system_prompt/0**: 带系统提示词的对话
+- **multi_turn/0**: 多轮对话示例
+
+#### 🧪 example_bailian_native_test.erl
+百炼 DashScope 原生 API 完整测试：
+- **test_simple_chat/0**: 简单对话测试
+- **test_chat_with_tools/0**: 工具调用测试
+- **test_stream_chat/0**: 流式输出测试
+
 #### 🔄 example_output_parser.erl
 Output Parser 结构化输出示例：
 - **json_parse_example/0**: JSON Schema 解析
@@ -69,8 +82,9 @@ MCP (Model Context Protocol) 工具集成示例
 ### 快速开始
 
 ```bash
-# 1. 设置环境变量
-export ZHIPU_API_KEY=your_key_here
+# 1. 设置环境变量（根据使用的 provider 选择）
+export ZHIPU_API_KEY=your_key_here      # 智谱 AI
+export BAILIAN_API_KEY=your_key_here    # 阿里云百炼 (DashScope)
 
 # 2. 编译项目
 rebar3 compile
@@ -90,6 +104,9 @@ example_agent_deep:research_example().
 
 %% Zhipu 聊天
 example_llm_chat:simple_chat().
+
+%% 百炼 (阿里云 DashScope)
+example_llm_bailian:simple_chat().
 
 %% MCP 工具集成
 example_mcp_tools:run().
@@ -201,7 +218,7 @@ Tools = beamai_tool_registry:from_config(#{tools => [CalcTool]}),
 
 - **Erlang/OTP**: 26+
 - **依赖**: beamai_core, beamai_llm
-- **环境变量**: `ZHIPU_API_KEY`（或使用的其他 provider）
+- **环境变量**: `ZHIPU_API_KEY`、`BAILIAN_API_KEY`（或使用的其他 provider）
 
 ## 📚 相关文档
 
@@ -218,7 +235,8 @@ Tools = beamai_tool_registry:from_config(#{tools => [CalcTool]}),
 
 2. **API Key 配置**：
    ```bash
-   export ZHIPU_API_KEY=your_key
+   export ZHIPU_API_KEY=your_key        # 智谱 AI
+   export BAILIAN_API_KEY=your_key      # 阿里云百炼 (DashScope)
    ```
 
 3. **调试技巧**：

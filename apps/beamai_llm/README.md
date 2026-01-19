@@ -4,13 +4,13 @@
 
 ## 支持的提供商
 
-| 提供商 | 模块 | 说明 |
-|--------|------|------|
-| OpenAI | `llm_provider_openai` | GPT-4, GPT-3.5-turbo 等 |
-| Anthropic | `llm_provider_anthropic` | Claude 3, Claude 2 等 |
-| Ollama | `llm_provider_ollama` | 本地模型部署 |
-| 智谱 AI | `llm_provider_zhipu` | GLM-4 等国产模型 |
-| 阿里云百炼 | `llm_provider_bailian` | 通义千问系列 (qwen3-max 等) |
+| 提供商 | 模块 | API 模式 | 说明 |
+|--------|------|----------|------|
+| OpenAI | `llm_provider_openai` | OpenAI | GPT-4, GPT-3.5-turbo 等 |
+| Anthropic | `llm_provider_anthropic` | Anthropic | Claude 3, Claude 2 等 |
+| Ollama | `llm_provider_ollama` | OpenAI 兼容 | 本地模型部署 |
+| 智谱 AI | `llm_provider_zhipu` | OpenAI 兼容 | GLM-4.7 等国产模型 |
+| 阿里云百炼 | `llm_provider_bailian` | DashScope 原生 | 通义千问系列 (qwen-plus, qwen-max 等) |
 
 ## 模块概览
 
@@ -27,7 +27,7 @@
 - **llm_provider_anthropic** - Anthropic 实现
 - **llm_provider_ollama** - Ollama 实现
 - **llm_provider_zhipu** - 智谱 AI 实现
-- **llm_provider_bailian** - 阿里云百炼实现
+- **llm_provider_bailian** - 阿里云百炼实现 (DashScope 原生 API)
 
 ### 适配器
 
@@ -41,13 +41,16 @@
 
 ```erlang
 %% 发送聊天请求
-llm_client:chat(Messages, Config) -> {ok, Response} | {error, Reason}.
+llm_client:chat(Config, Messages) -> {ok, Response} | {error, Reason}.
 
 %% 发送带工具的聊天请求
-llm_client:chat_with_tools(Messages, Tools, Config) -> {ok, Response} | {error, Reason}.
+llm_client:with_tools(Config, Messages, Tools) -> {ok, Response} | {error, Reason}.
+
+%% 简单聊天（单轮对话）
+llm_client:simple_chat(Config, Prompt) -> {ok, Content} | {error, Reason}.
 
 %% 流式聊天
-llm_client:chat_stream(Messages, Config, Callback) -> {ok, Response} | {error, Reason}.
+llm_client:stream_chat(Config, Messages, Callback) -> {ok, Response} | {error, Reason}.
 ```
 
 ### 创建配置
@@ -88,23 +91,67 @@ Messages = [
 Content = maps:get(content, Response).
 ```
 
-### 使用阿里云百炼
+### 使用阿里云百炼 (DashScope 原生 API)
+
+阿里云百炼 Provider 使用 DashScope 原生 API，支持：
+- 文本生成：`/api/v1/services/aigc/text-generation/generation`
+- 多模态生成：`/api/v1/services/aigc/multimodal-generation/generation`（自动根据模型选择）
 
 ```erlang
 %% 创建百炼配置（通义千问）
 LLM = llm_client:create(bailian, #{
-    model => <<"qwen3-max">>,
+    model => <<"qwen-plus">>,  %% 推荐：均衡性价比
     api_key => list_to_binary(os:getenv("BAILIAN_API_KEY"))
 }),
 
+%% 注意：中文字符串需要 /utf8 后缀
 Messages = [
-    #{role => user, content => <<"你好！">>}
+    #{role => user, content => <<"你好！"/utf8>>}
 ],
 
 {ok, Response} = llm_client:chat(LLM, Messages).
 ```
 
-### 使用智谱 AI（Anthropic 兼容接口）
+**支持的模型：**
+
+| 模型 | 说明 | 推荐场景 |
+|------|------|----------|
+| `qwen-max` | 旗舰模型，效果最好 | 复杂推理、专业任务 |
+| `qwen-plus` | 均衡模型（推荐） | 通用场景 |
+| `qwen-turbo` | 快速模型，成本最低 | 简单任务、高并发 |
+| `qwen-vl-plus` | 视觉语言模型 | 图像理解（自动使用多模态端点） |
+
+**特有功能：**
+
+```erlang
+%% 启用联网搜索
+LLM = llm_client:create(bailian, #{
+    model => <<"qwen-plus">>,
+    api_key => ApiKey,
+    enable_search => true  %% 启用联网搜索
+}).
+```
+
+### 使用智谱 AI
+
+智谱 AI 支持两种调用方式：
+
+**方式一：原生 API（推荐）**
+
+```erlang
+LLM = llm_client:create(zhipu, #{
+    model => <<"glm-4.7">>,
+    api_key => list_to_binary(os:getenv("ZHIPU_API_KEY"))
+}),
+
+Messages = [
+    #{role => user, content => <<"你好！"/utf8>>}
+],
+
+{ok, Response} = llm_client:chat(LLM, Messages).
+```
+
+**方式二：Anthropic 兼容接口**
 
 ```erlang
 %% 智谱 AI 提供 Anthropic 兼容接口
@@ -115,7 +162,7 @@ LLM = llm_client:create(anthropic, #{
 }),
 
 Messages = [
-    #{role => user, content => <<"你好！">>}
+    #{role => user, content => <<"你好！"/utf8>>}
 ],
 
 {ok, Response} = llm_client:chat(LLM, Messages).
@@ -127,20 +174,26 @@ Messages = [
 %% 定义工具
 Tools = [
     #{
-        name => <<"calculator">>,
-        description => <<"Perform mathematical calculations">>,
-        parameters => #{
-            type => object,
-            properties => #{
-                <<\"expression\">> => #{type => string, description => <<"Math expression">>}
-            },
-            required => [<<"expression">>]
+        type => function,
+        function => #{
+            name => <<"get_weather">>,
+            description => <<"查询城市天气"/utf8>>,
+            parameters => #{
+                type => object,
+                properties => #{
+                    <<"city">> => #{
+                        type => string,
+                        description => <<"城市名称"/utf8>>
+                    }
+                },
+                required => [<<"city">>]
+            }
         }
     }
 ],
 
 %% 发送带工具的请求
-{ok, Response} = llm_client:chat_with_tools(Messages, Tools, Config),
+{ok, Response} = llm_client:with_tools(LLM, Messages, Tools),
 
 %% 检查是否有工具调用
 case maps:get(tool_calls, Response, []) of
@@ -149,10 +202,8 @@ case maps:get(tool_calls, Response, []) of
         Content = maps:get(content, Response);
     ToolCalls ->
         %% 处理工具调用
-        lists:foreach(fun(Call) ->
-            Name = maps:get(name, Call),
-            Args = maps:get(arguments, Call),
-            %% 执行工具...
+        lists:foreach(fun(#{name := Name, arguments := Args}) ->
+            io:format("Tool: ~s, Args: ~s~n", [Name, Args])
         end, ToolCalls)
 end.
 ```
@@ -161,14 +212,16 @@ end.
 
 ```erlang
 %% 流式回调函数
-Callback = fun
-    ({chunk, Delta}) ->
-        io:format("~s", [Delta]);
-    ({done, FullResponse}) ->
-        io:format("~n完成~n")
+Callback = fun(Event) ->
+    case Event of
+        #{<<"output">> := #{<<"choices">> := [#{<<"message">> := #{<<"content">> := Content}} | _]}} ->
+            io:format("~ts", [Content]);
+        _ ->
+            ok
+    end
 end,
 
-llm_client:chat_stream(Messages, Config, Callback).
+llm_client:stream_chat(LLM, Messages, Callback).
 ```
 
 ## 环境变量
@@ -178,8 +231,53 @@ llm_client:chat_stream(Messages, Config, Callback).
 | `OPENAI_API_KEY` | OpenAI API 密钥 |
 | `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
 | `ZHIPU_API_KEY` | 智谱 AI API 密钥 |
-| `BAILIAN_API_KEY` | 阿里云百炼 API 密钥 |
+| `BAILIAN_API_KEY` | 阿里云百炼 API 密钥 (DashScope) |
 | `OLLAMA_BASE_URL` | Ollama 服务地址（默认 http://localhost:11434） |
+
+## Provider 技术细节
+
+### 阿里云百炼 (DashScope 原生 API)
+
+**请求格式：**
+```json
+{
+  "model": "qwen-plus",
+  "input": {
+    "messages": [...]
+  },
+  "parameters": {
+    "result_format": "message",
+    "max_tokens": 4096,
+    "temperature": 0.7
+  }
+}
+```
+
+**响应格式：**
+```json
+{
+  "output": {
+    "choices": [{
+      "message": {
+        "role": "assistant",
+        "content": "...",
+        "tool_calls": [...]
+      },
+      "finish_reason": "stop"
+    }]
+  },
+  "usage": {
+    "input_tokens": 26,
+    "output_tokens": 66,
+    "total_tokens": 92
+  },
+  "request_id": "xxx"
+}
+```
+
+**流式输出：**
+- 请求头：`X-DashScope-SSE: enable`
+- 参数：`parameters.incremental_output: true`
 
 ## 依赖
 

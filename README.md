@@ -338,12 +338,13 @@ HighTempLLM = llm_client:merge_config(LLM, #{temperature => 0.9}).
 
 **支持的 Provider：**
 
-| Provider | 模块 | 说明 |
-|----------|------|------|
-| `anthropic` | llm_provider_anthropic | Anthropic Claude API |
-| `openai` | llm_provider_openai | OpenAI API |
-| `zhipu` | llm_provider_zhipu | 智谱 AI (GLM 系列) |
-| `ollama` | llm_provider_ollama | Ollama 本地模型 |
+| Provider | 模块 | API 模式 | 说明 |
+|----------|------|----------|------|
+| `anthropic` | llm_provider_anthropic | Anthropic | Anthropic Claude API |
+| `openai` | llm_provider_openai | OpenAI | OpenAI API |
+| `zhipu` | llm_provider_zhipu | OpenAI 兼容 | 智谱 AI (GLM 系列) |
+| `bailian` | llm_provider_bailian | DashScope 原生 | 阿里云百炼 (通义千问系列) |
+| `ollama` | llm_provider_ollama | OpenAI 兼容 | Ollama 本地模型 |
 
 ### Agent 配置选项
 
