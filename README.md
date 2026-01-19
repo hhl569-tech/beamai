@@ -171,7 +171,7 @@ Trace = beamai_deepagent:get_trace(Result).
 apps/
 ├── beamai_core/      # 核心功能 + Persistence
 │   ├── Behaviours   # beamai_behaviour, agent_persistence_behaviour
-│   ├── HTTP         # beamai_http (Hackney 客户端)
+│   ├── HTTP         # beamai_http (Gun/Hackney 客户端, 默认 Gun)
 │   ├── Graph        # Graph 执行引擎
 │   ├── Pregel       # Pregel 分布式计算
 │   └── Persistence      # agent_storage_ets, agent_storage_sup
@@ -378,6 +378,33 @@ Opts = #{
 }.
 ```
 
+### HTTP 后端配置
+
+BeamAI 支持 Gun 和 Hackney 两种 HTTP 后端，默认使用 Gun（支持 HTTP/2）。
+
+```erlang
+%% 在 sys.config 中配置（可选）
+{beamai_core, [
+    %% HTTP 后端选择：beamai_http_gun（默认）或 beamai_http_hackney
+    {http_backend, beamai_http_gun},
+
+    %% Gun 连接池配置（仅当使用 Gun 后端时）
+    {http_pool, #{
+        max_connections => 100,        %% 最大连接数
+        connection_timeout => 30000    %% 连接超时（毫秒）
+    }}
+]}.
+```
+
+**后端对比：**
+
+| 特性 | Gun（默认） | Hackney |
+|------|-------------|---------|
+| HTTP/2 | 支持 | 不支持 |
+| 连接池 | 内置 beamai_http_pool | 依赖 hackney 池 |
+| TLS | 自动使用系统 CA 证书 | hackney 默认配置 |
+| 适用场景 | 推荐生产环境 | 兼容旧系统 |
+
 ## 高级功能
 
 ### 自定义工具
@@ -488,7 +515,7 @@ examples/interactive_deep_agent.erl
 - ✅ 基于 Erlang/OTP 轻量级进程
 - ✅ Graph 引擎优化执行路径
 - ✅ 并发工具调用
-- ✅ HTTP 连接池（Hackney）
+- ✅ HTTP 连接池（Gun，支持 HTTP/2）
 - ✅ ETS 高速存储
 
 ## 设计原则

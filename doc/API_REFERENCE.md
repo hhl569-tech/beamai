@@ -11,6 +11,8 @@
 - [beamai_memory - 记忆管理](#beamai_memory---记忆管理)
 - [beamai_tools - 工具库](#beamai_tools---工具库)
 - [beamai_core - 核心模块](#beamai_core---核心模块)
+  - [HTTP 客户端](#http-客户端)
+  - [HTTP 后端配置](#http-后端配置)
 - [beamai_a2a - A2A 协议](#beamai_a2a---a2a-协议)
 - [beamai_mcp - MCP 协议](#beamai_mcp---mcp-协议)
 - [beamai_rag - RAG 功能](#beamai_rag---rag-功能)
@@ -608,6 +610,70 @@ pregel_graph:add_edge(Graph, From, To, Weight).
 
 %% 运行计算
 {ok, Result} = pregel:run(Graph, ComputeFn, MaxIterations).
+```
+
+### HTTP 客户端
+
+BeamAI 提供统一的 HTTP 客户端接口，支持 Gun 和 Hackney 两种后端。
+
+```erlang
+%% 发送请求（自动使用配置的后端）
+-spec request(method(), url(), headers(), body(), opts()) -> {ok, response()} | {error, term()}.
+beamai_http:request(Method, Url, Headers, Body, Opts).
+
+%% 便捷函数
+-spec get(url(), headers()) -> {ok, response()} | {error, term()}.
+-spec post(url(), headers(), body()) -> {ok, response()} | {error, term()}.
+beamai_http:get(Url, Headers).
+beamai_http:post(Url, Headers, Body).
+
+%% 流式请求（SSE）
+-spec stream_request(url(), headers(), body(), callback(), opts()) -> {ok, term()} | {error, term()}.
+beamai_http:stream_request(Url, Headers, Body, Callback, Opts).
+```
+
+### HTTP 后端配置
+
+```erlang
+%% 应用配置（sys.config）
+{beamai_core, [
+    %% 选择 HTTP 后端：beamai_http_gun（默认）或 beamai_http_hackney
+    {http_backend, beamai_http_gun},
+
+    %% Gun 连接池配置
+    {http_pool, #{
+        max_connections => 100,        %% 最大连接数
+        connection_timeout => 30000,   %% 连接超时（毫秒）
+        idle_timeout => 60000          %% 空闲超时（毫秒）
+    }}
+]}.
+```
+
+**后端对比：**
+
+| 特性 | Gun（默认） | Hackney |
+|------|-------------|---------|
+| HTTP/2 | 支持 | 不支持 |
+| 连接池 | beamai_http_pool | hackney 内置池 |
+| TLS | 自动使用系统 CA 证书（OTP 25+） | hackney 默认配置 |
+| 依赖 | gun 2.1.0 | hackney |
+| 推荐场景 | 生产环境、需要 HTTP/2 | 兼容旧系统 |
+
+### HTTP 连接池 (Gun 后端)
+
+当使用 Gun 后端时，beamai_http_pool 会作为 beamai_core 应用的子进程自动启动。
+
+```erlang
+%% 连接池 API
+-spec checkout(host(), port(), protocol()) -> {ok, connection()} | {error, term()}.
+beamai_http_pool:checkout(Host, Port, Protocol).
+
+-spec checkin(connection()) -> ok.
+beamai_http_pool:checkin(Conn).
+
+%% 查看连接池状态
+-spec get_stats() -> map().
+beamai_http_pool:get_stats().
 ```
 
 ---
