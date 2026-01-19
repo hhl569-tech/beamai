@@ -9,10 +9,18 @@
         uuid,
         hackney
     ]},
-    {env, []},
+    %% Gun 作为可选依赖，用于 HTTP/2 支持
+    {optional_applications, [gun]},
+    {env, [
+        %% HTTP 后端配置（可选：beamai_http_hackney | beamai_http_gun）
+        %% {http_backend, beamai_http_hackney}
+    ]},
     {modules, [
         %% Behaviours
         beamai_behaviour,
+        beamai_llm_behaviour,
+        beamai_buffer_behaviour,
+        beamai_http_behaviour,
         %% Data Types
         beamai_message,
         beamai_result,
@@ -23,7 +31,11 @@
         beamai_sse,
         %% Utils
         beamai_utils,
+        %% HTTP Client
         beamai_http,
+        beamai_http_hackney,
+        beamai_http_gun,
+        beamai_http_pool,
         %% Graph Core
         graph,
         graph_builder,

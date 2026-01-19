@@ -9,9 +9,27 @@
 | 依赖包 | 版本 | 用途 |
 |-------|------|------|
 | [jsx](https://github.com/talentdeficit/jsx) | 3.1.0 | JSON 编码/解码 |
-| [hackney](https://github.com/benoitc/hackney) | 1.20.1 | HTTP 客户端，用于 LLM API 调用 |
+| [hackney](https://github.com/benoitc/hackney) | 1.20.1 | HTTP 客户端（默认后端） |
+| [gun](https://github.com/ninenines/gun) | 2.1.0 | HTTP/1.1, HTTP/2, WebSocket 客户端（可选后端） |
 | [uuid](https://github.com/okeuday/uuid) | 2.0.6 | UUID 生成（包名：uuid_erl） |
 | [esqlite](https://github.com/mmzeeman/esqlite3) | 0.8.8 | SQLite 数据库支持（用于持久化存储） |
+
+### HTTP 后端配置
+
+BeamAI 支持两种 HTTP 客户端后端，可通过配置切换：
+
+```erlang
+%% 使用 Gun（默认，支持 HTTP/2）
+application:set_env(beamai_core, http_backend, beamai_http_gun).
+
+%% 使用 Hackney（稳定成熟）
+application:set_env(beamai_core, http_backend, beamai_http_hackney).
+```
+
+| 后端 | 特点 | 适用场景 |
+|------|------|----------|
+| gun | HTTP/2 支持、异步、现代设计 | 默认后端，高并发场景 |
+| hackney | 同步 API、内置连接池、稳定 | 兼容旧代码 |
 
 ### 测试依赖
 
@@ -110,12 +128,17 @@
 - 状态管理（graph_state）
 - 类型定义（beamai_types）
 - 通用工具函数（beamai_utils）
-- HTTP 工具（beamai_http）
 - JSON-RPC 支持（beamai_jsonrpc）
 - SSE 支持（beamai_sse）
+- **HTTP 客户端**（可插拔后端）
+  - `beamai_http` - 统一 API
+  - `beamai_http_hackney` - Hackney 后端（默认）
+  - `beamai_http_gun` - Gun 后端（HTTP/2 支持）
+  - `beamai_http_pool` - Gun 连接池管理
 - **Behaviour 定义**（用于解耦依赖）
   - `beamai_llm_behaviour` - LLM 客户端接口
   - `beamai_buffer_behaviour` - 对话缓冲接口
+  - `beamai_http_behaviour` - HTTP 客户端接口
 
 #### beamai_memory（记忆系统）
 
@@ -252,11 +275,32 @@
 - MCP 服务器（beamai_mcp_server）
 - MCP 客户端（beamai_mcp_client）
 - 传输层
-  - HTTP 传输（beamai_mcp_transport_http）
-  - SSE 传输（beamai_mcp_transport_sse）
+  - HTTP 传输
+    - beamai_mcp_transport_http（Hackney 后端，默认）
+    - beamai_mcp_transport_http_gun（Gun 后端，HTTP/2 支持）
+  - SSE 传输
+    - beamai_mcp_transport_sse（Hackney 后端，默认）
+    - beamai_mcp_transport_sse_gun（Gun 后端，HTTP/2 支持）
   - Stdio 传输（beamai_mcp_transport_stdio）
 - 工具代理（beamai_mcp_tool_proxy）
 - Agent 适配器（beamai_mcp_adapter）- 将 MCP 工具转换为 Agent 工具
+
+**传输层后端配置**:
+
+```erlang
+%% 使用 Gun 后端（默认，支持 HTTP/2）
+Config = #{
+    transport => http,  %% 或 sse
+    url => <<"https://example.com/mcp">>
+}.
+
+%% 使用 Hackney 后端
+Config = #{
+    transport => http,  %% 或 sse
+    backend => hackney,
+    url => <<"https://example.com/mcp">>
+}.
+```
 
 > **注意**: MCP 核心功能可独立运行，不依赖 beamai_agent。
 > 仅在需要将 MCP 工具集成到 Agent 系统时，才使用适配器层。
