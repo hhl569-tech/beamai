@@ -85,6 +85,11 @@ execute(Msg, _Opts, #state{graph = Graph, system_prompt = Prompt,
 
     %% 构建初始状态（包含历史消息和回调）
     %% 消息压缩由 middleware_summarization 在 before_model 钩子中处理
+    %% 将原始用户输入添加到上下文，供工具（如协调器委托工具）使用
+    ContextWithInput = Context#{
+        original_input => Msg,
+        last_user_message => Msg
+    },
     InitState = graph:state(#{
         messages => AllMessages,
         full_messages => AllFullMessages,
@@ -93,7 +98,7 @@ execute(Msg, _Opts, #state{graph = Graph, system_prompt = Prompt,
         max_iterations => MaxIter,
         iteration => 0,
         scratchpad => [],
-        context => Context,  %% 用户自定义上下文，Tool 和 Middleware 可访问
+        context => ContextWithInput,  %% 用户自定义上下文，Tool 和 Middleware 可访问
         callbacks => beamai_agent_callbacks:to_map(Callbacks),
         callback_meta => CallbackMeta
     }),

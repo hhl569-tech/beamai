@@ -85,20 +85,37 @@ build_delegate_tools(Agents, Pids) ->
 -spec build_delegate_tool(map(), #{binary() => pid()}) -> map().
 build_delegate_tool(#{name := Name} = Agent, Pids) ->
     Role = maps:get(role, Agent, Name),
+    Description = <<"委托任务给 ", Role/binary, "（", Name/binary,
+        "）。必须提供 task 参数，描述要委托的具体任务。"/utf8>>,
     #{
         name => <<"delegate_to_", Name/binary>>,
-        description => <<"委托任务给 ", Role/binary, "（", Name/binary, "）"/utf8>>,
-        input_schema => #{
+        description => Description,
+        parameters => #{
             type => object,
             properties => #{
                 <<"task">> => #{
                     type => string,
-                    description => <<"要执行的任务描述"/utf8>>
+                    description => <<"要执行的任务描述，必须提供具体任务内容"/utf8>>
                 }
             },
             required => [<<"task">>]
         },
-        handler => fun(#{<<"task">> := Task}, _Context) ->
+        handler => fun(Args, Context) ->
+            %% 从参数或上下文中获取任务描述
+            Task = case maps:find(<<"task">>, Args) of
+                {ok, T} when is_binary(T), byte_size(T) > 0 -> T;
+                _ ->
+                    %% 尝试从上下文获取原始用户输入
+                    case maps:find(original_input, Context) of
+                        {ok, Input} -> Input;
+                        _ ->
+                            %% 从上下文获取最后一条用户消息
+                            case maps:find(last_user_message, Context) of
+                                {ok, Msg} -> Msg;
+                                _ -> <<"请完成分配的任务"/utf8>>
+                            end
+                    end
+            end,
             delegate_to_worker(Name, Pids, Task)
         end
     }.
@@ -131,7 +148,7 @@ build_router_tool(_Agents, _Pids) ->
     #{
         name => <<"route_to_workers">>,
         description => <<"根据任务特点自动选择最合适的 worker"/utf8>>,
-        input_schema => #{
+        parameters => #{
             type => object,
             properties => #{
                 <<"task">> => #{
@@ -169,7 +186,7 @@ build_parallel_tool(_Agents, _Pids) ->
     #{
         name => <<"execute_parallel">>,
         description => <<"并行调用多个 workers 并综合结果"/utf8>>,
-        input_schema => #{
+        parameters => #{
             type => object,
             properties => #{
                 <<"task">> => #{
@@ -205,7 +222,7 @@ build_synthesize_tool() ->
     #{
         name => <<"synthesize_results">>,
         description => <<"综合多个 worker 的结果"/utf8>>,
-        input_schema => #{
+        parameters => #{
             type => object,
             properties => #{
                 <<"results">> => #{
@@ -240,7 +257,22 @@ synthesize_results(Results) ->
 %% @returns 系统提示词
 -spec build_pipeline_prompt() -> binary().
 build_pipeline_prompt() ->
-    <<"你是一个流水线协调器，负责将任务按顺序委托给团队成员，并将结果传递给下一个成员。"/utf8>>.
+    <<"你是一个流水线协调器。你的职责是按顺序协调团队成员完成任务。\n\n"
+      "重要规则：\n"
+      "1. 必须按顺序调用每一个团队成员，不能跳过任何人\n"
+      "2. 将前一个成员的结果传递给下一个成员\n"
+      "3. 每个成员的输出是下一个成员的输入\n"
+      "4. 最后汇总所有成员的工作成果\n\n"
+      "工具调用格式：\n"
+      "- 必须提供 task 参数，包含具体任务描述\n"
+      "- 第一个成员：原始任务\n"
+      "- 后续成员：基于前一个成员的结果给出新任务\n"
+      "- 例如：{\"task\": \"根据以下研究资料撰写文章：[资料内容]\"}\n\n"
+      "流程示例（3人团队：研究员→写作者→审核员）：\n"
+      "1. delegate_to_researcher: 研究某主题\n"
+      "2. delegate_to_writer: 基于研究结果撰写文章\n"
+      "3. delegate_to_reviewer: 审核并改进文章质量\n\n"
+      "注意：即使你认为任务已完成，也必须让所有成员参与！"/utf8>>.
 
 %% @doc 构建 Orchestrator 模式的系统提示词
 %%
@@ -249,4 +281,10 @@ build_pipeline_prompt() ->
 %% @returns 系统提示词
 -spec build_orchestrator_prompt() -> binary().
 build_orchestrator_prompt() ->
-    <<"你是一个任务编排器，负责分析任务、选择合适的执行者、协调执行并综合结果。"/utf8>>.
+    <<"你是一个任务编排器。你的职责是：\n"
+      "1. 分析任务，决定由哪个团队成员处理\n"
+      "2. 可以委托给单个成员，或并行调用多个成员\n"
+      "3. 综合各成员的结果，给出最终答案\n\n"
+      "重要：调用 delegate_to_xxx 工具时，必须提供明确的 task 参数。\n"
+      "例如：{\"task\": \"分析用户需求并设计系统架构\"}\n\n"
+      "不要调用空参数的工具，这会导致执行失败。"/utf8>>.
