@@ -51,26 +51,28 @@
         │                        │                       │
         └────────────────────────┼───────────────────────┘
                                  │
-           ┌─────────────────────┼─────────────────────┐
-           │                     │                     │
-           ▼                     ▼                     ▼
-    ┌───────────┐         ┌───────────┐         ┌───────────┐
-    │beamai_rag │         │beamai_llm │         │beamai_    │
-    │  (RAG)    │         │  (LLM)    │         │  memory   │
-    └─────┬─────┘         └─────┬─────┘         └─────┬─────┘
-          │                     │                     │
-          │                     │ behaviour           │ behaviour
-          │                     │ 实现                │ 实现
-          │                     ▼                     ▼
-          │               ┌───────────────────────────────┐
-          │               │         beamai_tools          │
-          │               │  (工具+中间件+Adapter)         │
-          │               │  通过 Adapter 解耦依赖         │
-          │               └─────────────┬─────────────────┘
-          │                             │
-          └─────────────────────────────┘
-                                 │
-                                 ▼
+    ┌────────────────────────────┼────────────────────────────┐
+    │                 ┌──────────┼──────────┐                 │
+    ▼                 ▼          ▼          ▼                 ▼
+┌───────────┐   ┌───────────┐  ┌───────────┐  ┌───────────────────┐
+│beamai_rag │   │beamai_llm │  │ beamai_   │  │    beamai_tools   │
+│  (RAG)    │   │  (LLM)    │  │  memory   │  │ (工具+Middleware) │
+└─────┬─────┘   └─────┬─────┘  └─────┬─────┘  └─────────┬─────────┘
+      │               │              │                  │
+      │               │ 实现         │ 实现              │
+      │               │ Behaviour   │ Behaviour        │
+      │               │              │           ┌──────┘
+      │               └──────┬───────┘           │
+      │                      │                   │
+      │                      ▼                   │
+      │         ┌────────────────────────┐       │
+      │         │ Behaviour 接口定义      │◄──────┘
+      │         │ (beamai_llm_behaviour, │
+      │         │  beamai_buffer_behaviour)│
+      │         └────────────┬───────────┘
+      │                      │
+      └──────────────────────┤
+                             ▼
                   ┌───────────────────────────┐
                   │       beamai_core         │  ← 基础层
                   │ (类型、Graph、Behaviour)   │
@@ -80,16 +82,22 @@
                   ┌───────────────────────────┐
                   │   Erlang/OTP + 外部依赖    │
                   └───────────────────────────┘
+
+        - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        运行时可选依赖（通过 Adapter 注入，非编译依赖）：
+        beamai_tools ···> beamai_llm (llm_client)
+        beamai_tools ···> beamai_memory (beamai_conversation_buffer)
 ```
 
 **依赖方向说明**：
-- 箭头表示"依赖于"的方向（从上到下）
+- 实线箭头(→)表示**编译时依赖**（从上到下）
+- 虚线箭头(···>)表示**运行时可选依赖**（通过 Adapter 注入）
 - `beamai_deepagent` **不依赖** `beamai_agent`，它们是平行的实现
 - `beamai_a2a` 依赖 `beamai_agent`（用于 Agent 执行）
 - `beamai_mcp` 在适配器层**可选依赖** `beamai_agent`（用于工具转换）
-- `beamai_tools` 通过 **Adapter 模式**解耦对 `beamai_llm` 和 `beamai_memory` 的依赖
+- `beamai_tools`、`beamai_llm`、`beamai_memory` 同层级，都只依赖 `beamai_core`
 - `beamai_core` 定义 Behaviour 接口，`beamai_llm` 和 `beamai_memory` 实现这些接口
-- 所有模块最终依赖 `beamai_core` 提供的基础设施
+- `beamai_tools` 通过 Adapter 模式在**运行时**使用 beamai_llm/memory，无编译依赖
 
 ### 各应用依赖详情
 
