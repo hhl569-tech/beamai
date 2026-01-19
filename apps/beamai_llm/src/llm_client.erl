@@ -29,6 +29,9 @@
 %%%-------------------------------------------------------------------
 -module(llm_client).
 
+%% 实现 LLM 客户端行为
+-behaviour(beamai_llm_behaviour).
+
 %% 引入公共常量定义
 -include_lib("beamai_core/include/beamai_common.hrl").
 

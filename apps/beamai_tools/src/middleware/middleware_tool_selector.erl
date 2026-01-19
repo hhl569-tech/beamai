@@ -276,17 +276,15 @@ build_selection_prompt(Template, Message, ToolDescriptions, MaxTools) ->
 %% @private 调用筛选 LLM
 -spec call_selector_llm(binary(), map()) -> {ok, binary()} | {error, term()}.
 call_selector_llm(Prompt, LLMConfig) ->
-    %% 使用简单的聊天调用
+    %% 使用 LLM 适配器（解耦 beamai_llm 依赖）
     Messages = [#{role => user, content => Prompt}],
     Request = #{messages => Messages},
 
-    case catch llm_client:chat(LLMConfig, Request) of
+    case beamai_llm_adapter:chat(LLMConfig, Request) of
         {ok, Response} ->
             Content = extract_llm_content(Response),
             {ok, Content};
         {error, Reason} ->
-            {error, Reason};
-        {'EXIT', Reason} ->
             {error, Reason}
     end.
 

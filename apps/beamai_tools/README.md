@@ -372,11 +372,107 @@ Tools = beamai_tool_registry:build(Registry, fun strategy_error/2).
 | `get_middleware_state/2` | 获取中间件状态 |
 | `set_middleware_state/3` | 设置中间件状态 |
 
+## Adapter 模式（依赖解耦）
+
+beamai_tools 通过 Adapter 模式解耦对 `beamai_llm` 和 `beamai_memory` 的依赖。
+
+### 架构图
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      beamai_core                            │
+│  ┌─────────────────────┐  ┌─────────────────────────────┐   │
+│  │beamai_llm_behaviour │  │beamai_buffer_behaviour      │   │
+│  │  - chat/2           │  │  - new/1                    │   │
+│  │  - is_valid_config/1│  │  - count_tokens/2           │   │
+│  └─────────────────────┘  │  - build_context/2          │   │
+│            ▲              └─────────────────────────────┘   │
+│            │ implements                 ▲ implements        │
+└────────────┼────────────────────────────┼───────────────────┘
+┌────────────┼────────────┐  ┌────────────┼───────────────────┐
+│  beamai_llm│            │  │ beamai_memory                  │
+│  ┌─────────┴─────────┐  │  │  ┌─────────┴─────────────────┐ │
+│  │   llm_client      │  │  │  │beamai_conversation_buffer │ │
+│  └───────────────────┘  │  │  └───────────────────────────┘ │
+└─────────────────────────┘  └────────────────────────────────┘
+             ▲ uses (via adapter)         ▲ uses (via adapter)
+┌────────────┴────────────────────────────┴───────────────────┐
+│                      beamai_tools                           │
+│  ┌───────────────────┐  ┌─────────────────────────────────┐ │
+│  │beamai_llm_adapter │  │beamai_buffer_adapter            │ │
+│  └───────────────────┘  └─────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 使用默认实现
+
+默认情况下，Adapter 使用以下实现：
+- `beamai_llm_adapter` → `llm_client`
+- `beamai_buffer_adapter` → `beamai_conversation_buffer`
+
+### 自定义实现
+
+可以通过 Application 环境变量替换默认实现：
+
+```erlang
+%% sys.config 中配置
+{beamai_tools, [
+    {llm_module, my_llm_client},
+    {buffer_module, my_buffer}
+]}
+```
+
+或者在调用时传入：
+
+```erlang
+%% LLM Adapter
+beamai_llm_adapter:chat(Config, Request, #{llm_module => my_llm}).
+
+%% Buffer Adapter
+beamai_buffer_adapter:new(Opts, #{buffer_module => my_buffer}).
+```
+
+### 实现自定义模块
+
+自定义模块需要实现对应的 Behaviour：
+
+```erlang
+%% 自定义 LLM 客户端
+-module(my_llm_client).
+-behaviour(beamai_llm_behaviour).
+
+-export([chat/2, is_valid_config/1]).
+
+chat(Config, Request) ->
+    %% 实现 LLM 调用逻辑
+    {ok, Response}.
+
+is_valid_config(Config) ->
+    %% 验证配置
+    true.
+```
+
+```erlang
+%% 自定义 Buffer
+-module(my_buffer).
+-behaviour(beamai_buffer_behaviour).
+
+-export([new/1, count_tokens/2, build_context/2]).
+
+new(Opts) -> #{...}.
+count_tokens(Config, Messages) -> 0.
+build_context(Config, Messages) -> {ok, #{messages => Messages}}.
+```
+
 ## 依赖
 
-- `beamai_core`: 基础类型定义
-- `beamai_memory`: 对话缓冲和会话管理
+**必需依赖**:
+- `beamai_core`: Behaviour 定义、基础类型
 - `jsx`: JSON 编解码
+
+**可选依赖**（通过 Adapter 解耦）:
+- `beamai_llm`: 提供 `llm_client`（默认 LLM 实现）
+- `beamai_memory`: 提供 `beamai_conversation_buffer`（默认 Buffer 实现）
 
 ## 许可证
 

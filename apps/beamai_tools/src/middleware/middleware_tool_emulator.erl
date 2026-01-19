@@ -245,7 +245,7 @@ generate_emulated_result(ToolName, ToolInput, ToolDef, PromptTemplate, EmulatorL
     Prompt2 = binary:replace(Prompt1, <<"{{tool_description}}">>, ToolDescription),
     Prompt3 = binary:replace(Prompt2, <<"{{tool_input}}">>, InputJson),
 
-    %% 调用 LLM
+    %% 调用 LLM（使用适配器解耦 beamai_llm 依赖）
     LLMConfig = case EmulatorLLM of
         undefined -> #{};
         Config -> Config
@@ -254,15 +254,12 @@ generate_emulated_result(ToolName, ToolInput, ToolDef, PromptTemplate, EmulatorL
     Messages = [#{role => user, content => Prompt3}],
     Request = #{messages => Messages},
 
-    case catch llm_client:chat(LLMConfig, Request) of
+    case beamai_llm_adapter:chat(LLMConfig, Request) of
         {ok, Response} ->
             Content = extract_llm_content(Response),
             {ok, Content};
-        {error, Reason} ->
+        {error, _Reason} ->
             %% LLM 调用失败，返回默认模拟结果
-            DefaultResult = generate_default_result(ToolName, ToolInput),
-            {ok, DefaultResult};
-        {'EXIT', _Reason} ->
             DefaultResult = generate_default_result(ToolName, ToolInput),
             {ok, DefaultResult}
     end.

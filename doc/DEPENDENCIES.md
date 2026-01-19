@@ -51,28 +51,29 @@
         │                        │                       │
         └────────────────────────┼───────────────────────┘
                                  │
-                          ┌──────┴──────┐
-                          │             │
-                          ▼             ▼
-                   ┌───────────┐ ┌───────────┐
-                   │beamai_rag │ │beamai_tools│
-                   │  (RAG)    │ │(工具+中间件)│
-                   └─────┬─────┘ └─────┬─────┘
-                         │             │
-                         │     ┌───────┴───────┐
-                         │     │               │
-                         │     ▼               ▼
-                         │ ┌───────────┐ ┌───────────────┐
-                         │ │beamai_llm │ │ beamai_memory │
-                         │ │  (LLM)    │ │   (记忆)      │
-                         │ └─────┬─────┘ └───────┬───────┘
-                         │       │               │
-                         └───────┼───────────────┘
+           ┌─────────────────────┼─────────────────────┐
+           │                     │                     │
+           ▼                     ▼                     ▼
+    ┌───────────┐         ┌───────────┐         ┌───────────┐
+    │beamai_rag │         │beamai_llm │         │beamai_    │
+    │  (RAG)    │         │  (LLM)    │         │  memory   │
+    └─────┬─────┘         └─────┬─────┘         └─────┬─────┘
+          │                     │                     │
+          │                     │ behaviour           │ behaviour
+          │                     │ 实现                │ 实现
+          │                     ▼                     ▼
+          │               ┌───────────────────────────────┐
+          │               │         beamai_tools          │
+          │               │  (工具+中间件+Adapter)         │
+          │               │  通过 Adapter 解耦依赖         │
+          │               └─────────────┬─────────────────┘
+          │                             │
+          └─────────────────────────────┘
                                  │
                                  ▼
                   ┌───────────────────────────┐
                   │       beamai_core         │  ← 基础层
-                  │  (类型、Graph、HTTP、SSE)  │
+                  │ (类型、Graph、Behaviour)   │
                   └───────────────────────────┘
                                  │
                                  ▼
@@ -86,7 +87,8 @@
 - `beamai_deepagent` **不依赖** `beamai_agent`，它们是平行的实现
 - `beamai_a2a` 依赖 `beamai_agent`（用于 Agent 执行）
 - `beamai_mcp` 在适配器层**可选依赖** `beamai_agent`（用于工具转换）
-- `beamai_tools` 依赖 `beamai_memory`（Middleware 需要对话缓冲）和 `beamai_llm`（智能工具筛选）
+- `beamai_tools` 通过 **Adapter 模式**解耦对 `beamai_llm` 和 `beamai_memory` 的依赖
+- `beamai_core` 定义 Behaviour 接口，`beamai_llm` 和 `beamai_memory` 实现这些接口
 - 所有模块最终依赖 `beamai_core` 提供的基础设施
 
 ### 各应用依赖详情
@@ -103,6 +105,9 @@
 - HTTP 工具（beamai_http）
 - JSON-RPC 支持（beamai_jsonrpc）
 - SSE 支持（beamai_sse）
+- **Behaviour 定义**（用于解耦依赖）
+  - `beamai_llm_behaviour` - LLM 客户端接口
+  - `beamai_buffer_behaviour` - 对话缓冲接口
 
 #### beamai_memory（记忆系统）
 
@@ -123,9 +128,15 @@
 #### beamai_tools（工具系统 + 中间件系统）
 
 **依赖**:
-- beamai_core（类型定义、工具函数）
-- beamai_memory（对话缓冲，用于摘要 Middleware）
+- beamai_core（Behaviour 定义、类型定义）
+
+**可选依赖**（通过 Adapter 模式解耦）:
 - beamai_llm（LLM 客户端，用于智能工具筛选/模拟 Middleware）
+- beamai_memory（对话缓冲，用于摘要 Middleware）
+
+**Adapter 模块**:
+- `beamai_llm_adapter` - 封装 LLM 调用，默认使用 `llm_client`
+- `beamai_buffer_adapter` - 封装对话缓冲，默认使用 `beamai_conversation_buffer`
 
 **提供功能**:
 - 工具定义与注册（beamai_tool, beamai_tool_registry）

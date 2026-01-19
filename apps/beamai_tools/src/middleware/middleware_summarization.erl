@@ -48,8 +48,8 @@
 %% @doc 初始化 Middleware 状态
 -spec init(map()) -> map().
 init(Opts) ->
-    %% 创建 buffer 配置
-    BufferConfig = beamai_conversation_buffer:new(#{
+    %% 创建 buffer 配置（使用适配器解耦 beamai_memory 依赖）
+    BufferConfig = beamai_buffer_adapter:new(#{
         window_size => maps:get(window_size, Opts, 20),
         max_tokens => maps:get(max_tokens, Opts, 4000),
         summarize => maps:get(summarize, Opts, false),
@@ -103,7 +103,7 @@ should_compress(Messages, MwState) ->
       token_threshold := TokenThreshold} = MwState,
 
     MsgCount = length(Messages),
-    EstimatedTokens = beamai_conversation_buffer:count_tokens(BufferConfig, Messages),
+    EstimatedTokens = beamai_buffer_adapter:count_tokens(BufferConfig, Messages),
 
     %% 消息数量或 Token 数量超过阈值时压缩
     MsgCount > CompressThreshold orelse EstimatedTokens > TokenThreshold.
@@ -112,7 +112,7 @@ should_compress(Messages, MwState) ->
 -spec compress_messages([map()], map()) ->
     {ok, [map()], binary() | undefined} | {error, term()}.
 compress_messages(Messages, #{buffer_config := BufferConfig}) ->
-    case beamai_conversation_buffer:build_context(BufferConfig, Messages) of
+    case beamai_buffer_adapter:build_context(BufferConfig, Messages) of
         {ok, #{messages := CompressedMsgs, summary := Summary}} ->
             {ok, CompressedMsgs, Summary};
         {error, Reason} ->
