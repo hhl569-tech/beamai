@@ -291,23 +291,42 @@ ok = beamai_agent:restore_from_checkpoint(Agent, CheckpointId).
 
 ### 4. Callbacks（回调系统）
 
-监听 Agent 执行事件：
+监听 Agent 执行事件，支持 18 种回调类型：
 
 ```erlang
 {ok, Agent} = beamai_agent:start_link(<<"my_agent">>, #{
     callbacks => #{
+        %% LLM 回调
         on_llm_start => fun(Prompts, Meta) ->
-            io:format("LLM 调用开始...~n")
+            io:format("LLM 调用开始，消息数: ~p~n", [length(Prompts)])
         end,
         on_llm_end => fun(Response, Meta) ->
             io:format("LLM 响应收到~n")
         end,
-        on_tool_use => fun(ToolName, Args, Meta) ->
-            io:format("使用工具: ~ts~n", [ToolName])
+        %% 工具回调
+        on_tool_start => fun(ToolName, Args, Meta) ->
+            io:format("执行工具: ~ts~n", [ToolName])
+        end,
+        on_tool_end => fun(ToolName, Result, Meta) ->
+            io:format("工具完成: ~ts~n", [ToolName])
+        end,
+        %% Agent 回调
+        on_agent_finish => fun(Result, Meta) ->
+            io:format("Agent 完成~n")
         end
     }
 }).
+
+%% 动态设置回调
+ok = beamai_agent:set_callbacks(Agent, #{
+    on_llm_start => fun(_Prompts, _Meta) -> ok end
+}).
+
+%% 发送自定义事件
+beamai_agent:emit_custom_event(Agent, my_event, #{value => 42}).
 ```
+
+详见 [doc/CALLBACKS.md](doc/CALLBACKS.md)
 
 ## 配置
 
@@ -467,6 +486,7 @@ Schema = #{
 
 - **[doc/API_REFERENCE.md](doc/API_REFERENCE.md)** - API 参考文档
 - **[doc/MIDDLEWARE.md](doc/MIDDLEWARE.md)** - Middleware 系统文档
+- **[doc/CALLBACKS.md](doc/CALLBACKS.md)** - Callback 回调系统文档
 - **[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)** - 架构设计
 - **[DEPENDENCIES.md](doc/DEPENDENCIES.md)** - 依赖关系详解
 
@@ -484,7 +504,7 @@ Schema = #{
 | **beamai_mcp** | MCP 协议：Model Context Protocol 实现 | [README](apps/beamai_mcp/README.md) |
 | **beamai_rag** | RAG 功能：向量嵌入、相似度搜索 | [README](apps/beamai_rag/README.md) |
 
-### 其他文档
+### 设计与实现文档
 
 - **[doc/DESIGN_PATTERNS.md](doc/DESIGN_PATTERNS.md)** - 设计模式
 - **[doc/OUTPUT_PARSER.md](doc/OUTPUT_PARSER.md)** - Output Parser 指南
