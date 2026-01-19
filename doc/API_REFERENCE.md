@@ -5,6 +5,7 @@
 ## 目录
 
 - [beamai_agent - Simple Agent](#beamai_agent---simple-agent)
+- [beamai_coordinator - 多 Agent 协调器](#beamai_coordinator---多-agent-协调器)
 - [Middleware 系统](#middleware-系统)
 - [beamai_deepagent - Deep Agent](#beamai_deepagent---deep-agent)
 - [beamai_llm - LLM 客户端](#beamai_llm---llm-客户端)
@@ -105,6 +106,60 @@ beamai_agent:set_callbacks(Agent, Callbacks).
 beamai_agent:emit_custom_event(Agent, EventName, Data).
 ```
 
+### Context API（用户自定义上下文）
+
+Context 用于存储用户自定义数据，会参与对话和检查点持久化。
+
+```erlang
+%% 获取完整 Context
+-spec get_context(pid()) -> map().
+beamai_agent:get_context(Agent).
+
+%% 获取 Context 值
+-spec get_context(pid(), atom() | binary()) -> term() | undefined.
+-spec get_context(pid(), atom() | binary(), term()) -> term().
+beamai_agent:get_context(Agent, Key).
+beamai_agent:get_context(Agent, Key, Default).
+
+%% 设置 Context
+-spec set_context(pid(), map()) -> ok.
+-spec update_context(pid(), map()) -> ok.
+-spec put_context(pid(), atom() | binary(), term()) -> ok.
+beamai_agent:set_context(Agent, NewContext).
+beamai_agent:update_context(Agent, Updates).
+beamai_agent:put_context(Agent, Key, Value).
+```
+
+### Meta API（进程级元数据）
+
+Meta 用于存储进程级元数据，**不参与对话**，适用于存储协调器信息等运行时数据。
+
+```erlang
+%% 获取完整 Meta
+-spec get_meta(pid()) -> map().
+beamai_agent:get_meta(Agent).
+
+%% 获取 Meta 值
+-spec get_meta(pid(), atom() | binary()) -> term() | undefined.
+-spec get_meta(pid(), atom() | binary(), term()) -> term().
+beamai_agent:get_meta(Agent, Key).
+beamai_agent:get_meta(Agent, Key, Default).
+
+%% 设置 Meta
+-spec set_meta(pid(), map()) -> ok.
+-spec put_meta(pid(), atom() | binary(), term()) -> ok.
+beamai_agent:set_meta(Agent, NewMeta).
+beamai_agent:put_meta(Agent, Key, Value).
+```
+
+**Context vs Meta 对比：**
+
+| 特性 | Context | Meta |
+|------|---------|------|
+| 参与对话 | 是 | 否 |
+| 检查点持久化 | 是 | 否 |
+| 典型用途 | 用户数据、对话状态 | 协调器信息、运行时配置 |
+
 ### 配置选项
 
 ```erlang
@@ -117,6 +172,131 @@ Config = #{
     callbacks => callback_map(),         %% 可选：回调函数
     middleware => [middleware_spec()]    %% 可选：中间件
 }.
+```
+
+---
+
+## beamai_coordinator - 多 Agent 协调器
+
+协调器用于管理多个 Agent 协同工作，支持 Pipeline（顺序执行）和 Orchestrator（编排执行）两种模式。
+
+**重要变更（v2.1）：** 协调器 API 参数从使用 `Id` 改为使用 `CoordinatorPid`。协调器元数据存储在 Agent 的 `meta` 字段中，解决了原 ETS 表的进程所有权问题。
+
+### 启动协调器
+
+```erlang
+%% 通用启动接口
+-spec start_link(binary(), map()) -> {ok, pid()} | {error, term()}.
+beamai_coordinator:start_link(Id, Opts).
+
+%% Pipeline 模式：任务在 workers 间顺序传递
+-spec start_pipeline(binary(), map()) -> {ok, pid()} | {error, term()}.
+beamai_coordinator:start_pipeline(Id, Opts).
+
+%% Orchestrator 模式：协调器编排多个 workers
+-spec start_orchestrator(binary(), map()) -> {ok, pid()} | {error, term()}.
+beamai_coordinator:start_orchestrator(Id, Opts).
+```
+
+### 配置选项
+
+```erlang
+Opts = #{
+    agents => [agent_def()],           %% Worker Agent 定义列表
+    llm => llm_config(),               %% LLM 配置
+    system_prompt => binary(),         %% 可选：协调器系统提示词
+    max_iterations => integer()        %% 可选：最大迭代次数，默认 10
+}.
+
+%% Agent 定义
+agent_def() = #{
+    name := binary(),                  %% Worker 名称（必需）
+    system_prompt := binary()          %% Worker 系统提示词（必需）
+}.
+```
+
+### 停止协调器
+
+```erlang
+%% 停止协调器及其所有 workers
+-spec stop(pid()) -> ok | {error, term()}.
+beamai_coordinator:stop(CoordinatorPid).
+```
+
+### Workers 管理
+
+```erlang
+%% 获取所有 workers
+-spec get_workers(pid()) -> {ok, #{binary() => pid()}} | {error, term()}.
+beamai_coordinator:get_workers(CoordinatorPid).
+
+%% 获取指定 worker
+-spec get_worker(pid(), binary()) -> {ok, pid()} | {error, term()}.
+beamai_coordinator:get_worker(CoordinatorPid, WorkerName).
+```
+
+### 任务委托
+
+```erlang
+%% 委托任务给指定 worker
+-spec delegate(pid(), binary(), binary()) -> {ok, binary()} | {error, term()}.
+beamai_coordinator:delegate(CoordinatorPid, WorkerName, Task).
+
+%% 并行委托任务给多个 workers
+-spec delegate_parallel(pid(), [binary()], binary()) -> {ok, map()} | {error, term()}.
+beamai_coordinator:delegate_parallel(CoordinatorPid, WorkerNames, Task).
+%% 返回: {ok, #{WorkerName => {ok, Result} | {error, Reason}}}
+```
+
+### 状态导出/导入
+
+```erlang
+%% 导出协调器完整状态
+-spec export_coordinator(pid()) -> {ok, map()} | {error, term()}.
+beamai_coordinator:export_coordinator(CoordinatorPid).
+
+%% 导入协调器状态（创建新协调器）
+-spec import_coordinator(binary(), map()) -> {ok, pid()} | {error, term()}.
+beamai_coordinator:import_coordinator(NewId, ExportedData).
+```
+
+### 使用示例
+
+```erlang
+%% Pipeline 示例：翻译流水线
+LLM = llm_client:create(bailian, #{model => <<"qwen-plus">>, api_key => ApiKey}),
+
+{ok, Pipeline} = beamai_coordinator:start_pipeline(<<"translator">>, #{
+    agents => [
+        #{name => <<"cn_to_en">>, system_prompt => <<"翻译成英文">>},
+        #{name => <<"polisher">>, system_prompt => <<"润色英文">>}
+    ],
+    llm => LLM
+}),
+
+%% 直接调用某个 worker
+{ok, Result} = beamai_coordinator:delegate(Pipeline, <<"cn_to_en">>, <<"你好世界">>),
+
+%% 停止
+beamai_coordinator:stop(Pipeline).
+```
+
+```erlang
+%% Orchestrator 示例：多专家咨询
+{ok, Panel} = beamai_coordinator:start_orchestrator(<<"experts">>, #{
+    agents => [
+        #{name => <<"tech">>, system_prompt => <<"技术专家">>},
+        #{name => <<"biz">>, system_prompt => <<"商业专家">>}
+    ],
+    llm => LLM
+}),
+
+%% 并行咨询多个专家
+{ok, Results} = beamai_coordinator:delegate_parallel(
+    Panel, [<<"tech">>, <<"biz">>], <<"分析 AI 趋势">>
+),
+
+beamai_coordinator:stop(Panel).
 ```
 
 ---

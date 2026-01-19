@@ -37,6 +37,34 @@
 - **beamai_coordinator_common** - 协调器公共函数
 - **beamai_nodes** - 节点定义
 
+### beamai_coordinator API
+
+协调器用于管理多个 Agent 协同工作，支持 Pipeline（顺序）和 Orchestrator（编排）两种模式。
+
+```erlang
+%% 启动协调器
+beamai_coordinator:start_link(Id, Opts) -> {ok, Pid} | {error, Reason}.
+beamai_coordinator:start_pipeline(Id, Opts) -> {ok, Pid} | {error, Reason}.
+beamai_coordinator:start_orchestrator(Id, Opts) -> {ok, Pid} | {error, Reason}.
+
+%% 停止协调器（注意：参数是 Pid 而非 Id）
+beamai_coordinator:stop(CoordinatorPid) -> ok | {error, Reason}.
+
+%% 获取 Workers（参数是 Pid）
+beamai_coordinator:get_workers(CoordinatorPid) -> {ok, #{Name => WorkerPid}} | {error, Reason}.
+beamai_coordinator:get_worker(CoordinatorPid, WorkerName) -> {ok, WorkerPid} | {error, Reason}.
+
+%% 委托任务（参数是 Pid）
+beamai_coordinator:delegate(CoordinatorPid, WorkerName, Task) -> {ok, Result} | {error, Reason}.
+beamai_coordinator:delegate_parallel(CoordinatorPid, [WorkerName], Task) -> {ok, #{Name => Result}}.
+
+%% 状态导出/导入
+beamai_coordinator:export_coordinator(CoordinatorPid) -> {ok, ExportedData} | {error, Reason}.
+beamai_coordinator:import_coordinator(Id, ExportedData) -> {ok, Pid} | {error, Reason}.
+```
+
+**注意：** 从 v2.1 开始，`beamai_coordinator` 的 API 参数从使用 `Id` 改为使用 `CoordinatorPid`。协调器元数据存储在 Agent 的 `meta` 字段中，而非共享的 ETS 表。
+
 ## API 文档
 
 ### beamai_agent
@@ -63,6 +91,20 @@ beamai_agent:restore_from_checkpoint(Pid, CheckpointId) -> ok | {error, Reason}.
 %% 获取状态
 beamai_agent:get_state(Pid) -> {ok, State}.
 beamai_agent:get_messages(Pid) -> {ok, Messages}.
+
+%% Context API（用户自定义上下文，参与对话）
+beamai_agent:get_context(Pid) -> Context.
+beamai_agent:get_context(Pid, Key) -> Value | undefined.
+beamai_agent:get_context(Pid, Key, Default) -> Value.
+beamai_agent:set_context(Pid, Context) -> ok.
+beamai_agent:put_context(Pid, Key, Value) -> ok.
+
+%% Meta API（进程级元数据，不参与对话）
+beamai_agent:get_meta(Pid) -> Meta.
+beamai_agent:get_meta(Pid, Key) -> Value | undefined.
+beamai_agent:get_meta(Pid, Key, Default) -> Value.
+beamai_agent:set_meta(Pid, Meta) -> ok.
+beamai_agent:put_meta(Pid, Key, Value) -> ok.
 ```
 
 ### 配置结构
@@ -340,6 +382,70 @@ Config = #{
 
 {ok, Agent} = beamai_agent:start_link(<<"zhipu-agent">>, Config),
 {ok, Response} = beamai_agent:chat(Agent, <<"你好！介绍一下你自己。">>).
+```
+
+### 使用协调器 (Pipeline 模式)
+
+```erlang
+%% 创建 LLM 配置
+LLM = llm_client:create(bailian, #{
+    model => <<"qwen-plus">>,
+    api_key => list_to_binary(os:getenv("BAILIAN_API_KEY"))
+}),
+
+%% 定义 Pipeline 中的 Agents（翻译流水线）
+Agents = [
+    #{
+        name => <<"translator">>,
+        system_prompt => <<"你是翻译专家，将中文翻译成英文。">>
+    },
+    #{
+        name => <<"polisher">>,
+        system_prompt => <<"你是英文润色专家，优化英文表达。">>
+    }
+],
+
+%% 启动 Pipeline 协调器
+{ok, Coordinator} = beamai_coordinator:start_pipeline(<<"translation_pipeline">>, #{
+    agents => Agents,
+    llm => LLM
+}),
+
+%% 直接委托给指定 worker
+{ok, Result} = beamai_coordinator:delegate(Coordinator, <<"translator">>, <<"你好世界">>),
+
+%% 获取所有 workers
+{ok, Workers} = beamai_coordinator:get_workers(Coordinator),
+
+%% 停止协调器
+beamai_coordinator:stop(Coordinator).
+```
+
+### 使用协调器 (Orchestrator 模式)
+
+```erlang
+%% 定义多专家 Agents
+Agents = [
+    #{name => <<"tech_expert">>, system_prompt => <<"你是技术专家。">>},
+    #{name => <<"business_expert">>, system_prompt => <<"你是商业专家。">>}
+],
+
+%% 启动 Orchestrator 协调器
+{ok, Coordinator} = beamai_coordinator:start_orchestrator(<<"expert_panel">>, #{
+    agents => Agents,
+    llm => LLM
+}),
+
+%% 并行委托给多个 workers
+{ok, Results} = beamai_coordinator:delegate_parallel(
+    Coordinator,
+    [<<"tech_expert">>, <<"business_expert">>],
+    <<"分析 AI 对行业的影响">>
+),
+
+%% Results = #{<<"tech_expert">> => {ok, "..."}, <<"business_expert">> => {ok, "..."}}
+
+beamai_coordinator:stop(Coordinator).
 ```
 
 ## 依赖
