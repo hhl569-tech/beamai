@@ -1,8 +1,9 @@
+%% -*- coding: utf-8 -*-
 -module(example_llm_bailian).
 -export([simple_chat/0, chat_with_messages/0, multi_turn/0, chat_with_system_prompt/0]).
 
 %% @doc 阿里云百炼配置常量
--define(DEFAULT_MODEL, <<"qwen3-max">>).
+-define(DEFAULT_MODEL, <<"qwen-plus">>).
 
 %%====================================================================
 %% 内部辅助函数
@@ -33,7 +34,7 @@ simple_chat() ->
     }),
 
     %% 2. 发送消息
-    Question = <<"你好，请介绍一下你自己。">>,
+    Question = <<"你好，请介绍一下你自己。"/utf8>>,
     io:format("提问: ~ts~n~n", [Question]),
 
     case llm_client:simple_chat(Config, Question) of
@@ -60,7 +61,7 @@ chat_with_messages() ->
 
     %% 构建消息列表
     Messages = [
-        #{role => user, content => <<"什么是 Erlang？">>}
+        #{role => user, content => <<"什么是 Erlang？"/utf8>>}
     ],
 
     io:format("消息列表: ~p~n~n", [Messages]),
@@ -88,8 +89,8 @@ chat_with_system_prompt() ->
 
     %% 构建包含系统提示词的消息列表
     Messages = [
-        #{role => system, content => <<"你是一个专业的技术顾问，请用简洁专业的语言回答问题。">>},
-        #{role => user, content => <<"请解释什么是函数式编程？">>}
+        #{role => system, content => <<"你是一个专业的技术顾问，请用简洁专业的语言回答问题。"/utf8>>},
+        #{role => user, content => <<"请解释什么是函数式编程？"/utf8>>}
     ],
 
     io:format("系统提示词: 你是一个专业的技术顾问~n"),
@@ -119,7 +120,7 @@ multi_turn() ->
     %% 第一轮
     io:format("=== 第一轮 ===~n"),
     Messages1 = [
-        #{role => user, content => <<"Python 的创始人是谁？">>}
+        #{role => user, content => <<"Python 的创始人是谁？"/utf8>>}
     ],
 
     case llm_client:chat(Config, Messages1) of
@@ -131,7 +132,7 @@ multi_turn() ->
             io:format("=== 第二轮 ===~n"),
             Messages2 = Messages1 ++ [
                 #{role => assistant, content => Response1},
-                #{role => user, content => <<"他为什么创建 Python？">>}
+                #{role => user, content => <<"他为什么创建 Python？"/utf8>>}
             ],
 
             case llm_client:chat(Config, Messages2) of
