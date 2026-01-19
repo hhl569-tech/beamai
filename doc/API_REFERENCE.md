@@ -402,6 +402,7 @@ llm_client:provider_info(Provider).
 | `openai` | llm_provider_openai | 聊天、流式、工具调用 |
 | `anthropic` | llm_provider_anthropic | 聊天、流式、工具调用 |
 | `zhipu` | llm_provider_zhipu | 聊天、流式、工具调用、异步 |
+| `bailian` | llm_provider_bailian | 聊天、流式、工具调用 |
 | `ollama` | llm_provider_ollama | 聊天、流式 |
 
 ### LLM 配置参数
@@ -419,7 +420,7 @@ LLM = llm_client:create(Provider, #{
 }).
 ```
 
-**Provider 类型：** `openai | anthropic | zhipu | ollama`
+**Provider 类型：** `openai | anthropic | zhipu | bailian | ollama`
 
 ---
 

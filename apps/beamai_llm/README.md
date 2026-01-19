@@ -10,6 +10,7 @@
 | Anthropic | `llm_provider_anthropic` | Claude 3, Claude 2 等 |
 | Ollama | `llm_provider_ollama` | 本地模型部署 |
 | 智谱 AI | `llm_provider_zhipu` | GLM-4 等国产模型 |
+| 阿里云百炼 | `llm_provider_bailian` | 通义千问系列 (qwen3-max 等) |
 
 ## 模块概览
 
@@ -26,6 +27,7 @@
 - **llm_provider_anthropic** - Anthropic 实现
 - **llm_provider_ollama** - Ollama 实现
 - **llm_provider_zhipu** - 智谱 AI 实现
+- **llm_provider_bailian** - 阿里云百炼实现
 
 ### 适配器
 
@@ -62,7 +64,7 @@ LLM = llm_client:create(Provider, #{
     max_tokens => 4096                    %% 可选，最大 token 数
 }).
 
-%% Provider 类型：openai | anthropic | ollama | zhipu
+%% Provider 类型：openai | anthropic | ollama | zhipu | bailian
 ```
 
 ## 使用示例
@@ -84,6 +86,22 @@ Messages = [
 
 {ok, Response} = llm_client:chat(LLM, Messages),
 Content = maps:get(content, Response).
+```
+
+### 使用阿里云百炼
+
+```erlang
+%% 创建百炼配置（通义千问）
+LLM = llm_client:create(bailian, #{
+    model => <<"qwen3-max">>,
+    api_key => list_to_binary(os:getenv("BAILIAN_API_KEY"))
+}),
+
+Messages = [
+    #{role => user, content => <<"你好！">>}
+],
+
+{ok, Response} = llm_client:chat(LLM, Messages).
 ```
 
 ### 使用智谱 AI（Anthropic 兼容接口）
@@ -160,6 +178,7 @@ llm_client:chat_stream(Messages, Config, Callback).
 | `OPENAI_API_KEY` | OpenAI API 密钥 |
 | `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
 | `ZHIPU_API_KEY` | 智谱 AI API 密钥 |
+| `BAILIAN_API_KEY` | 阿里云百炼 API 密钥 |
 | `OLLAMA_BASE_URL` | Ollama 服务地址（默认 http://localhost:11434） |
 
 ## 依赖

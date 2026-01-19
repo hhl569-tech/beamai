@@ -305,6 +305,24 @@ ok = beamai_agent:restore_from_checkpoint(Agent, CpId),
 {ok, Messages} = beamai_agent:get_messages(Agent).
 ```
 
+### 使用阿里云百炼
+
+```erlang
+%% 创建百炼配置（通义千问）
+LLM = llm_client:create(bailian, #{
+    model => <<"qwen3-max">>,
+    api_key => list_to_binary(os:getenv("BAILIAN_API_KEY"))
+}),
+
+Config = #{
+    system_prompt => <<"你是一个乐于助人的 AI 助手。">>,
+    llm => LLM
+},
+
+{ok, Agent} = beamai_agent:start_link(<<"bailian-agent">>, Config),
+{ok, Response} = beamai_agent:chat(Agent, <<"你好！介绍一下你自己。">>).
+```
+
 ### 使用智谱 AI
 
 ```erlang
