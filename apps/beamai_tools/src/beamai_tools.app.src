@@ -1,11 +1,13 @@
 {application, beamai_tools,
- [{description, "Agent Tools - 公共工具库"},
+ [{description, "Agent Tools - 公共工具库和中间件系统"},
   {vsn, "0.1.0"},
   {registered, []},
   {applications,
    [kernel,
     stdlib,
-    jsx
+    jsx,
+    beamai_core,
+    beamai_memory
    ]},
   {env,[]},
   {modules, []},

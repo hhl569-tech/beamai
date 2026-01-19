@@ -1,34 +1,58 @@
-# beamai_tools - 公共工具库
+# beamai_tools - 公共工具库和中间件系统
 
-Agent 工具的统一定义、注册和管理模块。
+Agent 工具的统一定义、注册和管理模块，以及 Agent 执行的中间件系统。
 
 ## 核心功能
 
+### 工具系统
 - **工具管理**: 统一的工具定义格式和获取接口
 - **Provider 机制**: 支持多种工具来源（内置、自定义、MCP）
 - **工具注册表**: 构建器模式，支持冲突解决策略
 - **工具执行**: 统一的工具调用接口
 - **LLM 适配**: 转换为 OpenAI/Anthropic 函数调用格式
 
+### 中间件系统
+- **执行拦截**: 在 Agent 执行的各个阶段进行拦截和修改
+- **流程控制**: 支持跳转、中止、中断等控制流
+- **工具增强**: 工具筛选、重试、模拟等功能
+- **上下文管理**: 对话摘要、PII 检测等
+
 ## 模块结构
 
 ```
 beamai_tools/
-├── beamai_tools.erl           # 主 API 模块
-├── beamai_tool_registry.erl   # 工具注册表
-├── beamai_tool_provider.erl   # Provider 行为定义
-├── beamai_tool_security.erl   # 工具安全检查
+├── beamai_tools.erl              # 主 API 模块
+├── beamai_tool_registry.erl      # 工具注册表
+├── beamai_tool_provider.erl      # Provider 行为定义
+├── beamai_tool_security.erl      # 工具安全检查
 ├── providers/
 │   ├── beamai_tool_provider_builtin.erl  # 内置 Provider
 │   └── beamai_tool_provider_custom.erl   # 自定义 Provider
-└── tools/
-    ├── beamai_tools_file.erl   # 文件操作工具
-    ├── beamai_tools_shell.erl  # Shell 命令工具
-    ├── beamai_tools_todo.erl   # TODO 管理工具
-    └── beamai_tools_human.erl  # 人机交互工具
+├── tools/
+│   ├── beamai_tools_file.erl     # 文件操作工具
+│   ├── beamai_tools_shell.erl    # Shell 命令工具
+│   ├── beamai_tools_todo.erl     # TODO 管理工具
+│   └── beamai_tools_human.erl    # 人机交互工具
+└── middleware/
+    ├── beamai_middleware.erl          # Middleware 行为定义
+    ├── beamai_middleware_runner.erl   # Middleware 链运行器
+    ├── beamai_middleware_presets.erl  # 预设配置
+    ├── middleware_call_limit.erl      # 调用次数限制
+    ├── middleware_context_editing.erl # 上下文编辑
+    ├── middleware_file_search.erl     # 文件搜索增强
+    ├── middleware_human_approval.erl  # 人工审批
+    ├── middleware_model_fallback.erl  # 模型降级
+    ├── middleware_model_retry.erl     # 模型重试
+    ├── middleware_pii_detection.erl   # PII 检测
+    ├── middleware_shell_tool.erl      # Shell 工具增强
+    ├── middleware_summarization.erl   # 对话摘要
+    ├── middleware_todo_list.erl       # TODO 管理
+    ├── middleware_tool_emulator.erl   # 工具模拟
+    ├── middleware_tool_retry.erl      # 工具重试
+    └── middleware_tool_selector.erl   # 智能工具筛选
 ```
 
-## 快速开始
+## 工具系统
 
 ### 获取工具
 
@@ -86,7 +110,7 @@ Spec = beamai_tools:to_llm_spec(Tool),
 Specs = beamai_tools:to_llm_specs(Tools).
 ```
 
-## 工具定义格式
+### 工具定义格式
 
 ```erlang
 #{
@@ -109,7 +133,7 @@ Specs = beamai_tools:to_llm_specs(Tools).
 }
 ```
 
-## 内置工具分类
+### 内置工具分类
 
 | 分类 | 模块 | 工具 |
 |------|------|------|
@@ -117,6 +141,150 @@ Specs = beamai_tools:to_llm_specs(Tools).
 | `shell` | beamai_tools_shell | shell_exec |
 | `todo` | beamai_tools_todo | todo_add, todo_list, todo_complete |
 | `human` | beamai_tools_human | ask_human, confirm_action |
+
+## 中间件系统
+
+### 生命周期钩子
+
+```
+                   ┌─────────────────┐
+                   │  before_agent   │
+                   └────────┬────────┘
+                            │
+           ┌────────────────┼────────────────┐
+           │                ▼                │
+           │    ┌─────────────────────┐      │
+           │    │    before_model     │      │
+           │    └──────────┬──────────┘      │
+           │               │                 │
+           │               ▼                 │
+           │    ┌─────────────────────┐      │
+           │    │     LLM Call        │      │
+           │    └──────────┬──────────┘      │
+           │               │                 │
+           │               ▼                 │
+           │    ┌─────────────────────┐      │
+           │    │     after_model     │      │
+           │    └──────────┬──────────┘      │
+ Agent     │               │                 │
+ Loop      │               ▼                 │
+           │    ┌─────────────────────┐      │
+           │    │    before_tools     │      │
+           │    └──────────┬──────────┘      │
+           │               │                 │
+           │               ▼                 │
+           │    ┌─────────────────────┐      │
+           │    │    Tool Execution   │      │
+           │    └──────────┬──────────┘      │
+           │               │                 │
+           │               ▼                 │
+           │    ┌─────────────────────┐      │
+           │    │     after_tools     │      │
+           │    └──────────┬──────────┘      │
+           │               │                 │
+           └───────────────┴─────────────────┘
+                           │
+                           ▼
+                   ┌─────────────────┐
+                   │   after_agent   │
+                   └─────────────────┘
+```
+
+### 使用中间件
+
+```erlang
+%% 配置中间件列表
+Middlewares = [
+    %% 调用次数限制
+    {middleware_call_limit, #{max_calls => 10}},
+
+    %% 模型重试
+    {middleware_model_retry, #{max_retries => 3}},
+
+    %% 工具重试
+    {middleware_tool_retry, #{max_retries => 2}},
+
+    %% 对话摘要
+    {middleware_summarization, #{
+        window_size => 20,
+        max_tokens => 4000
+    }},
+
+    %% 人工审批
+    {middleware_human_approval, #{
+        require_approval => [<<"shell_exec">>, <<"file_write">>]
+    }}
+],
+
+%% 在 Agent 配置中使用
+AgentConfig = #{
+    middlewares => Middlewares,
+    llm => LLMConfig,
+    tools => Tools
+}.
+```
+
+### 创建自定义中间件
+
+```erlang
+-module(my_middleware).
+-behaviour(beamai_middleware).
+
+-export([init/1, before_model/2, after_model/2]).
+
+init(Opts) ->
+    #{max_calls => maps:get(max_calls, Opts, 10)}.
+
+before_model(State, #{max_calls := MaxCalls} = _MwState) ->
+    Count = maps:get(model_call_count, State, 0),
+    case Count >= MaxCalls of
+        true -> {halt, model_call_limit_exceeded};
+        false -> {update, #{model_call_count => Count + 1}}
+    end.
+
+after_model(State, _MwState) ->
+    ok.
+```
+
+### Middleware 返回值
+
+| 返回值 | 说明 |
+|--------|------|
+| `ok` | 无修改，继续执行 |
+| `{update, StateUpdates}` | 更新图状态 |
+| `{goto, Node}` | 跳转到指定节点 (model \| tools \| '__end__') |
+| `{update_goto, StateUpdates, Node}` | 更新状态并跳转 |
+| `{halt, Reason}` | 中止执行并返回错误 |
+| `{interrupt, Action}` | 中断等待用户确认 |
+
+### 内置中间件
+
+| 中间件 | 说明 |
+|--------|------|
+| `middleware_call_limit` | 限制 LLM/工具调用次数 |
+| `middleware_model_retry` | LLM 调用失败自动重试 |
+| `middleware_model_fallback` | LLM 模型降级策略 |
+| `middleware_tool_retry` | 工具执行失败重试 |
+| `middleware_tool_selector` | 智能工具筛选（减少 token） |
+| `middleware_tool_emulator` | 工具调用模拟（测试用） |
+| `middleware_summarization` | 对话历史摘要压缩 |
+| `middleware_pii_detection` | PII 敏感信息检测 |
+| `middleware_human_approval` | 危险操作人工审批 |
+| `middleware_context_editing` | 上下文动态编辑 |
+| `middleware_file_search` | 文件搜索增强 |
+| `middleware_shell_tool` | 持久 Shell 会话 |
+| `middleware_todo_list` | TODO 任务管理 |
+
+### 使用预设
+
+```erlang
+%% 获取预设配置
+SafePreset = beamai_middleware_presets:safe(),
+DevPreset = beamai_middleware_presets:development(),
+
+%% 组合预设
+Middlewares = beamai_middleware_presets:combine([SafePreset, MyMiddlewares]).
+```
 
 ## Provider 机制
 
@@ -152,32 +320,6 @@ Tools = beamai_tools:get_tools([file, custom], #{
         beamai_tool_provider_builtin,
         beamai_tool_provider_custom,
         beamai_tool_provider_mcp
-    ]
-}).
-```
-
-### 示例：DeepAgent Tool Provider
-
-`beamai_deepagent` 模块提供了一个完整的 Provider 实现示例：
-
-```erlang
-%% beamai_deepagent_tool_provider 根据配置动态返回工具
-Config = #{
-    depth => 0,
-    planning_mode => full,
-    reflection_enabled => true
-},
-
-%% 通过 beamai_tool_registry 使用
-Tools = beamai_tool_registry:from_config(#{
-    providers => [{beamai_deepagent_tool_provider, Config}]
-}).
-
-%% 与其他 Provider 组合
-AllTools = beamai_tool_registry:from_config(#{
-    providers => [
-        {beamai_deepagent_tool_provider, Config},
-        {beamai_tool_provider_mcp, #{server => my_server}}
     ]
 }).
 ```
@@ -221,9 +363,19 @@ Tools = beamai_tool_registry:build(Registry, fun strategy_error/2).
 | `from_config/1` | 从配置构建 |
 | `from_providers/1,2` | 从 Provider 列表构建 |
 
+### beamai_middleware_runner
+
+| 函数 | 说明 |
+|------|------|
+| `init/1` | 初始化中间件链 |
+| `run_hook/3,4` | 执行指定钩子 |
+| `get_middleware_state/2` | 获取中间件状态 |
+| `set_middleware_state/3` | 设置中间件状态 |
+
 ## 依赖
 
 - `beamai_core`: 基础类型定义
+- `beamai_memory`: 对话缓冲和会话管理
 - `jsx`: JSON 编解码
 
 ## 许可证

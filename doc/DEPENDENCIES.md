@@ -47,23 +47,23 @@
         ▼    ▼              ▼
 ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
 │  beamai_llm   │   │ beamai_tools  │   │  beamai_mcp   │
-└───────┬───────┘   └───────┬───────┘   └───────┬───────┘
-        │                   │                   │
+└───────┬───────┘   │ (工具+中间件)  │   └───────┬───────┘
+        │           └───────┬───────┘           │
         │                   │                   │
         ▼                   ▼                   ▼
-┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-│ beamai_memory │   │               │   │               │
-└───────┬───────┘   │               │   │               │
-        │           │               │   │               │
-        ▼           ▼               ▼   ▼
-┌─────────────────────────────────────────────────────┐
-│                     beamai_core                      │
-└─────────────────────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────────────────────┐
-│              Erlang/OTP + 外部依赖                    │
-└─────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────┐
+│                    beamai_memory                       │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│                     beamai_core                        │
+└───────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│                Erlang/OTP + 外部依赖                    │
+└───────────────────────────────────────────────────────┘
 ```
 
 ### 各应用依赖详情
@@ -97,9 +97,11 @@
 - 检查点系统（beamai_checkpoint_*）
 - 对话缓冲（beamai_conversation_buffer）
 
-#### beamai_tools（工具系统）
+#### beamai_tools（工具系统 + 中间件系统）
 
-**依赖**: 无内部依赖
+**依赖**:
+- beamai_core
+- beamai_memory
 
 **提供功能**:
 - 工具定义与注册（beamai_tool, beamai_tool_registry）
@@ -110,6 +112,11 @@
   - Shell 工具（beamai_tools_shell）
   - Todo 工具（beamai_tools_todo）
   - 人机交互工具（beamai_tools_human）
+- Middleware 系统
+  - Middleware 行为定义（beamai_middleware）
+  - Middleware 运行器（beamai_middleware_runner）
+  - 预设 Middleware（beamai_middleware_presets）
+  - 内置 Middleware（middleware_call_limit, middleware_summarization 等）
 
 #### beamai_llm（LLM 集成）
 
@@ -144,7 +151,7 @@
 - beamai_core
 - beamai_llm
 - beamai_memory
-- beamai_tools
+- beamai_tools（包含 Middleware 系统）
 
 **提供功能**:
 - Agent 生命周期管理（beamai_agent）
@@ -153,10 +160,7 @@
 - 图节点
   - LLM 节点（beamai_llm_node）
   - 工具节点（beamai_tool_node）
-- Middleware 系统
-  - Middleware 运行器（beamai_middleware_runner）
-  - Middleware 节点（beamai_middleware_nodes）
-  - 预设 Middleware（beamai_middleware_presets）
+  - Middleware 集成节点（beamai_middleware_nodes）
 - 回调系统（beamai_callback_utils）
 
 #### beamai_deepagent（Deep Agent 系统）
@@ -165,7 +169,7 @@
 - beamai_core
 - beamai_llm
 - beamai_memory
-- beamai_tools
+- beamai_tools（包含 Middleware 系统）
 
 **提供功能**:
 - Deep Agent 核心（beamai_deepagent）

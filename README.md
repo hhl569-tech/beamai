@@ -195,6 +195,11 @@ apps/
 │   ├── Server       # MCP 服务端
 │   └── Client       # MCP 客户端
 │
+├── beamai_tools/    # 公共工具库 + 中间件系统
+│   ├── Tools        # 工具注册和执行
+│   ├── Providers    # 工具来源 (内置、MCP)
+│   └── Middleware   # 执行中间件（拦截、增强）
+│
 ├── beamai_agent/    # Simple Agent + 协调器
 │   ├── Graph Engine # 基于 Graph 的执行
 │   ├── Scratchpad   # 执行历史
@@ -217,9 +222,9 @@ apps/
 └────────────┬────────────────────┘
              │
 ┌────────────┴────────────────────┐
-│   服务层                         │
-│  (beamai_llm, beamai_rag,         │
-│   beamai_a2a, beamai_mcp)         │
+│   工具与服务层                    │
+│  (beamai_tools, beamai_llm,       │
+│   beamai_rag, beamai_a2a, beamai_mcp) │
 └────────────┬────────────────────┘
              │
 ┌────────────┴────────────────────┐
@@ -447,7 +452,7 @@ Schema = #{
 | **beamai_agent** | Simple Agent：ReAct 模式、回调系统、Checkpoint | [README](apps/beamai_agent/README.md) |
 | **beamai_deepagent** | Deep Agent：任务规划、并行执行、自我反思 | [README](apps/beamai_deepagent/README.md) |
 | **beamai_memory** | 记忆管理：Checkpoint、Store、时间旅行 | [README](apps/beamai_memory/README.md) |
-| **beamai_tools** | 工具库：Provider 机制、工具注册表、内置工具 | [README](apps/beamai_tools/README.md) |
+| **beamai_tools** | 工具库 + 中间件：Provider 机制、工具注册、Middleware 系统 | [README](apps/beamai_tools/README.md) |
 | **beamai_a2a** | A2A 协议：Agent 间通信、服务端/客户端 | [README](apps/beamai_a2a/README.md) |
 | **beamai_mcp** | MCP 协议：Model Context Protocol 实现 | [README](apps/beamai_mcp/README.md) |
 | **beamai_rag** | RAG 功能：向量嵌入、相似度搜索 | [README](apps/beamai_rag/README.md) |

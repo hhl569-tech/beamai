@@ -121,7 +121,9 @@ Config = #{
 
 ## Middleware 系统
 
-Agent 执行过程中的拦截器机制。详细文档：[MIDDLEWARE.md](MIDDLEWARE.md)
+Agent 执行过程中的拦截器机制。Middleware 系统位于 `beamai_tools` 模块中，被 `beamai_agent` 和 `beamai_deepagent` 共享使用。
+
+详细文档：[MIDDLEWARE.md](MIDDLEWARE.md)
 
 ### beamai_middleware 行为
 
@@ -492,9 +494,13 @@ beamai_memory:search(Memory, Namespace, Filter).
 
 ---
 
-## beamai_tools - 工具库
+## beamai_tools - 工具库和中间件系统
 
-统一的工具定义和管理。
+统一的工具定义和管理，以及 Agent 执行中间件系统。
+
+beamai_tools 包含两大核心功能：
+- **工具系统**：工具定义、注册、Provider 机制
+- **中间件系统**：Agent 执行拦截、增强和控制（详见 [Middleware 系统](#middleware-系统)）
 
 ### 工具获取
 
