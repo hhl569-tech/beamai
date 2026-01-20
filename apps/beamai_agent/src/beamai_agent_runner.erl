@@ -176,8 +176,8 @@ add_all_edges(Builder) ->
 
     %% Conditional edges
     Builder6 = graph:add_conditional_edge(Builder5, validate_response, fun route_after_llm/1),
-    Builder7 = graph:add_conditional_edge(Builder6, check_before_tools, fun route_with_interrupt/1),
-    graph:add_conditional_edge(Builder7, check_after_tools, fun route_with_interrupt/1).
+    Builder7 = graph:add_conditional_edge(Builder6, check_before_tools, fun route_before_tools/1),
+    graph:add_conditional_edge(Builder7, check_after_tools, fun route_after_tools/1).
 
 %%====================================================================
 %% Internal Functions - Routing
@@ -191,24 +191,32 @@ route_after_llm(State) ->
         execute_tools -> check_before_tools
     end.
 
-%% @private Route with interrupt check
--spec route_with_interrupt(map()) -> atom().
-route_with_interrupt(State) ->
+%% @private Route after check_before_tools
+%%
+%% Handles routing after the pre-tool checkpoint:
+%% - interrupted/rejected: end execution
+%% - normal flow: continue to execute_tools
+-spec route_before_tools(map()) -> atom().
+route_before_tools(State) ->
     Interrupted = graph:get(State, interrupted, false),
     Rejected = graph:get(State, rejected, false),
-    route_with_interrupt_dispatch(Interrupted, Rejected, State).
+    case Interrupted orelse Rejected of
+        true -> '__end__';
+        false -> execute_tools
+    end.
 
-%% @private Dispatch interrupt routing
--spec route_with_interrupt_dispatch(boolean(), boolean(), map()) -> atom().
-route_with_interrupt_dispatch(true, _, _State) ->
-    '__end__';
-route_with_interrupt_dispatch(_, true, _State) ->
-    '__end__';
-route_with_interrupt_dispatch(false, false, State) ->
-    case graph:get(State, last_interrupt_point, undefined) of
-        before_tools -> execute_tools;
-        after_tools -> increment_iter;
-        _ -> increment_iter
+%% @private Route after check_after_tools
+%%
+%% Handles routing after the post-tool checkpoint:
+%% - interrupted/rejected: end execution
+%% - normal flow: continue to increment_iter (next LLM call)
+-spec route_after_tools(map()) -> atom().
+route_after_tools(State) ->
+    Interrupted = graph:get(State, interrupted, false),
+    Rejected = graph:get(State, rejected, false),
+    case Interrupted orelse Rejected of
+        true -> '__end__';
+        false -> increment_iter
     end.
 
 %%====================================================================
