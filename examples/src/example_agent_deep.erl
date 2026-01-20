@@ -18,8 +18,8 @@
 -module(example_agent_deep).
 
 -export([run/0, run/1]).
--export([create_research_agent/0, create_research_agent/1]).
--export([create_code_analyzer_agent/0, create_code_analyzer_agent/1]).
+-export([create_research_agent/0, create_research_config/1]).
+-export([create_code_analyzer_agent/0, create_code_analyzer_config/1]).
 
 %% @doc 运行所有示例（从环境变量获取 API Key）
 run() ->
@@ -47,63 +47,59 @@ run(LLMConfig) ->
 
 %% @doc 示例：带有计划和反思的研究型 Agent
 research_example(LLMConfig) ->
-    {ok, Agent} = create_research_agent(LLMConfig),
+    Config = create_research_config(LLMConfig),
 
     %% 运行复杂的研究任务
-    RunOpts = #{llm => LLMConfig},
-    case beamai_deepagent:run(Agent,
+    case beamai_deepagent:run(Config,
         <<"研究 Erlang 编程语言的历史和影响。",
-          "包括它的起源、关键特性和著名的使用案例。"/utf8>>, RunOpts) of
+          "包括它的起源、关键特性和著名的使用案例。"/utf8>>) of
         {ok, Result} ->
-            io:format("结果: ~ts~n", [maps:get(final_response, Result, <<"无响应"/utf8>>)]),
+            io:format("结果: ~ts~n", [maps:get(response, Result, <<"无响应"/utf8>>)]),
 
             %% 获取执行计划
-            case beamai_deepagent:get_plan(Agent) of
-                {ok, Plan} ->
-                    io:format("执行计划: ~p~n", [Plan]);
-                {error, no_plan} ->
-                    io:format("未创建计划~n")
+            case maps:get(plan, Result, undefined) of
+                undefined ->
+                    io:format("未创建计划~n");
+                Plan ->
+                    io:format("执行计划: ~p~n", [Plan])
             end,
 
             %% 获取执行轨迹
-            {ok, Trace} = beamai_deepagent:get_execution_trace(Agent),
-            io:format("执行轨迹条目: ~p~n", [length(Trace)]);
+            case maps:get(trace, Result, undefined) of
+                undefined ->
+                    io:format("无执行轨迹~n");
+                Trace ->
+                    io:format("执行轨迹条目: ~p~n", [beamai_deepagent_trace:format(Trace)])
+            end,
+
+            io:format("迭代次数: ~p~n", [maps:get(iterations, Result, 0)]);
         {error, Reason} ->
             io:format("错误: ~p~n", [Reason])
-    end,
-
-    %% 清理
-    beamai_deepagent:stop(Agent).
+    end.
 
 %% @doc 示例：带有子任务派生的代码分析 Agent
 code_analyzer_example(LLMConfig) ->
-    {ok, Agent} = create_code_analyzer_agent(LLMConfig),
+    Config = create_code_analyzer_config(LLMConfig),
 
     %% 分析代码结构
-    RunOpts = #{llm => LLMConfig},
-    case beamai_deepagent:run(Agent,
+    case beamai_deepagent:run(Config,
         <<"分析典型 Web 应用程序的架构。",
-          "将分析分解为前端、后端和数据库层。"/utf8>>, RunOpts) of
+          "将分析分解为前端、后端和数据库层。"/utf8>>) of
         {ok, Result} ->
-            io:format("结果: ~ts~n", [maps:get(final_response, Result, <<"无响应"/utf8>>)]);
+            io:format("结果: ~ts~n", [maps:get(response, Result, <<"无响应"/utf8>>)]);
         {error, Reason} ->
             io:format("错误: ~p~n", [Reason])
-    end,
-
-    %% 清理
-    beamai_deepagent:stop(Agent).
+    end.
 
 %% @doc 创建研究型 Deep Agent（从环境变量获取 API Key）
 create_research_agent() ->
     case example_utils:get_llm_config() of
-        {ok, LLMConfig} -> create_research_agent(LLMConfig);
+        {ok, LLMConfig} -> {ok, create_research_config(LLMConfig)};
         Error -> Error
     end.
 
-%% @doc 创建研究型 Deep Agent（使用指定的 LLM 配置）
-create_research_agent(LLMConfig) ->
-    AgentId = <<"research_deep_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
-
+%% @doc 创建研究型 Deep Agent 配置（使用指定的 LLM 配置）
+create_research_config(LLMConfig) ->
     Tools = [
         #{
             name => <<"search_web">>,
@@ -115,7 +111,7 @@ create_research_agent(LLMConfig) ->
                 },
                 required => [<<"query">>]
             },
-            handler => fun(Args) ->
+            handler => fun(Args, _State) ->
                 Query = maps:get(<<"query">>, Args),
                 %% Simulated search results
                 Results = case binary:match(Query, <<"erlang">>) of
@@ -144,7 +140,7 @@ create_research_agent(LLMConfig) ->
                 },
                 required => [<<"url">>]
             },
-            handler => fun(Args) ->
+            handler => fun(Args, _State) ->
                 Url = maps:get(<<"url">>, Args),
                 %% Simulated article content
                 #{
@@ -165,7 +161,7 @@ create_research_agent(LLMConfig) ->
                 },
                 required => [<<"topic">>, <<"notes">>]
             },
-            handler => fun(Args) ->
+            handler => fun(Args, _State) ->
                 Topic = maps:get(<<"topic">>, Args),
                 Notes = maps:get(<<"notes">>, Args),
                 #{saved => true, topic => Topic, notes_length => byte_size(Notes)}
@@ -173,7 +169,7 @@ create_research_agent(LLMConfig) ->
         }
     ],
 
-    Opts = #{
+    beamai_deepagent:new(#{
         name => <<"Research Agent">>,
         max_depth => 2,
         planning_enabled => true,
@@ -181,21 +177,17 @@ create_research_agent(LLMConfig) ->
         tools => Tools,
         max_iterations => 15,
         llm => LLMConfig
-    },
-
-    beamai_deepagent:start_link(AgentId, Opts).
+    }).
 
 %% @doc 创建代码分析 Deep Agent（从环境变量获取 API Key）
 create_code_analyzer_agent() ->
     case example_utils:get_llm_config() of
-        {ok, LLMConfig} -> create_code_analyzer_agent(LLMConfig);
+        {ok, LLMConfig} -> {ok, create_code_analyzer_config(LLMConfig)};
         Error -> Error
     end.
 
-%% @doc 创建代码分析 Deep Agent（使用指定的 LLM 配置）
-create_code_analyzer_agent(LLMConfig) ->
-    AgentId = <<"code_analyzer_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
-
+%% @doc 创建代码分析 Deep Agent 配置（使用指定的 LLM 配置）
+create_code_analyzer_config(LLMConfig) ->
     Tools = [
         #{
             name => <<"analyze_layer">>,
@@ -210,7 +202,7 @@ create_code_analyzer_agent(LLMConfig) ->
                 },
                 required => [<<"layer">>]
             },
-            handler => fun(Args) ->
+            handler => fun(Args, _State) ->
                 Layer = maps:get(<<"layer">>, Args),
                 Analysis = case Layer of
                     <<"frontend">> ->
@@ -247,7 +239,7 @@ create_code_analyzer_agent(LLMConfig) ->
                 },
                 required => [<<"component">>]
             },
-            handler => fun(Args) ->
+            handler => fun(Args, _State) ->
                 Component = maps:get(<<"component">>, Args),
                 #{
                     component => Component,
@@ -273,7 +265,7 @@ create_code_analyzer_agent(LLMConfig) ->
                 },
                 required => [<<"sections">>]
             },
-            handler => fun(Args) ->
+            handler => fun(Args, _State) ->
                 Sections = maps:get(<<"sections">>, Args),
                 Format = maps:get(<<"format">>, Args, <<"summary">>),
                 #{
@@ -286,7 +278,7 @@ create_code_analyzer_agent(LLMConfig) ->
         }
     ],
 
-    Opts = #{
+    beamai_deepagent:new(#{
         name => <<"Code Analyzer">>,
         max_depth => 3,
         planning_enabled => true,
@@ -294,8 +286,6 @@ create_code_analyzer_agent(LLMConfig) ->
         tools => Tools,
         max_iterations => 20,
         llm => LLMConfig
-    },
-
-    beamai_deepagent:start_link(AgentId, Opts).
+    }).
 
 %% Note: LLM 配置函数已移至 example_utils 模块
