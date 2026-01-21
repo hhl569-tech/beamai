@@ -61,13 +61,11 @@ execute(Msg, Opts, #state{config = #agent_config{graph = Graph, system_prompt = 
                                                   id = AgentId, name = AgentName},
                            messages = HistoryMsgs,
                            full_messages = HistoryFullMsgs,
-                           context = Context,
-                           run_id = RunId} = State) ->
-    %% 构建回调元数据
+                           context = Context} = State) ->
+    %% 构建回调元数据（run_id 由图执行层管理，在图状态中获取）
     CallbackMeta = #{
         agent_id => AgentId,
         agent_name => AgentName,
-        run_id => RunId,
         timestamp => erlang:system_time(millisecond)
     },
 
@@ -96,8 +94,8 @@ execute(Msg, Opts, #state{config = #agent_config{graph = Graph, system_prompt = 
         callback_meta => CallbackMeta
     }),
 
-    %% 构建包含 run_id 的执行选项
-    RunOptions = build_run_options(Opts, RunId),
+    %% 构建执行选项（run_id 由图层自动生成）
+    RunOptions = build_run_options(Opts),
 
     %% 执行图（Pregel 引擎）
     handle_graph_result(graph:run(Graph, InitState, RunOptions), State).
@@ -134,16 +132,11 @@ rebuild_graph(#state{config = #agent_config{tools = Tools, system_prompt = Promp
 
 %% @private 构建图执行选项
 %%
-%% 包含 run_id 和 Opts 中的 checkpoint 相关选项。
--spec build_run_options(map(), binary() | undefined) -> map().
-build_run_options(Opts, RunId) ->
-    %% 提取 checkpoint 相关选项
-    BaseOpts = maps:with([on_checkpoint, restore_from], Opts),
-    %% 如果存在则添加 run_id
-    case RunId of
-        undefined -> BaseOpts;
-        _ -> BaseOpts#{run_id => RunId}
-    end.
+%% 提取 checkpoint 相关选项。run_id 由图执行层（pregel）自动生成。
+-spec build_run_options(map()) -> map().
+build_run_options(Opts) ->
+    %% 提取 checkpoint 相关选项，run_id 由图层自动管理
+    maps:with([on_checkpoint, restore_from], Opts).
 
 %%====================================================================
 %% 内部函数 - 图构建

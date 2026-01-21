@@ -161,8 +161,7 @@ build_state(Id, Opts, Graph) ->
         full_messages = [],
         scratchpad = [],
         context = maps:get(context, Opts, #{}),
-        pending_action = undefined,
-        run_id = undefined
+        pending_action = undefined
     }.
 
 %% @private 默认系统提示词

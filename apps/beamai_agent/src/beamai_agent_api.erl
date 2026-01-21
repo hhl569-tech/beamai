@@ -107,22 +107,20 @@ run_once(Config, Message) ->
 -spec run_with_state(#state{}, binary(), map()) ->
     {ok, map(), #state{}} | {error, term(), #state{}}.
 run_with_state(#state{config = #agent_config{callbacks = Callbacks}} = State, Message, Opts) ->
-    RunId = beamai_agent_callbacks:generate_run_id(),
-    State1 = State#state{run_id = RunId},
-    Metadata = beamai_agent_callbacks:build_metadata(State1),
+    Metadata = beamai_agent_callbacks:build_metadata(State),
 
     %% Invoke chain_start callback
     beamai_agent_callbacks:invoke(on_chain_start, [Message, Metadata], Callbacks),
 
-    case beamai_agent_runner:execute(Message, Opts, State1) of
+    case beamai_agent_runner:execute(Message, Opts, State) of
         {ok, Result, NewState} ->
             beamai_agent_callbacks:invoke(on_chain_end, [Result, Metadata],
                                           NewState#state.config#agent_config.callbacks),
-            {ok, Result, NewState#state{run_id = undefined}};
+            {ok, Result, NewState};
         {error, Reason, NewState} ->
             beamai_agent_callbacks:invoke(on_chain_error, [Reason, Metadata],
                                           NewState#state.config#agent_config.callbacks),
-            {error, Reason, NewState#state{run_id = undefined}}
+            {error, Reason, NewState}
     end.
 
 %%====================================================================

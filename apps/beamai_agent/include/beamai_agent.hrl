@@ -62,8 +62,8 @@
     full_messages   :: [map()],                %% 完整对话历史
     scratchpad      :: [map()],                %% 中间步骤记录
     context         :: map(),                  %% 用户自定义上下文
-    pending_action  :: map() | undefined,      %% 等待确认的动作
-    run_id          :: binary() | undefined    %% 当前运行 ID
+    pending_action  :: map() | undefined       %% 等待确认的动作
+    %% run_id 由图执行层（pregel）管理，不在 Agent state 中维护
 }).
 
 -endif. %% AGENT_SIMPLE_HRL

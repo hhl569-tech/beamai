@@ -56,12 +56,16 @@ init_storage(_AgentId, Opts) ->
 %% - scratchpad: 中间步骤
 %% - context: 用户自定义上下文数据
 %% - 执行上下文信息（run_id, checkpoint_type, iteration, superstep, 顶点状态等）
+%%
+%% run_id 从 Meta 中获取（由图执行层提供）。
 -spec save(map(), #state{}) -> {ok, binary()} | {error, term()}.
 save(_Meta, #state{config = #agent_config{storage = undefined}}) ->
     {error, storage_not_enabled};
 save(Meta, #state{config = #agent_config{storage = Memory, id = AgentId},
-                  run_id = RunId, messages = Msgs,
-                  full_messages = FullMsgs, scratchpad = Pad, context = Ctx}) ->
+                  messages = Msgs, full_messages = FullMsgs,
+                  scratchpad = Pad, context = Ctx}) ->
+    %% run_id 从 Meta 获取（图层传递）
+    RunId = maps:get(run_id, Meta, undefined),
     Config = #{
         thread_id => AgentId,
         run_id => RunId
@@ -72,7 +76,7 @@ save(Meta, #state{config = #agent_config{storage = Memory, id = AgentId},
         scratchpad => Pad,
         context => Ctx,
         metadata => Meta,
-        %% 执行上下文信息
+        %% 执行上下文信息（从 Meta 获取）
         run_id => RunId,
         checkpoint_type => maps:get(checkpoint_type, Meta, undefined),
         iteration => maps:get(iteration, Meta, 0),
@@ -165,12 +169,15 @@ maybe_restore(Opts, #state{config = #agent_config{storage = Memory, id = AgentId
 %%
 %% 保存内容包括：messages、full_messages、scratchpad、result 和执行上下文。
 %% 如果配置了 storage，自动保存检查点。
+%% run_id 从 Result 中获取（由图执行层生成）。
 -spec maybe_auto_save(map(), #state{}) -> #state{}.
 maybe_auto_save(_Result, #state{config = #agent_config{storage = undefined}} = State) ->
     State;
 maybe_auto_save(Result, #state{config = #agent_config{storage = Memory, id = AgentId},
-                               run_id = RunId, messages = Msgs, full_messages = FullMsgs,
+                               messages = Msgs, full_messages = FullMsgs,
                                scratchpad = Pad, context = Ctx} = State) ->
+    %% run_id 从 Result 获取（图层生成）
+    RunId = maps:get(run_id, Result, undefined),
     Config = #{
         thread_id => AgentId,
         run_id => RunId
@@ -238,17 +245,16 @@ restore_checkpoint_state(Memory, AgentId, CpId, State) ->
 
 %% @private 应用检查点数据到状态
 %%
-%% 恢复 messages、full_messages、scratchpad、context 和 run_id 到状态。
+%% 恢复 messages、full_messages、scratchpad、context 到状态。
+%% run_id 由图执行层管理，恢复时通过 restore_from 选项传给图。
 %%
 %% 注意：
 %% - context 使用合并策略，保留当前状态中存在但检查点中不存在的键
-%% - run_id 恢复确保 interrupt 前后的执行使用相同的 run_id
 -spec apply_checkpoint_data(map(), #state{}) -> #state{}.
 apply_checkpoint_data(Data, #state{context = CurrentCtx} = State) ->
     Messages = maps:get(messages, Data, []),
     FullMessages = maps:get(full_messages, Data, []),
     Scratchpad = maps:get(scratchpad, Data, []),
-    RunId = maps:get(run_id, Data, undefined),
     %% Context 恢复：检查点数据覆盖当前值，但保留检查点中没有的当前键
     SavedCtx = maps:get(context, Data, #{}),
     NewCtx = maps:merge(CurrentCtx, SavedCtx),
@@ -256,8 +262,7 @@ apply_checkpoint_data(Data, #state{context = CurrentCtx} = State) ->
         messages = Messages,
         full_messages = FullMessages,
         scratchpad = Scratchpad,
-        context = NewCtx,
-        run_id = RunId
+        context = NewCtx
     }.
 
 %% @private 将检查点元组转换为 map

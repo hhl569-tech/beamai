@@ -559,22 +559,20 @@ terminate(_Reason, _State) ->
 -spec handle_run(binary(), map(), #state{}) ->
     {reply, {ok, map()} | {error, term()}, #state{}}.
 handle_run(Msg, Opts, #state{config = #agent_config{callbacks = Callbacks}} = State) ->
-    RunId = beamai_agent_callbacks:generate_run_id(),
-    State1 = State#state{run_id = RunId},
-    Metadata = beamai_agent_callbacks:build_metadata(State1),
+    Metadata = beamai_agent_callbacks:build_metadata(State),
 
     beamai_agent_callbacks:invoke(on_chain_start, [Msg, Metadata], Callbacks),
 
-    case beamai_agent_runner:execute(Msg, Opts, State1) of
+    case beamai_agent_runner:execute(Msg, Opts, State) of
         {ok, Result, NewState} ->
             beamai_agent_callbacks:invoke(on_chain_end, [Result, Metadata],
                                           NewState#state.config#agent_config.callbacks),
             FinalState = beamai_agent_checkpoint:maybe_auto_save(Result, NewState),
-            {reply, {ok, Result}, FinalState#state{run_id = undefined}};
+            {reply, {ok, Result}, FinalState};
         {error, Reason, NewState} ->
             beamai_agent_callbacks:invoke(on_chain_error, [Reason, Metadata],
                                           NewState#state.config#agent_config.callbacks),
-            {reply, {error, Reason}, NewState#state{run_id = undefined}}
+            {reply, {error, Reason}, NewState}
     end.
 
 %% @private Handle graph rebuild

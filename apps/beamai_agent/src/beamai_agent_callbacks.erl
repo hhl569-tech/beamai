@@ -21,8 +21,7 @@
     update/2,
     invoke/3,
     to_map/1,
-    build_metadata/1,
-    generate_run_id/0
+    build_metadata/1
 ]).
 
 %%====================================================================
@@ -126,23 +125,14 @@ to_map(#callbacks{} = C) ->
 %% @doc 构建回调元数据
 %%
 %% 从状态记录构建元数据 map。
+%% run_id 由图执行层管理，不在 Agent 层传递。
 -spec build_metadata(#state{}) -> map().
-build_metadata(#state{config = #agent_config{id = Id, name = Name}, run_id = RunId}) ->
+build_metadata(#state{config = #agent_config{id = Id, name = Name}}) ->
     #{
         agent_id => Id,
         agent_name => Name,
-        run_id => RunId,
         timestamp => erlang:system_time(millisecond)
     }.
-
-%% @doc 生成运行 ID
-%%
-%% 生成 UUID 格式的唯一运行标识。
--spec generate_run_id() -> binary().
-generate_run_id() ->
-    <<A:32, B:16, C:16, D:16, E:48>> = crypto:strong_rand_bytes(16),
-    iolist_to_binary(io_lib:format("~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b",
-                                   [A, B, C, D, E])).
 
 %%====================================================================
 %% 内部函数
