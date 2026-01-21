@@ -418,8 +418,11 @@ complete_superstep(#state{
     %% 4. 路由消息
     route_all_messages(ReducedOutbox, Workers, NumWorkers),
 
-    %% 5. 更新 AggregatedResults 中的 message_count（用于回调和终止判断）
-    UpdatedResults = AggregatedResults#{message_count => TotalMessages},
+    %% 5. 更新 AggregatedResults（用于回调和终止判断）
+    UpdatedResults = AggregatedResults#{
+        message_count => TotalMessages,
+        outbox => ReducedOutbox  %% 使用 reduced 后的 outbox
+    },
 
     %% 6. 保存结果到 state（用于重试）
     StateWithResults = State#state{last_results = UpdatedResults},
