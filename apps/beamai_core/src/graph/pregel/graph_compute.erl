@@ -13,7 +13,7 @@
 %%% #{
 %%%     node := graph_node:graph_node(),
 %%%     edges := [graph_edge:edge()],
-%%%     result := undefined | {ok, state()} | {error, term()},
+%%%     result := undefined | {ok, state()} | {error, term()} | {interrupt, term(), state()},
 %%%     initial_state => graph_state:state(),   %% 仅 __start__ 节点
 %%%     activated => boolean()                   %% 仅 __start__ 节点
 %%% }
@@ -31,7 +31,7 @@
 -type vertex_value() :: #{
     node := graph_node:graph_node(),
     edges := [graph_edge:edge()],
-    result := undefined | {ok, graph_state:state()} | {error, term()},
+    result := undefined | {ok, graph_state:state()} | {error, term()} | {interrupt, term(), graph_state:state()},
     initial_state => graph_state:state(),
     activated => boolean()
 }.
@@ -49,9 +49,10 @@
 %% @doc 返回全局 Pregel 计算函数
 %%
 %% 该函数是无状态的，完全依赖 vertex value 中的节点定义和边信息。
-%% 返回值包含 status 字段表示执行成功或失败：
+%% 返回值包含 status 字段表示执行状态：
 %% - status => ok: 计算成功
-%% - status => {error, Reason}: 计算失败，Reason 为失败原因
+%% - status => {error, Reason}: 计算失败
+%% - status => {interrupt, Reason}: 请求中断（human-in-the-loop）
 %%
 %% 异常处理：
 %% - 捕获所有异常，转换为 {error, {Class, Reason}} 格式
@@ -60,11 +61,11 @@
 compute_fn() ->
     fun(Ctx) ->
         try
-            %% 执行节点计算逻辑
-            Result = execute_node(Ctx),
-            %% 成功时添加 status => ok
-            Result#{status => ok}
+            execute_node(Ctx)
         catch
+            throw:{interrupt, Reason, NewCtx} ->
+                %% 中断：返回中断状态，更新顶点但不发送消息
+                NewCtx#{status => {interrupt, Reason}};
             Class:Reason:_Stacktrace ->
                 %% 失败时返回错误状态
                 make_error_result(Ctx, {Class, Reason})
@@ -72,21 +73,24 @@ compute_fn() ->
     end.
 
 %% @private 执行节点计算（内部逻辑，不含异常处理）
--spec execute_node(pregel:context()) -> pregel:context().
+%% 返回带 status => ok 的 context，或抛出 interrupt/error
+-spec execute_node(pregel:context()) -> pregel_worker:compute_result().
 execute_node(Ctx) ->
     VertexId = pregel:get_vertex_id(Ctx),
     VertexValue = pregel:get_vertex_value(Ctx),
     Messages = pregel:get_messages(Ctx),
     Superstep = pregel:get_superstep(Ctx),
 
-    case VertexId of
+    Result = case VertexId of
         ?START_NODE ->
             handle_start_node(Ctx, VertexValue, Superstep);
         ?END_NODE ->
             handle_end_node(Ctx, Messages);
         _ ->
             handle_regular_node(Ctx, VertexValue, Messages)
-    end.
+    end,
+    %% 添加 status => ok（interrupt 和 error 通过 throw 处理）
+    Result#{status => ok}.
 
 %% @private 构造错误结果
 %% 保持原顶点状态，outbox 为空，设置错误状态
@@ -202,10 +206,10 @@ handle_regular_node(Ctx, VertexValue, Messages) ->
 %%
 %% 执行节点逻辑并处理结果：
 %% - 成功时：更新顶点值，发送消息到下一节点
+%% - 中断时：抛出 interrupt，由 compute_fn 捕获，更新顶点但不发送消息
 %% - 失败时：抛出异常，由 compute_fn 的 try-catch 捕获
 %%
-%% 注意：graph_node:execute 返回 {error, Reason} 时会抛出异常，
-%% 这样 pregel_worker 可以正确记录失败顶点
+%% 注意：中断和失败都通过 throw 处理，由 compute_fn 统一捕获
 -spec finish_node_execution(pregel:context(), vertex_value(), graph_node:graph_node(),
                             graph_state:state(), [graph_edge:edge()]) -> pregel:context().
 finish_node_execution(Ctx, VertexValue, Node, State, Edges) ->
@@ -215,9 +219,14 @@ finish_node_execution(Ctx, VertexValue, Node, State, Edges) ->
             Ctx1 = send_to_next_nodes(Ctx, Edges, NewState),
             NewValue = VertexValue#{result => {ok, NewState}},
             pregel:vote_to_halt(pregel:set_value(Ctx1, NewValue));
+        {interrupt, Reason, NewState} ->
+            %% 中断：更新顶点状态（保存 pending_action 等信息），但不发送消息
+            %% 通过 throw 让 compute_fn 返回 {interrupt, Reason} 状态
+            NewValue = VertexValue#{result => {interrupt, Reason, NewState}},
+            NewCtx = pregel:vote_to_halt(pregel:set_value(Ctx, NewValue)),
+            throw({interrupt, Reason, NewCtx});
         {error, Reason} ->
             %% 失败：抛出异常，由 compute_fn 捕获
-            %% 这样 pregel_worker 可以正确识别失败顶点
             throw({node_execution_error, Reason})
     end.
 

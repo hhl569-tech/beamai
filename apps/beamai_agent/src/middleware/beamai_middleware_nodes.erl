@@ -40,7 +40,7 @@
 %%====================================================================
 
 %% @doc Create middleware-wrapped LLM node
--spec llm_node(map(), list()) -> fun((map()) -> {ok, map()} | {error, term()}).
+-spec llm_node(map(), list()) -> fun((map()) -> graph_node:node_result()).
 llm_node(LLMConfig, Middlewares) ->
     llm_node(LLMConfig, Middlewares, #{}).
 
@@ -51,7 +51,7 @@ llm_node(LLMConfig, Middlewares) ->
 %%   2. Run before_model hooks
 %%   3. Call LLM (using shared core)
 %%   4. Run after_model hooks
--spec llm_node(map(), list(), map()) -> fun((map()) -> {ok, map()} | {error, term()}).
+-spec llm_node(map(), list(), map()) -> fun((map()) -> graph_node:node_result()).
 llm_node(LLMConfig, Middlewares, Opts) ->
     MwChain = beamai_middleware_runner:init(Middlewares),
     Keys = extract_keys(Opts),
@@ -68,7 +68,7 @@ llm_node(LLMConfig, Middlewares, Opts) ->
 %%   1. Run before_tools hooks
 %%   2. Execute tools (using shared core)
 %%   3. Run after_tools hooks
--spec tool_node(map(), list()) -> fun((map()) -> {ok, map()}).
+-spec tool_node(map(), list()) -> fun((map()) -> graph_node:node_result()).
 tool_node(ToolHandlers, Middlewares) ->
     MwChain = beamai_middleware_runner:init(Middlewares),
 
@@ -79,7 +79,7 @@ tool_node(ToolHandlers, Middlewares) ->
     end.
 
 %% @doc Create agent start node
--spec agent_start_node(list()) -> fun((map()) -> {ok, map()}).
+-spec agent_start_node(list()) -> fun((map()) -> graph_node:node_result()).
 agent_start_node(Middlewares) ->
     MwChain = beamai_middleware_runner:init(Middlewares),
 
@@ -89,7 +89,7 @@ agent_start_node(Middlewares) ->
     end.
 
 %% @doc Create agent end node
--spec agent_end_node(list()) -> fun((map()) -> {ok, map()}).
+-spec agent_end_node(list()) -> fun((map()) -> graph_node:node_result()).
 agent_end_node(Middlewares) ->
     MwChain = beamai_middleware_runner:init(Middlewares),
 
@@ -135,7 +135,7 @@ run_after_agent(State, MwChain) ->
 %%====================================================================
 
 -spec handle_before_model(term(), map(), map(), list(), map()) ->
-    {ok, map()} | {error, term()}.
+    {ok, map()} | {error, term()} | {interrupt, term(), map()}.
 handle_before_model({ok, State1}, _State0, LLMConfig, MwChain, Keys) ->
     execute_llm_with_hooks(State1, LLMConfig, MwChain, Keys);
 
@@ -149,13 +149,16 @@ handle_before_model({halt, Reason}, State0, _LLMConfig, _MwChain, _Keys) ->
     {ok, beamai_state_helpers:set_halt(State0, Reason, <<"middleware_halt">>)};
 
 handle_before_model({interrupt, Action, State1}, _State0, _LLMConfig, _MwChain, _Keys) ->
-    {ok, beamai_state_helpers:set_interrupt(State1, Action, before_model)}.
+    %% Return interrupt to pregel layer (not routing to __end__)
+    State2 = beamai_state_helpers:set_interrupt(State1, Action, before_model),
+    {interrupt, Action, State2}.
 
 %%====================================================================
 %% Before Tools Hook Handlers
 %%====================================================================
 
--spec handle_before_tools(term(), map(), map(), list()) -> {ok, map()}.
+-spec handle_before_tools(term(), map(), map(), list()) ->
+    {ok, map()} | {interrupt, term(), map()}.
 handle_before_tools({ok, State1}, _State, ToolHandlers, MwChain) ->
     execute_tools_with_hooks(State1, ToolHandlers, MwChain);
 
@@ -169,13 +172,15 @@ handle_before_tools({halt, Reason}, State, _ToolHandlers, _MwChain) ->
     {ok, beamai_state_helpers:set_error(State, Reason)};
 
 handle_before_tools({interrupt, Action, State1}, _State, _ToolHandlers, _MwChain) ->
-    {ok, beamai_state_helpers:set_interrupt(State1, Action, before_tools)}.
+    %% Return interrupt to pregel layer (not routing to __end__)
+    State2 = beamai_state_helpers:set_interrupt(State1, Action, before_tools),
+    {interrupt, Action, State2}.
 
 %%====================================================================
 %% After Model Hook Handlers
 %%====================================================================
 
--spec handle_after_model(term(), map()) -> {ok, map()}.
+-spec handle_after_model(term(), map()) -> {ok, map()} | {interrupt, term(), map()}.
 handle_after_model({ok, State1}, _State) ->
     {ok, State1};
 
@@ -186,13 +191,15 @@ handle_after_model({halt, Reason}, State) ->
     {ok, beamai_state_helpers:set_error(State, Reason)};
 
 handle_after_model({interrupt, Action, State1}, _State) ->
-    {ok, beamai_state_helpers:set_interrupt(State1, Action, after_model)}.
+    %% Return interrupt to pregel layer (not routing to __end__)
+    State2 = beamai_state_helpers:set_interrupt(State1, Action, after_model),
+    {interrupt, Action, State2}.
 
 %%====================================================================
 %% After Tools Hook Handlers
 %%====================================================================
 
--spec handle_after_tools(term(), map()) -> {ok, map()}.
+-spec handle_after_tools(term(), map()) -> {ok, map()} | {interrupt, term(), map()}.
 handle_after_tools({ok, State1}, _State) ->
     {ok, State1};
 
@@ -206,13 +213,15 @@ handle_after_tools({halt, Reason}, State) ->
     {ok, beamai_state_helpers:set_error(State, Reason)};
 
 handle_after_tools({interrupt, Action, State1}, _State) ->
-    {ok, beamai_state_helpers:set_interrupt(State1, Action, after_tools)}.
+    %% Return interrupt to pregel layer (not routing to __end__)
+    State2 = beamai_state_helpers:set_interrupt(State1, Action, after_tools),
+    {interrupt, Action, State2}.
 
 %%====================================================================
 %% Agent Hook Handlers
 %%====================================================================
 
--spec handle_agent_hook(term(), map(), atom()) -> {ok, map()}.
+-spec handle_agent_hook(term(), map(), atom()) -> {ok, map()} | {interrupt, term(), map()}.
 handle_agent_hook({ok, State1}, _State, _Hook) ->
     {ok, State1};
 
@@ -220,7 +229,9 @@ handle_agent_hook({halt, Reason}, State, _Hook) ->
     {ok, beamai_state_helpers:set_error(State, Reason)};
 
 handle_agent_hook({interrupt, Action, State1}, _State, Hook) ->
-    {ok, beamai_state_helpers:set_interrupt(State1, Action, Hook)};
+    %% Return interrupt to pregel layer (not routing to __end__)
+    State2 = beamai_state_helpers:set_interrupt(State1, Action, Hook),
+    {interrupt, Action, State2};
 
 handle_agent_hook({goto, _Target, State1}, _State, _Hook) ->
     %% Agent hooks ignore goto (already at start/end)
@@ -230,7 +241,8 @@ handle_agent_hook({goto, _Target, State1}, _State, _Hook) ->
 %% LLM Execution (using shared core)
 %%====================================================================
 
--spec execute_llm_with_hooks(map(), map(), list(), map()) -> {ok, map()} | {error, term()}.
+-spec execute_llm_with_hooks(map(), map(), list(), map()) ->
+    {ok, map()} | {error, term()} | {interrupt, term(), map()}.
 execute_llm_with_hooks(State, LLMConfig, MwChain, #{tools_key := ToolsKey,
                                                      msgs_key := MsgsKey,
                                                      prompt_key := PromptKey}) ->
@@ -261,7 +273,7 @@ execute_llm_with_hooks(State, LLMConfig, MwChain, #{tools_key := ToolsKey,
 %% Tool Execution (using shared core)
 %%====================================================================
 
--spec execute_tools_with_hooks(map(), map(), list()) -> {ok, map()}.
+-spec execute_tools_with_hooks(map(), map(), list()) -> {ok, map()} | {interrupt, term(), map()}.
 execute_tools_with_hooks(State, ToolHandlers, MwChain) ->
     %% Get data from state
     ToolCalls = beamai_state_helpers:get_tool_calls(State),

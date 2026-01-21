@@ -4,7 +4,7 @@
 %%% 节点是图中的计算单元。每个节点是一个函数，负责:
 %%% - 接收当前状态
 %%% - 执行计算逻辑
-%%% - 返回更新后的状态或错误
+%%% - 返回更新后的状态、错误或中断请求
 %%%
 %%% 特殊节点:
 %%% - '__start__': 图的入口点
@@ -30,7 +30,13 @@
 %% 类型定义
 -type node_id() :: atom().
 -type node_fun() :: fun((graph_state:state()) -> node_result()).
--type node_result() :: {ok, graph_state:state()} | {error, term()}.
+%% 节点返回值类型：
+%% - {ok, State}: 执行成功
+%% - {error, Reason}: 执行失败
+%% - {interrupt, Reason, State}: 请求中断（human-in-the-loop）
+-type node_result() :: {ok, graph_state:state()}
+                     | {error, term()}
+                     | {interrupt, term(), graph_state:state()}.
 -type metadata() :: #{
     description => binary(),
     timeout => pos_integer(),
@@ -108,6 +114,8 @@ try_execute(Node, Fun, State) ->
     try Fun(State) of
         {ok, NewState} when is_map(NewState) ->
             {ok, NewState};
+        {interrupt, Reason, NewState} when is_map(NewState) ->
+            {interrupt, Reason, NewState};
         {error, Reason} ->
             {error, {node_error, id(Node), Reason}};
         Other ->

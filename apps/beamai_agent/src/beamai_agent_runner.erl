@@ -194,13 +194,14 @@ route_after_llm(State) ->
 %% @private Route after check_before_tools
 %%
 %% Handles routing after the pre-tool checkpoint:
-%% - interrupted/rejected: end execution
+%% - rejected: end execution (user rejected the action)
 %% - normal flow: continue to execute_tools
+%%
+%% Note: interrupt is now handled at pregel level, not by routing to '__end__'
 -spec route_before_tools(map()) -> atom().
 route_before_tools(State) ->
-    Interrupted = graph:get(State, interrupted, false),
     Rejected = graph:get(State, rejected, false),
-    case Interrupted orelse Rejected of
+    case Rejected of
         true -> '__end__';
         false -> execute_tools
     end.
@@ -208,13 +209,14 @@ route_before_tools(State) ->
 %% @private Route after check_after_tools
 %%
 %% Handles routing after the post-tool checkpoint:
-%% - interrupted/rejected: end execution
+%% - rejected: end execution
 %% - normal flow: continue to increment_iter (next LLM call)
+%%
+%% Note: interrupt is now handled at pregel level, not by routing to '__end__'
 -spec route_after_tools(map()) -> atom().
 route_after_tools(State) ->
-    Interrupted = graph:get(State, interrupted, false),
     Rejected = graph:get(State, rejected, false),
-    case Interrupted orelse Rejected of
+    case Rejected of
         true -> '__end__';
         false -> increment_iter
     end.
@@ -237,6 +239,20 @@ handle_graph_result(#{status := max_iterations, final_state := FinalState}, Stat
     Result = build_result(FinalState),
     NewState = extract_and_update_state(FinalState, State),
     {ok, Result#{warning => max_iterations_reached}, NewState};
+
+%% Handle stopped status (interrupt at pregel level)
+handle_graph_result(#{status := stopped, final_state := FinalState,
+                      checkpoint := Checkpoint, checkpoint_type := Type}, State) ->
+    Result = build_result(FinalState),
+    NewState = extract_and_update_state(FinalState, State),
+    %% Return with interrupt info for the caller to handle
+    {ok, Result#{
+        status => interrupted,
+        checkpoint => Checkpoint,
+        checkpoint_type => Type,
+        pending_action => graph:get(FinalState, pending_action, undefined),
+        interrupt_point => graph:get(FinalState, interrupt_point, undefined)
+    }, NewState};
 
 handle_graph_result(#{status := error, error := Reason, final_state := FinalState}, State) ->
     NewState = extract_and_update_state(FinalState, State),
