@@ -75,7 +75,6 @@
     combiner => pregel_combiner:spec(),
     max_supersteps => pos_integer(),
     num_workers => pos_integer(),
-    on_superstep => fun((non_neg_integer(), graph()) -> ok),
     on_superstep_complete => superstep_complete_callback(),
     restore_from => restore_opts()  %% 从 checkpoint 恢复
 }.
@@ -102,7 +101,6 @@
     superstep        :: non_neg_integer(),          %% 当前超步
     barrier          :: pregel_barrier:t(),         %% 同步屏障
     caller           :: gen_server:from() | undefined,  %% 调用者
-    on_superstep     :: fun((non_neg_integer(), graph()) -> ok) | undefined,
     on_superstep_complete :: superstep_complete_callback() | undefined,  %% 超步完成回调
     restore_from     :: restore_opts() | undefined  %% 恢复选项（启动后消费）
 }).
@@ -160,7 +158,6 @@ init({Graph, ComputeFn, Opts}) ->
         superstep = InitialSuperstep,
         barrier = pregel_barrier:new(0),
         caller = undefined,
-        on_superstep = maps:get(on_superstep, Opts, undefined),
         on_superstep_complete = maps:get(on_superstep_complete, Opts, undefined),
         restore_from = RestoreOpts
     },
@@ -296,25 +293,11 @@ broadcast_worker_pids(Workers) ->
 
 %% @private 广播开始超步
 -spec broadcast_start_superstep(#state{}) -> ok.
-broadcast_start_superstep(#state{
-    workers = Workers,
-    superstep = Superstep,
-    on_superstep = OnSuperstep,
-    graph = Graph
-}) ->
-    %% 调用超步回调（如果有）
-    maybe_call_superstep_callback(OnSuperstep, Superstep, Graph),
-    %% 通知所有 Worker
+broadcast_start_superstep(#state{workers = Workers, superstep = Superstep}) ->
     maps:foreach(
         fun(_Id, Pid) -> pregel_worker:start_superstep(Pid, Superstep) end,
         Workers
     ).
-
-%% @private 可选调用超步回调
--spec maybe_call_superstep_callback(fun((non_neg_integer(), graph()) -> ok) | undefined,
-                                     non_neg_integer(), graph()) -> ok.
-maybe_call_superstep_callback(undefined, _, _) -> ok;
-maybe_call_superstep_callback(Fun, Superstep, Graph) -> Fun(Superstep, Graph).
 
 %% @private 处理 Worker 完成通知
 -spec handle_worker_done(map(), #state{}) -> #state{}.
