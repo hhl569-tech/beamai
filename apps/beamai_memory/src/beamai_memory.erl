@@ -192,23 +192,25 @@ save_checkpoint(#{context_store := Store}, Config, State, MetadataMap) ->
         thread_id = ThreadId,
         parent_id = ParentCpId,
         values = State,
-        timestamp = erlang:system_time(millisecond),
-        version = 0
+        timestamp = erlang:system_time(millisecond)
     },
 
-    %% 构建执行上下文
-    ExecutionContext = build_execution_context(Config, State),
-
-    %% 构建 parents 信息
-    Parents = build_parents_info(State),
-
-    %% 构建元数据
+    %% 构建元数据（扁平化结构）
     Metadata = #checkpoint_metadata{
-        source = determine_source(State, MetadataMap),
+        %% 执行阶段信息
+        checkpoint_type = determine_checkpoint_type(State, MetadataMap),
         step = maps:get(superstep, State, maps:get(step, MetadataMap, 0)),
-        parents = Parents,
-        writes = maps:get(writes, MetadataMap, []),
-        execution_context = ExecutionContext,
+
+        %% 图顶点状态
+        active_vertices = maps:get(active_vertices, State, []),
+        completed_vertices = maps:get(completed_vertices, State, []),
+
+        %% 执行标识
+        run_id = maps:get(run_id, State, maps:get(run_id, Config, undefined)),
+        agent_id = maps:get(agent_id, Config, undefined),
+        iteration = maps:get(iteration, State, 0),
+
+        %% 用户自定义元数据
         metadata = maps:get(metadata, MetadataMap, #{})
     },
 
@@ -333,7 +335,7 @@ branch(Memory, Config, BranchOpts, MetadataMap) ->
             BranchState = SourceCp#checkpoint.values,
             BranchConfig = #{thread_id => NewThreadId, checkpoint_id => SourceCpId},
             BranchMetadata = MetadataMap#{
-                source => branch,
+                checkpoint_type => branch,
                 branch_from => SourceCpId,
                 branch_name => maps:get(branch_name, BranchOpts, undefined)
             },
@@ -629,8 +631,7 @@ state_to_checkpoint(Config, State) when is_map(State) ->
         thread_id = ThreadId,
         parent_id = ParentCpId,
         values = State,
-        timestamp = erlang:system_time(millisecond),
-        version = 0
+        timestamp = erlang:system_time(millisecond)
     }.
 
 %% @doc 获取 context_store
@@ -821,15 +822,20 @@ checkpoint_to_map(Checkpoint, Metadata, ParentConfig) ->
             thread_id => Checkpoint#checkpoint.thread_id,
             parent_id => Checkpoint#checkpoint.parent_id,
             values => Checkpoint#checkpoint.values,
-            timestamp => Checkpoint#checkpoint.timestamp,
-            version => Checkpoint#checkpoint.version
+            timestamp => Checkpoint#checkpoint.timestamp
         },
         metadata => #{
-            source => Metadata#checkpoint_metadata.source,
+            %% 执行阶段信息
+            checkpoint_type => Metadata#checkpoint_metadata.checkpoint_type,
             step => Metadata#checkpoint_metadata.step,
-            parents => Metadata#checkpoint_metadata.parents,
-            writes => Metadata#checkpoint_metadata.writes,
-            execution_context => Metadata#checkpoint_metadata.execution_context,
+            %% 图顶点状态
+            active_vertices => Metadata#checkpoint_metadata.active_vertices,
+            completed_vertices => Metadata#checkpoint_metadata.completed_vertices,
+            %% 执行标识
+            run_id => Metadata#checkpoint_metadata.run_id,
+            agent_id => Metadata#checkpoint_metadata.agent_id,
+            iteration => Metadata#checkpoint_metadata.iteration,
+            %% 用户自定义元数据
             metadata => Metadata#checkpoint_metadata.metadata
         },
         parent_config => ParentConfig
@@ -856,15 +862,20 @@ map_to_checkpoint_tuple(Map) when is_map(Map) ->
                 thread_id = get_flex(thread_id, CpMap),
                 parent_id = get_flex(parent_id, CpMap, undefined),
                 values = get_flex(values, CpMap, #{}),
-                timestamp = get_flex(timestamp, CpMap, 0),
-                version = get_flex(version, CpMap, 0)
+                timestamp = get_flex(timestamp, CpMap, 0)
             },
             Metadata = #checkpoint_metadata{
-                source = get_flex(source, MetaMap, undefined),
+                %% 执行阶段信息
+                checkpoint_type = get_flex(checkpoint_type, MetaMap, undefined),
                 step = get_flex(step, MetaMap, 0),
-                parents = get_flex(parents, MetaMap, #{}),
-                writes = get_flex(writes, MetaMap, []),
-                execution_context = get_flex(execution_context, MetaMap, #{}),
+                %% 图顶点状态
+                active_vertices = get_flex(active_vertices, MetaMap, []),
+                completed_vertices = get_flex(completed_vertices, MetaMap, []),
+                %% 执行标识
+                run_id = get_flex(run_id, MetaMap, undefined),
+                agent_id = get_flex(agent_id, MetaMap, undefined),
+                iteration = get_flex(iteration, MetaMap, 0),
+                %% 用户自定义元数据
                 metadata = get_flex(metadata, MetaMap, #{})
             },
             {ok, {Checkpoint, Metadata, ParentConfig}}
@@ -919,34 +930,15 @@ get_flex(Key, Map, Default) when is_atom(Key), is_map(Map) ->
     end.
 
 %%====================================================================
-%% 内部函数 - 执行上下文
+%% 内部函数 - 元数据处理
 %%====================================================================
 
-%% @private 构建执行上下文
--spec build_execution_context(config(), map()) -> map().
-build_execution_context(Config, State) ->
-    #{
-        run_id => maps:get(run_id, State, maps:get(run_id, Config, undefined)),
-        thread_id => get_thread_id(Config),
-        agent_id => maps:get(agent_id, Config, undefined),
-        checkpoint_type => maps:get(checkpoint_type, State, undefined),
-        iteration => maps:get(iteration, State, 0),
-        superstep => maps:get(superstep, State, 0),
-        timestamp => erlang:system_time(millisecond)
-    }.
-
-%% @private 确定 source 类型
--spec determine_source(map(), map()) -> atom() | undefined.
-determine_source(State, MetadataMap) ->
+%% @private 确定检查点类型
+%%
+%% 优先级：State.checkpoint_type > MetadataMap.checkpoint_type
+-spec determine_checkpoint_type(map(), map()) -> atom() | undefined.
+determine_checkpoint_type(State, MetadataMap) ->
     case maps:get(checkpoint_type, State, undefined) of
-        undefined -> maps:get(source, MetadataMap, maps:get(source, State, undefined));
+        undefined -> maps:get(checkpoint_type, MetadataMap, undefined);
         Type -> Type
     end.
-
-%% @private 构建 parents 信息
--spec build_parents_info(map()) -> map().
-build_parents_info(State) ->
-    #{
-        active_vertices => maps:get(active_vertices, State, []),
-        completed_vertices => maps:get(completed_vertices, State, [])
-    }.

@@ -337,14 +337,20 @@ checkpoint_tuple_to_map({Checkpoint, Metadata, ParentConfig}) ->
             <<"thread_id">> => Checkpoint#checkpoint.thread_id,
             <<"parent_id">> => Checkpoint#checkpoint.parent_id,
             <<"values">> => Checkpoint#checkpoint.values,
-            <<"timestamp">> => Checkpoint#checkpoint.timestamp,
-            <<"version">> => Checkpoint#checkpoint.version
+            <<"timestamp">> => Checkpoint#checkpoint.timestamp
         },
         <<"metadata">> => #{
-            <<"source">> => Metadata#checkpoint_metadata.source,
+            %% 执行阶段信息
+            <<"checkpoint_type">> => Metadata#checkpoint_metadata.checkpoint_type,
             <<"step">> => Metadata#checkpoint_metadata.step,
-            <<"parents">> => Metadata#checkpoint_metadata.parents,
-            <<"writes">> => Metadata#checkpoint_metadata.writes,
+            %% 图顶点状态
+            <<"active_vertices">> => Metadata#checkpoint_metadata.active_vertices,
+            <<"completed_vertices">> => Metadata#checkpoint_metadata.completed_vertices,
+            %% 执行标识
+            <<"run_id">> => Metadata#checkpoint_metadata.run_id,
+            <<"agent_id">> => Metadata#checkpoint_metadata.agent_id,
+            <<"iteration">> => Metadata#checkpoint_metadata.iteration,
+            %% 用户自定义元数据
             <<"metadata">> => Metadata#checkpoint_metadata.metadata
         },
         <<"parent_config">> => ParentConfig
@@ -366,14 +372,20 @@ map_to_checkpoint_tuple(Map) when is_map(Map) ->
                 thread_id = maps_get(<<"thread_id">>, CpMap),
                 parent_id = maps_get(<<"parent_id">>, CpMap, undefined),
                 values = maps_get(<<"values">>, CpMap, #{}),
-                timestamp = maps_get(<<"timestamp">>, CpMap, 0),
-                version = maps_get(<<"version">>, CpMap, 0)
+                timestamp = maps_get(<<"timestamp">>, CpMap, 0)
             },
             Metadata = #checkpoint_metadata{
-                source = maps_get(<<"source">>, MetaMap, undefined),
+                %% 执行阶段信息
+                checkpoint_type = maps_get(<<"checkpoint_type">>, MetaMap, undefined),
                 step = maps_get(<<"step">>, MetaMap, 0),
-                parents = maps_get(<<"parents">>, MetaMap, #{}),
-                writes = maps_get(<<"writes">>, MetaMap, []),
+                %% 图顶点状态
+                active_vertices = maps_get(<<"active_vertices">>, MetaMap, []),
+                completed_vertices = maps_get(<<"completed_vertices">>, MetaMap, []),
+                %% 执行标识
+                run_id = maps_get(<<"run_id">>, MetaMap, undefined),
+                agent_id = maps_get(<<"agent_id">>, MetaMap, undefined),
+                iteration = maps_get(<<"iteration">>, MetaMap, 0),
+                %% 用户自定义元数据
                 metadata = maps_get(<<"metadata">>, MetaMap, #{})
             },
             {ok, {Checkpoint, Metadata, ParentConfig}}

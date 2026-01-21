@@ -65,8 +65,7 @@
     thread_id := binary(),
     parent_id => binary() | undefined,
     timestamp := integer(),
-    channel_count := non_neg_integer(),
-    version := non_neg_integer()
+    channel_count := non_neg_integer()
 }.
 
 -export_type([checkpoint_summary/0]).
@@ -226,8 +225,7 @@ checkpoint_to_summary({Checkpoint, _Metadata, _ParentConfig}) ->
         thread_id => Checkpoint#checkpoint.thread_id,
         parent_id => Checkpoint#checkpoint.parent_id,
         timestamp => Checkpoint#checkpoint.timestamp,
-        channel_count => maps:size(Checkpoint#checkpoint.values),
-        version => Checkpoint#checkpoint.version
+        channel_count => maps:size(Checkpoint#checkpoint.values)
     }.
 
 %% @private 安全获取 map 值

@@ -371,8 +371,7 @@ branch(#manager{store = _Store, current_branch = _CurrentBranch, branches = _Bra
                 thread_id = NewThreadId,
                 parent_id = SourceCpId,
                 values = SourceCp#checkpoint.values,
-                timestamp = erlang:system_time(millisecond),
-                version = 0
+                timestamp = erlang:system_time(millisecond)
             },
 
             %% 保存新检查点到新线程
@@ -685,14 +684,20 @@ checkpoint_to_map(Checkpoint) ->
             <<"thread_id">> => Checkpoint#checkpoint.thread_id,
             <<"parent_id">> => Checkpoint#checkpoint.parent_id,
             <<"values">> => Checkpoint#checkpoint.values,
-            <<"timestamp">> => Checkpoint#checkpoint.timestamp,
-            <<"version">> => Checkpoint#checkpoint.version
+            <<"timestamp">> => Checkpoint#checkpoint.timestamp
         },
         <<"metadata">> => #{
-            <<"source">> => undefined,
+            %% 执行阶段信息
+            <<"checkpoint_type">> => undefined,
             <<"step">> => 0,
-            <<"parents">> => #{},
-            <<"writes">> => [],
+            %% 图顶点状态
+            <<"active_vertices">> => [],
+            <<"completed_vertices">> => [],
+            %% 执行标识
+            <<"run_id">> => undefined,
+            <<"agent_id">> => undefined,
+            <<"iteration">> => 0,
+            %% 用户自定义元数据
             <<"metadata">> => #{}
         },
         <<"parent_config">> => undefined
@@ -711,14 +716,20 @@ map_to_checkpoint_tuple(Map) when is_map(Map) ->
                 thread_id = get_flex(<<"thread_id">>, CpMap),
                 parent_id = get_flex(<<"parent_id">>, CpMap, undefined),
                 values = get_flex(<<"values">>, CpMap, #{}),
-                timestamp = get_flex(<<"timestamp">>, CpMap, 0),
-                version = get_flex(<<"version">>, CpMap, 0)
+                timestamp = get_flex(<<"timestamp">>, CpMap, 0)
             },
             Metadata = #checkpoint_metadata{
-                source = undefined,
+                %% 执行阶段信息
+                checkpoint_type = undefined,
                 step = 0,
-                parents = #{},
-                writes = [],
+                %% 图顶点状态
+                active_vertices = [],
+                completed_vertices = [],
+                %% 执行标识
+                run_id = undefined,
+                agent_id = undefined,
+                iteration = 0,
+                %% 用户自定义元数据
                 metadata = #{}
             },
             {ok, {Checkpoint, Metadata, undefined}}

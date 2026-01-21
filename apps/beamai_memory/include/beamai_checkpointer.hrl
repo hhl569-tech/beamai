@@ -36,44 +36,142 @@
     values = #{} :: map(),
 
     %% 创建时间戳
-    timestamp :: integer(),
-
-    %% 版本号 - 同一线程内的序列号
-    version = 0 :: non_neg_integer()
+    timestamp :: integer()
 }).
 
 %% 检查点元数据
+%%
+%% 记录检查点的执行上下文和图状态信息。
+%% 与 checkpoint 记录配合使用，checkpoint 存储状态数据，
+%% checkpoint_metadata 存储执行过程的元信息。
+%%
+%% == 字段说明 ==
+%%
+%% 1. 执行阶段信息：
+%%    - checkpoint_type: 检查点类型（initial/step/error/interrupt/final 等）
+%%    - step: Pregel 超步编号，表示图计算的迭代次数
+%%
+%% 2. 图顶点状态：
+%%    - active_vertices: 当前活跃的顶点列表（正在执行或待执行）
+%%    - completed_vertices: 已完成执行的顶点列表
+%%
+%% 3. 执行标识：
+%%    - run_id: 单次图执行的唯一标识，用于区分不同的执行实例
+%%    - agent_id: 执行此图的 Agent 标识
+%%    - iteration: Graph 层的迭代次数（区别于 Pregel 层的 step）
+%%
+%% 4. 扩展信息：
+%%    - metadata: 用户自定义的元数据，可存储任意键值对
+%%
+%% == 与 checkpoint 记录的关系 ==
+%%
+%% checkpoint_metadata 中不重复存储以下信息（已在 checkpoint 中）：
+%% - thread_id: 使用 checkpoint.thread_id
+%% - timestamp: 使用 checkpoint.timestamp
+%% - superstep: 使用 step 字段
+%%
 -record(checkpoint_metadata, {
-    %% 来源 - 与 pregel checkpoint 类型对应
-    %% initial | step | error | interrupt | final | undefined
-    source :: initial | step | error | interrupt | final | input | loop | update | undefined,
+    %%--------------------------------------------------------------------
+    %% 执行阶段信息
+    %%--------------------------------------------------------------------
 
-    %% 当前步骤编号（对应 pregel superstep）
+    %% 检查点类型
+    %%
+    %% 标识检查点在图执行过程中的产生阶段：
+    %% - initial: 图执行开始前的初始状态
+    %% - input: 接收到新输入时
+    %% - step: 正常超步执行后
+    %% - loop: 循环迭代中
+    %% - update: 状态更新时
+    %% - interrupt: 执行被中断时（如需要人工介入）
+    %% - error: 执行出错时
+    %% - final: 图执行完成后的最终状态
+    %% - branch: 从其他检查点分支创建
+    %% - undefined: 未指定
+    checkpoint_type :: initial | input | step | loop | update | interrupt | error | final | branch | undefined,
+
+    %% Pregel 超步编号
+    %%
+    %% 表示当前处于 Pregel 计算的第几个超步。
+    %% 超步是 Pregel 模型中的基本计算单元，每个超步中：
+    %% 1. 所有活跃顶点并行执行计算
+    %% 2. 顶点之间通过消息传递通信
+    %% 3. 超步结束时同步状态
     step = 0 :: non_neg_integer(),
 
-    %% 父节点信息 - 记录产生此 checkpoint 的图节点状态
-    %% #{
-    %%   active_vertices => [atom()],
-    %%   completed_vertices => [atom()]
-    %% }
-    parents = #{} :: map(),
+    %%--------------------------------------------------------------------
+    %% 图顶点状态
+    %%--------------------------------------------------------------------
 
-    %% 写入此检查点的任务
-    writes = [] :: list(),
+    %% 活跃顶点列表
+    %%
+    %% 记录检查点创建时正在执行或等待执行的顶点。
+    %% 用于：
+    %% - 从检查点恢复时确定需要继续执行的顶点
+    %% - 调试和监控图执行进度
+    %% - 分析图的执行路径
+    active_vertices = [] :: [atom()],
 
-    %% 执行上下文 - 区分不同的图执行
-    %% #{
-    %%   run_id => binary(),              %% 图执行唯一标识
-    %%   thread_id => binary(),           %% 线程 ID
-    %%   agent_id => binary(),            %% Agent ID
-    %%   checkpoint_type => atom(),       %% checkpoint 类型
-    %%   iteration => non_neg_integer(),  %% graph 层迭代次数
-    %%   superstep => non_neg_integer(),  %% pregel 超步
-    %%   timestamp => integer()           %% 时间戳
-    %% }
-    execution_context = #{} :: map(),
+    %% 已完成顶点列表
+    %%
+    %% 记录检查点创建时已完成执行的顶点。
+    %% 用于：
+    %% - 从检查点恢复时跳过已完成的顶点
+    %% - 追踪图的执行历史
+    %% - 计算执行进度百分比
+    completed_vertices = [] :: [atom()],
+
+    %%--------------------------------------------------------------------
+    %% 执行标识
+    %%--------------------------------------------------------------------
+
+    %% 图执行唯一标识（Run ID）
+    %%
+    %% 每次调用 graph:run/3 时生成的唯一标识。
+    %% 用于：
+    %% - 区分同一线程中的不同执行实例
+    %% - 关联同一次执行产生的多个检查点
+    %% - 日志追踪和调试
+    %%
+    %% 格式：UUID v4，如 "550e8400-e29b-41d4-a716-446655440000"
+    run_id :: binary() | undefined,
+
+    %% Agent 标识
+    %%
+    %% 执行此图的 Agent 的唯一标识。
+    %% 用于：
+    %% - 多 Agent 系统中追踪执行来源
+    %% - 权限控制和审计
+    %% - 关联 Agent 配置和状态
+    agent_id :: binary() | undefined,
+
+    %% Graph 层迭代次数
+    %%
+    %% 区别于 Pregel 层的 step（超步）：
+    %% - step: Pregel 内部的超步计数
+    %% - iteration: Graph 层的外部迭代计数
+    %%
+    %% 当图包含循环结构时，iteration 记录循环执行的次数。
+    %% 例如：ReAct 模式中，每次"思考-行动-观察"循环 iteration 加 1。
+    iteration = 0 :: non_neg_integer(),
+
+    %%--------------------------------------------------------------------
+    %% 扩展信息
+    %%--------------------------------------------------------------------
 
     %% 用户自定义元数据
+    %%
+    %% 允许用户存储任意键值对，用于：
+    %% - 业务相关的标签和分类
+    %% - 调试信息
+    %% - 与外部系统集成的数据
+    %%
+    %% 示例：
+    %% #{
+    %%   <<"user_id">> => <<"u123">>,
+    %%   <<"request_id">> => <<"req-456">>,
+    %%   <<"tags">> => [<<"important">>, <<"reviewed">>]
+    %% }
     metadata = #{} :: map()
 }).
 
