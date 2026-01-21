@@ -1,11 +1,11 @@
 %%%-------------------------------------------------------------------
-%%% @doc Graph Execution Module
+%%% @doc 图执行模块
 %%%
-%%% Handles agent graph execution:
-%%% - Graph building (via node registry)
-%%% - Graph execution
-%%% - Routing decisions
-%%% - Interrupt handling
+%%% 处理 Agent 图执行：
+%%% - 图构建（通过节点注册表）
+%%% - 图执行
+%%% - 路由决策
+%%% - 中断处理
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
@@ -13,7 +13,7 @@
 
 -include("beamai_agent.hrl").
 
-%% API exports
+%% API 导出
 -export([
     build_graph/1,
     execute/3,
@@ -21,37 +21,37 @@
 ]).
 
 %%====================================================================
-%% API Functions
+%% API 函数
 %%====================================================================
 
-%% @doc Build agent execution graph
+%% @doc 构建 Agent 执行图
 %%
-%% Creates a compiled graph for graph:run/2.
-%% Uses node registry for configurable pipeline.
+%% 创建用于 graph:run/2 的编译图。
+%% 使用节点注册表构建可配置的管道。
 %%
-%% @param Opts Graph options
+%% @param Opts 图选项
 %% @returns {ok, CompiledGraph} | {error, Reason}
 -spec build_graph(map()) -> {ok, map()} | {error, term()}.
 build_graph(Opts) ->
     MaxIterations = maps:get(max_iterations, Opts, 10),
 
-    %% Build nodes using registry
+    %% 使用注册表构建节点
     Nodes = beamai_node_registry:build_pipeline(Opts),
 
-    %% Build graph from nodes
+    %% 从节点构建图
     build_graph_from_nodes(Nodes, MaxIterations).
 
-%% @doc Execute graph
+%% @doc 执行图
 %%
-%% Executes compiled graph and returns result.
-%% Appends new messages to history, preserves full conversation.
+%% 执行编译后的图并返回结果。
+%% 将新消息追加到历史记录，保留完整对话。
 %%
-%% Message compression is handled by middleware_summarization in
-%% the before_model hook.
+%% 消息压缩由 middleware_summarization 在
+%% before_model 钩子中处理。
 %%
-%% @param Msg User message
-%% @param Opts Execution options
-%% @param State Agent state record
+%% @param Msg 用户消息
+%% @param Opts 执行选项
+%% @param State Agent 状态记录
 %% @returns {ok, Result, NewState} | {error, Reason, NewState}
 -spec execute(binary(), map(), #state{}) ->
     {ok, map(), #state{}} | {error, term(), #state{}}.
@@ -62,7 +62,7 @@ execute(Msg, Opts, #state{graph = Graph, system_prompt = Prompt,
                            context = Context,
                            callbacks = Callbacks, run_id = RunId,
                            id = AgentId, name = AgentName} = State) ->
-    %% Build callback metadata
+    %% 构建回调元数据
     CallbackMeta = #{
         agent_id => AgentId,
         agent_name => AgentName,
@@ -70,18 +70,18 @@ execute(Msg, Opts, #state{graph = Graph, system_prompt = Prompt,
         timestamp => erlang:system_time(millisecond)
     },
 
-    %% Append new user message to history
+    %% 将新用户消息追加到历史记录
     NewUserMsg = #{role => user, content => Msg},
     AllMessages = HistoryMsgs ++ [NewUserMsg],
     AllFullMessages = HistoryFullMsgs ++ [NewUserMsg],
 
-    %% Build context with original input
+    %% 构建包含原始输入的上下文
     ContextWithInput = Context#{
         original_input => Msg,
         last_user_message => Msg
     },
 
-    %% Build initial graph state
+    %% 构建初始图状态
     InitState = graph:state(#{
         messages => AllMessages,
         full_messages => AllFullMessages,
@@ -95,17 +95,17 @@ execute(Msg, Opts, #state{graph = Graph, system_prompt = Prompt,
         callback_meta => CallbackMeta
     }),
 
-    %% Build run options with run_id
+    %% 构建包含 run_id 的执行选项
     RunOptions = build_run_options(Opts, RunId),
 
-    %% Execute graph (Pregel engine)
+    %% 执行图（Pregel 引擎）
     handle_graph_result(graph:run(Graph, InitState, RunOptions), State).
 
-%% @doc Rebuild graph from current state
+%% @doc 从当前状态重建图
 %%
-%% Used after tool/config changes.
+%% 在工具/配置变更后使用。
 %%
-%% @param State Current agent state
+%% @param State 当前 Agent 状态
 %% @returns {ok, NewState} | {error, Reason}
 -spec rebuild_graph(#state{}) -> {ok, #state{}} | {error, term()}.
 rebuild_graph(#state{tools = Tools, system_prompt = Prompt,
@@ -127,45 +127,45 @@ rebuild_graph(#state{tools = Tools, system_prompt = Prompt,
     end.
 
 %%====================================================================
-%% Internal Functions - Run Options
+%% 内部函数 - 执行选项
 %%====================================================================
 
-%% @private Build run options for graph execution
+%% @private 构建图执行选项
 %%
-%% Includes run_id and any checkpoint-related options from Opts.
+%% 包含 run_id 和 Opts 中的 checkpoint 相关选项。
 -spec build_run_options(map(), binary() | undefined) -> map().
 build_run_options(Opts, RunId) ->
-    %% Extract checkpoint-related options
+    %% 提取 checkpoint 相关选项
     BaseOpts = maps:with([on_checkpoint, restore_from], Opts),
-    %% Add run_id if present
+    %% 如果存在则添加 run_id
     case RunId of
         undefined -> BaseOpts;
         _ -> BaseOpts#{run_id => RunId}
     end.
 
 %%====================================================================
-%% Internal Functions - Graph Building
+%% 内部函数 - 图构建
 %%====================================================================
 
-%% @private Build graph from nodes map
+%% @private 从节点 map 构建图
 -spec build_graph_from_nodes(map(), pos_integer()) -> {ok, map()} | {error, term()}.
 build_graph_from_nodes(Nodes, MaxIterations) ->
-    %% Create builder
+    %% 创建构建器
     Builder0 = graph:builder(#{
         max_iterations => MaxIterations * 2
     }),
 
-    %% Add all nodes
+    %% 添加所有节点
     Builder1 = add_all_nodes(Builder0, Nodes),
 
-    %% Add edges
+    %% 添加边
     Builder2 = add_all_edges(Builder1),
 
-    %% Set entry and compile
+    %% 设置入口点并编译
     Builder3 = graph:set_entry(Builder2, llm_call),
     graph:compile(Builder3).
 
-%% @private Add all nodes to builder
+%% @private 向构建器添加所有节点
 -spec add_all_nodes(map(), map()) -> map().
 add_all_nodes(Builder, Nodes) ->
     NodeList = [
@@ -184,26 +184,26 @@ add_all_nodes(Builder, Nodes) ->
         NodeList
     ).
 
-%% @private Add all edges to builder
+%% @private 向构建器添加所有边
 -spec add_all_edges(map()) -> map().
 add_all_edges(Builder) ->
-    %% Sequential edges
+    %% 顺序边
     Builder1 = graph:add_edge(Builder, llm_call, record_llm),
     Builder2 = graph:add_edge(Builder1, record_llm, validate_response),
     Builder3 = graph:add_edge(Builder2, execute_tools, record_tools),
     Builder4 = graph:add_edge(Builder3, record_tools, check_after_tools),
     Builder5 = graph:add_edge(Builder4, increment_iter, llm_call),
 
-    %% Conditional edges
+    %% 条件边
     Builder6 = graph:add_conditional_edge(Builder5, validate_response, fun route_after_llm/1),
     Builder7 = graph:add_conditional_edge(Builder6, check_before_tools, fun route_before_tools/1),
     graph:add_conditional_edge(Builder7, check_after_tools, fun route_after_tools/1).
 
 %%====================================================================
-%% Internal Functions - Routing
+%% 内部函数 - 路由
 %%====================================================================
 
-%% @private Route after LLM call
+%% @private LLM 调用后的路由
 -spec route_after_llm(map()) -> atom().
 route_after_llm(State) ->
     case beamai_nodes:route_after_llm(State) of
@@ -211,13 +211,13 @@ route_after_llm(State) ->
         execute_tools -> check_before_tools
     end.
 
-%% @private Route after check_before_tools
+%% @private check_before_tools 后的路由
 %%
-%% Handles routing after the pre-tool checkpoint:
-%% - rejected: end execution (user rejected the action)
-%% - normal flow: continue to execute_tools
+%% 处理工具前检查点后的路由：
+%% - rejected: 结束执行（用户拒绝了操作）
+%% - 正常流程: 继续到 execute_tools
 %%
-%% Note: interrupt is now handled at pregel level, not by routing to '__end__'
+%% 注意: interrupt 现在在 pregel 层处理，不再路由到 '__end__'
 -spec route_before_tools(map()) -> atom().
 route_before_tools(State) ->
     Rejected = graph:get(State, rejected, false),
@@ -226,13 +226,13 @@ route_before_tools(State) ->
         false -> execute_tools
     end.
 
-%% @private Route after check_after_tools
+%% @private check_after_tools 后的路由
 %%
-%% Handles routing after the post-tool checkpoint:
-%% - rejected: end execution
-%% - normal flow: continue to increment_iter (next LLM call)
+%% 处理工具后检查点后的路由：
+%% - rejected: 结束执行
+%% - 正常流程: 继续到 increment_iter（下一次 LLM 调用）
 %%
-%% Note: interrupt is now handled at pregel level, not by routing to '__end__'
+%% 注意: interrupt 现在在 pregel 层处理，不再路由到 '__end__'
 -spec route_after_tools(map()) -> atom().
 route_after_tools(State) ->
     Rejected = graph:get(State, rejected, false),
@@ -242,12 +242,12 @@ route_after_tools(State) ->
     end.
 
 %%====================================================================
-%% Internal Functions - Result Handling
+%% 内部函数 - 结果处理
 %%====================================================================
 
-%% @private Handle graph execution result
+%% @private 处理图执行结果
 %%
-%% Saves messages, full_messages, and scratchpad to state.
+%% 将 messages、full_messages 和 scratchpad 保存到状态。
 -spec handle_graph_result(map(), #state{}) ->
     {ok, map(), #state{}} | {error, term(), #state{}}.
 handle_graph_result(#{status := completed, final_state := FinalState}, State) ->
@@ -260,12 +260,12 @@ handle_graph_result(#{status := max_iterations, final_state := FinalState}, Stat
     NewState = extract_and_update_state(FinalState, State),
     {ok, Result#{warning => max_iterations_reached}, NewState};
 
-%% Handle stopped status (interrupt at pregel level)
+%% 处理停止状态（pregel 层的中断）
 handle_graph_result(#{status := stopped, final_state := FinalState,
                       checkpoint := Checkpoint, checkpoint_type := Type}, State) ->
     Result = build_result(FinalState),
     NewState = extract_and_update_state(FinalState, State),
-    %% Return with interrupt info for the caller to handle
+    %% 返回中断信息供调用方处理
     {ok, Result#{
         status => interrupted,
         checkpoint => Checkpoint,
@@ -283,10 +283,10 @@ handle_graph_result(#{status := error, final_state := FinalState}, State) ->
     {error, unknown_error, NewState};
 
 handle_graph_result(UnexpectedResult, State) ->
-    logger:warning("Unexpected graph result: ~p", [UnexpectedResult]),
+    logger:warning("意外的图执行结果: ~p", [UnexpectedResult]),
     {error, {unexpected_graph_result, UnexpectedResult}, State}.
 
-%% @private Extract data from graph state and update agent state
+%% @private 从图状态提取数据并更新 Agent 状态
 -spec extract_and_update_state(map(), #state{}) -> #state{}.
 extract_and_update_state(FinalState, State) ->
     Messages = graph:get(FinalState, messages, []),
@@ -300,7 +300,7 @@ extract_and_update_state(FinalState, State) ->
         context = Context
     }.
 
-%% @private Build result from graph state
+%% @private 从图状态构建结果
 -spec build_result(map()) -> map().
 build_result(FinalState) ->
     Messages = graph:get(FinalState, messages, []),
@@ -318,17 +318,17 @@ build_result(FinalState) ->
 
     maybe_add_validated_content(Result, ValidatedContent).
 
-%% @private Add validated content if present
+%% @private 如果存在则添加验证后的内容
 -spec maybe_add_validated_content(map(), term()) -> map().
 maybe_add_validated_content(Result, undefined) -> Result;
 maybe_add_validated_content(Result, ValidatedContent) ->
     Result#{validated_content => ValidatedContent}.
 
 %%====================================================================
-%% Internal Functions - Helpers
+%% 内部函数 - 辅助函数
 %%====================================================================
 
-%% @private Convert tool definition to spec (remove handler)
+%% @private 将工具定义转换为规格（移除 handler）
 -spec to_tool_spec(map()) -> map().
 to_tool_spec(Tool) ->
     case maps:is_key(handler, Tool) of

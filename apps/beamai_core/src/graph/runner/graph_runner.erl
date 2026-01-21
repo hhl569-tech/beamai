@@ -172,8 +172,11 @@ run_simple(Graph, InitialState, Options) ->
 run_with_checkpoint(Graph, InitialState, Options) ->
     #{pregel_graph := PregelGraph, config := Config} = Graph,
 
+    %% 确保 run_id 存在（整个执行过程中保持不变）
+    OptionsWithRunId = ensure_run_id(Options),
+
     %% 检查是否从 checkpoint 恢复
-    RestoreOpts = maps:get(restore_from, Options, undefined),
+    RestoreOpts = maps:get(restore_from, OptionsWithRunId, undefined),
     {ActualInitialState, PregelRestoreOpts, StartIteration} =
         prepare_restore_options(RestoreOpts, InitialState, PregelGraph),
 
@@ -183,8 +186,8 @@ run_with_checkpoint(Graph, InitialState, Options) ->
     %% 准备执行选项
     MaxIterations = maps:get(max_iterations, Config, 100),
     PregelOpts0 = #{
-        max_supersteps => maps:get(max_supersteps, Options, MaxIterations),
-        num_workers => maps:get(workers, Options, 1)
+        max_supersteps => maps:get(max_supersteps, OptionsWithRunId, MaxIterations),
+        num_workers => maps:get(workers, OptionsWithRunId, 1)
     },
     %% 如果有恢复选项，添加到 PregelOpts
     PregelOpts = case PregelRestoreOpts of
@@ -196,8 +199,8 @@ run_with_checkpoint(Graph, InitialState, Options) ->
     ComputeFn = graph_compute:compute_fn(),
     {ok, Master} = pregel:start(PregelGraphWithState, ComputeFn, PregelOpts),
     try
-        CheckpointCallback = maps:get(on_checkpoint, Options, fun default_checkpoint_callback/2),
-        run_checkpoint_loop(Master, CheckpointCallback, StartIteration, Options)
+        CheckpointCallback = maps:get(on_checkpoint, OptionsWithRunId, fun default_checkpoint_callback/2),
+        run_checkpoint_loop(Master, CheckpointCallback, StartIteration, OptionsWithRunId)
     after
         pregel:stop(Master)
     end.
@@ -246,10 +249,11 @@ default_checkpoint_callback(_Info, _CheckpointData) ->
 
 %% @private Checkpoint 执行循环
 %% 注意：状态存储在 pregel 顶点中，不在参数中传递
+%% run_id 在 run_with_checkpoint 中已确保存在，整个执行过程保持不变
 -spec run_checkpoint_loop(pid(), checkpoint_callback(), non_neg_integer(), run_options()) ->
     run_result().
 run_checkpoint_loop(Master, CheckpointCallback, Iteration, Options) ->
-    RunId = maps:get(run_id, Options, generate_run_id()),
+    RunId = maps:get(run_id, Options),
     case pregel:step(Master) of
         {continue, Info} ->
             %% 1. 总是先获取 checkpoint（超步已完成或初始化完成）
@@ -322,7 +326,7 @@ handle_checkpoint_continue(error, continue, Master, Callback, _Data, _Info, Iter
 handle_checkpoint_continue(error, {stop, Reason}, _Master, _Callback, Data, _Info, Iteration, _Options) ->
     build_stopped_result(Data, Reason, Iteration);
 handle_checkpoint_continue(error, {retry, VertexIds}, Master, Callback, _Data, _Info, Iteration, Options) ->
-    RunId = maps:get(run_id, Options, generate_run_id()),
+    RunId = maps:get(run_id, Options),
     %% 重试指定顶点
     case pregel:retry(Master, VertexIds) of
         {continue, NewInfo} ->
@@ -373,7 +377,7 @@ handle_checkpoint_continue(final, _, _Master, _Callback, Data, _Info, Iteration,
 -spec handle_checkpoint_done(pid(), pregel:done_reason(), pregel:superstep_info(),
                              non_neg_integer(), checkpoint_callback(), run_options()) -> run_result().
 handle_checkpoint_done(Master, Reason, Info, Iteration, CheckpointCallback, Options) ->
-    RunId = maps:get(run_id, Options, generate_run_id()),
+    RunId = maps:get(run_id, Options),
     Superstep = maps:get(superstep, Info, 0),
 
     %% 1. 获取最终的 checkpoint 数据
@@ -695,6 +699,15 @@ classify_vertices(Vertices) ->
         {[], []},
         Vertices
     ).
+
+%% @private 确保 Options 中存在 run_id
+%% 如果已存在则保持不变，否则生成新的
+-spec ensure_run_id(run_options()) -> run_options().
+ensure_run_id(Options) ->
+    case maps:is_key(run_id, Options) of
+        true -> Options;
+        false -> Options#{run_id => generate_run_id()}
+    end.
 
 %% @private 生成执行 ID
 -spec generate_run_id() -> binary().
