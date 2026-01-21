@@ -21,6 +21,7 @@
 %% 类型导出
 -export_type([opts/0, result/0, restore_opts/0, retry_opts/0]).
 -export_type([superstep_complete_info/0, superstep_complete_result/0, checkpoint_data/0]).
+-export_type([state_reducer/0, reducer_context/0]).
 
 %%====================================================================
 %% 类型定义
@@ -73,6 +74,18 @@
 %% 超步完成回调函数类型
 -type superstep_complete_callback() :: fun((superstep_complete_info()) -> superstep_complete_result()).
 
+%% State reducer 上下文
+-type reducer_context() :: #{
+    target_vertex := vertex_id(),    %% 目标顶点 ID
+    superstep := non_neg_integer(),  %% 当前超步
+    messages := [term()]             %% 该顶点收到的所有消息
+}.
+
+%% State reducer 函数类型
+%% 输入：包含目标顶点、superstep、消息列表的上下文
+%% 输出：整合后的消息列表
+-type state_reducer() :: fun((reducer_context()) -> [term()]).
+
 %% Checkpoint 恢复选项
 %% superstep: 起始超步号
 %% vertices: 恢复的顶点状态（覆盖原图中对应顶点）
@@ -89,7 +102,8 @@
     max_supersteps => pos_integer(),
     num_workers => pos_integer(),
     on_superstep_complete => superstep_complete_callback(),
-    restore_from => restore_opts()  %% 从 checkpoint 恢复
+    restore_from => restore_opts(),  %% 从 checkpoint 恢复
+    state_reducer => state_reducer()  %% 消息整合函数（默认 last_write_win）
 }.
 
 %% Pregel 执行结果
@@ -116,6 +130,7 @@
     caller           :: gen_server:from() | undefined,  %% 调用者
     on_superstep_complete :: superstep_complete_callback() | undefined,  %% 超步完成回调
     restore_from     :: restore_opts() | undefined,  %% 恢复选项（启动后消费）
+    state_reducer    :: state_reducer() | undefined,  %% 消息整合函数
     %% 重试相关状态
     last_results     :: pregel_barrier:superstep_results() | undefined,  %% 上次超步结果
     retry_count      :: non_neg_integer(),          %% 当前超步重试次数
@@ -177,6 +192,7 @@ init({Graph, ComputeFn, Opts}) ->
         caller = undefined,
         on_superstep_complete = maps:get(on_superstep_complete, Opts, undefined),
         restore_from = RestoreOpts,
+        state_reducer = maps:get(state_reducer, Opts, undefined),
         %% 重试相关状态初始化
         last_results = undefined,
         retry_count = 0,
@@ -336,6 +352,45 @@ handle_worker_done(Result, #state{barrier = Barrier} = State) ->
         false -> NewState
     end.
 
+%%====================================================================
+%% State Reducer
+%%====================================================================
+
+%% @private 应用 state reducer
+%% 按目标顶点分组消息，对每组应用 reducer
+-spec apply_state_reducer([{term(), term()}], non_neg_integer(),
+                           state_reducer() | undefined) ->
+    [{term(), term()}].
+apply_state_reducer(Outbox, Superstep, undefined) ->
+    %% 默认: last_write_win
+    apply_state_reducer(Outbox, Superstep, fun default_reducer/1);
+apply_state_reducer(Outbox, Superstep, Reducer) ->
+    %% 1. 按目标顶点分组
+    Grouped = group_by_target(Outbox),
+    %% 2. 对每组应用 reducer（传入上下文）
+    maps:fold(fun(TargetId, Messages, Acc) ->
+        Context = #{
+            target_vertex => TargetId,
+            superstep => Superstep,
+            messages => Messages
+        },
+        Reduced = Reducer(Context),
+        [{TargetId, M} || M <- Reduced] ++ Acc
+    end, [], Grouped).
+
+%% @private 按目标顶点分组消息
+-spec group_by_target([{term(), term()}]) -> #{term() => [term()]}.
+group_by_target(Messages) ->
+    lists:foldl(fun({Target, Value}, Acc) ->
+        Existing = maps:get(Target, Acc, []),
+        Acc#{Target => Existing ++ [Value]}  %% 保持顺序
+    end, #{}, Messages).
+
+%% @private 默认 reducer: last_write_win，只保留最后一个值
+-spec default_reducer(reducer_context()) -> [term()].
+default_reducer(#{messages := []}) -> [];
+default_reducer(#{messages := Messages}) -> [lists:last(Messages)].
+
 %% @private 完成超步处理
 %%
 %% BSP 模型：从所有 Worker 的 outbox 汇总消息，统一路由到目标 Worker
@@ -345,29 +400,38 @@ complete_superstep(#state{
     superstep = Superstep,
     max_supersteps = MaxSupersteps,
     workers = Workers,
-    num_workers = NumWorkers
+    num_workers = NumWorkers,
+    state_reducer = StateReducer
 } = State) ->
     %% 1. 汇总结果（返回 map 格式，包含所有 Worker 的 outbox）
     Results = pregel_barrier:get_results(Barrier),
     AggregatedResults = pregel_barrier:aggregate_results(Results),
     TotalActive = maps:get(active_count, AggregatedResults),
-    TotalMessages = maps:get(message_count, AggregatedResults),
 
-    %% 2. 从汇总结果中获取所有 outbox 消息，统一路由
+    %% 2. 获取所有 outbox 消息
     AllOutbox = maps:get(outbox, AggregatedResults, []),
-    route_all_messages(AllOutbox, Workers, NumWorkers),
 
-    %% 3. 保存结果到 state（用于重试）
-    StateWithResults = State#state{last_results = AggregatedResults},
+    %% 3. 应用 state reducer
+    ReducedOutbox = apply_state_reducer(AllOutbox, Superstep, StateReducer),
+    TotalMessages = length(ReducedOutbox),  %% 使用 reduced 后的消息数
 
-    %% 4. 检查终止条件
+    %% 4. 路由消息
+    route_all_messages(ReducedOutbox, Workers, NumWorkers),
+
+    %% 5. 更新 AggregatedResults 中的 message_count（用于回调和终止判断）
+    UpdatedResults = AggregatedResults#{message_count => TotalMessages},
+
+    %% 6. 保存结果到 state（用于重试）
+    StateWithResults = State#state{last_results = UpdatedResults},
+
+    %% 7. 检查终止条件
     Halted = (TotalActive =:= 0) andalso (TotalMessages =:= 0),
     MaxReached = Superstep >= MaxSupersteps - 1,
 
-    %% 5. 判断回调类型并调用回调
+    %% 8. 判断回调类型并调用回调
     CallbackType = determine_callback_type(Halted, MaxReached),
     handle_callback_result(
-        call_superstep_complete(CallbackType, AggregatedResults, StateWithResults),
+        call_superstep_complete(CallbackType, UpdatedResults, StateWithResults),
         Halted,
         MaxReached,
         StateWithResults
@@ -445,8 +509,10 @@ handle_retry_request(RetryOpts, Halted, MaxReached, #state{
 execute_retry(VertexIds, _Halted, MaxReached, #state{
     workers = Workers,
     num_workers = NumWorkers,
+    superstep = Superstep,
     retry_count = RetryCount,
-    last_results = LastResults
+    last_results = LastResults,
+    state_reducer = StateReducer
 } = State) ->
     %% 1. 从上次结果获取 inbox
     Inbox = maps:get(inbox, LastResults, #{}),
@@ -466,25 +532,30 @@ execute_retry(VertexIds, _Halted, MaxReached, #state{
     %% 3. 合并重试结果
     MergedResults = merge_retry_results(RetryResults, LastResults),
 
-    %% 4. 路由重试产生的 outbox 消息
+    %% 4. 获取重试产生的 outbox 消息
     RetryOutbox = lists:flatmap(
         fun(R) -> maps:get(outbox, R, []) end,
         RetryResults
     ),
-    route_all_messages(RetryOutbox, Workers, NumWorkers),
 
-    %% 5. 重新计算终止条件（基于重试后的状态）
+    %% 5. 应用 state reducer
+    ReducedRetryOutbox = apply_state_reducer(RetryOutbox, Superstep, StateReducer),
+
+    %% 6. 路由消息
+    route_all_messages(ReducedRetryOutbox, Workers, NumWorkers),
+
+    %% 7. 重新计算终止条件（基于重试后的状态）
     TotalActive = maps:get(active_count, MergedResults, 0),
-    TotalMessages = maps:get(message_count, MergedResults, 0) + length(RetryOutbox),
+    TotalMessages = maps:get(message_count, MergedResults, 0) + length(ReducedRetryOutbox),
     NewHalted = (TotalActive =:= 0) andalso (TotalMessages =:= 0),
 
-    %% 6. 更新状态
+    %% 8. 更新状态
     NewState = State#state{
         retry_count = RetryCount + 1,
         last_results = MergedResults
     },
 
-    %% 7. 重新调用回调（让 Graph 层决定继续重试还是停止）
+    %% 9. 重新调用回调（让 Graph 层决定继续重试还是停止）
     CallbackResult = call_superstep_complete(step, MergedResults, NewState),
     handle_callback_result(
         CallbackResult,

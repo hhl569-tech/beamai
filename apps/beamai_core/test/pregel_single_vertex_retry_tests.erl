@@ -164,6 +164,8 @@ basic_retry_test() ->
     ?assertEqual({retried, 2}, V1Value).
 
 %% 测试：重试时使用保存的 inbox 消息
+%% 注意：默认 state_reducer 使用 last_write_win，多条相同消息会被合并
+%% 如需保留所有消息，需要使用自定义 state_reducer
 retry_uses_saved_inbox_test() ->
     Graph = simple_graph(),
     ComputeFn = fail_then_success_with_messages_fn(v1),
@@ -178,9 +180,13 @@ retry_uses_saved_inbox_test() ->
         end
     end,
 
+    %% 使用 append reducer 保留所有消息
+    AppendReducer = fun(#{messages := Msgs}) -> Msgs end,
+
     Result = pregel_master:run(Graph, ComputeFn, #{
         on_superstep_complete => Callback,
-        num_workers => 1
+        num_workers => 1,
+        state_reducer => AppendReducer
     }),
 
     ?assertEqual(completed, maps:get(status, Result)),
@@ -190,7 +196,7 @@ retry_uses_saved_inbox_test() ->
     V1 = pregel_graph:get(FinalGraph, v1),
     V1Value = pregel_vertex:value(V1),
 
-    %% 应该收到来自 v2 和 v3 的消息
+    %% 使用 append reducer，应该收到来自 v2 和 v3 的所有消息
     ?assertMatch({retried_with_messages, [hello, hello]}, V1Value).
 
 %% 测试：超过最大重试次数后停止
