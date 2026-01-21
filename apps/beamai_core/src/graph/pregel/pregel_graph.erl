@@ -88,8 +88,10 @@ from_edges(Edges) ->
                   {vertex_id(), vertex_id(), number()}],
                  #{vertex_id() => term()}) -> graph().
 from_edges(Edges, InitialValues) ->
-    %% 收集所有顶点ID
-    AllIds = collect_vertex_ids(Edges),
+    %% 收集所有顶点ID（包括边端点和初始值中的ID）
+    EdgeIds = collect_vertex_ids(Edges),
+    InitIds = maps:keys(InitialValues),
+    AllIds = lists:usort(EdgeIds ++ InitIds),
     %% 创建顶点
     Graph0 = create_vertices(AllIds, InitialValues),
     %% 添加边

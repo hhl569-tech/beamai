@@ -37,6 +37,8 @@
 -type superstep_results() :: #{
     active_count := non_neg_integer(),
     message_count := non_neg_integer(),
+    %% 所有 Worker 的 inbox 汇总（用于 checkpoint，支持单顶点重启）
+    inbox := #{term() => [term()]},
     %% 所有 Worker 的 outbox 汇总（用于 Master 集中路由）
     outbox := [{term(), term()}],
     failed_count := non_neg_integer(),
@@ -105,6 +107,7 @@ empty_results() ->
     #{
         active_count => 0,
         message_count => 0,
+        inbox => #{},
         outbox => [],
         failed_count => 0,
         failed_vertices => [],
@@ -120,6 +123,9 @@ merge_worker_result(WorkerResult, Acc) ->
                         maps:get(active_count, WorkerResult, 0),
         message_count => maps:get(message_count, Acc) +
                          maps:get(message_count, WorkerResult, 0),
+        %% 合并所有 Worker 的 inbox（用于 checkpoint）
+        inbox => maps:merge(maps:get(inbox, Acc),
+                            maps:get(inbox, WorkerResult, #{})),
         %% 汇总所有 Worker 的 outbox（用于 Master 集中路由）
         outbox => maps:get(outbox, WorkerResult, []) ++
                   maps:get(outbox, Acc),

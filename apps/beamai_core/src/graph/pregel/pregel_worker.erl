@@ -16,6 +16,7 @@
 -export([start_link/2, stop/1]).
 -export([start_superstep/2, receive_messages/2]).
 -export([get_state/1, get_vertices/1]).
+-export([retry_vertices/3]).
 
 %% 内部函数导出（用于测试）
 -export([compute_vertices/6]).
@@ -24,7 +25,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% 类型导出
--export_type([opts/0, context/0, compute_result/0, compute_status/0]).
+-export_type([opts/0, context/0, compute_result/0, compute_status/0, retry_result/0]).
 
 %%====================================================================
 %% 类型定义
@@ -79,6 +80,18 @@
     InterruptedVertices :: [{vertex_id(), term()}]
 }.
 
+%% 重试结果
+%% vertices: 更新后的顶点状态
+%% outbox: 重试产生的输出消息
+%% failed_vertices: 仍然失败的顶点
+%% interrupted_vertices: 中断的顶点
+-type retry_result() :: #{
+    vertices := #{vertex_id() => vertex()},
+    outbox := [{vertex_id(), term()}],
+    failed_vertices := [{vertex_id(), term()}],
+    interrupted_vertices := [{vertex_id(), term()}]
+}.
+
 %% 内部状态
 -record(state, {
     worker_id     :: non_neg_integer(),    % Worker ID
@@ -127,6 +140,18 @@ get_state(Pid) ->
 get_vertices(Pid) ->
     gen_server:call(Pid, get_vertices).
 
+%% @doc 重试指定顶点的计算
+%%
+%% 用于单顶点重启场景：
+%% - VertexIds: 要重试的顶点 ID 列表（只计算本 Worker 拥有的顶点）
+%% - Inbox: 顶点 inbox 映射（计算时使用的消息）
+%%
+%% 返回重试结果（同步调用）
+-spec retry_vertices(pid(), [vertex_id()], #{vertex_id() => [term()]}) ->
+    {ok, retry_result()} | {error, term()}.
+retry_vertices(Pid, VertexIds, Inbox) ->
+    gen_server:call(Pid, {retry_vertices, VertexIds, Inbox}).
+
 %%====================================================================
 %% gen_server 回调
 %%====================================================================
@@ -159,6 +184,10 @@ handle_call(get_state, _From, State) ->
 
 handle_call(get_vertices, _From, #state{vertices = Vertices} = State) ->
     {reply, Vertices, State};
+
+handle_call({retry_vertices, VertexIds, Inbox}, _From, State) ->
+    {Reply, NewState} = do_retry_vertices(VertexIds, Inbox, State),
+    {reply, Reply, NewState};
 
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
@@ -216,9 +245,9 @@ execute_superstep(#state{
     %% 3. 应用合并器（如果有）
     CombinedOutbox = apply_combiner(Outbox, Combiner),
 
-    %% 4. 通知 Master 完成（含 outbox、失败和中断信息）
-    %% 注意：不再直接路由消息，改为上报给 Master 集中路由
-    notify_master_done(State, NewVertices, CombinedOutbox, FailedVertices, InterruptedVertices),
+    %% 4. 通知 Master 完成（含 inbox、outbox、失败和中断信息）
+    %% 注意：inbox 用于 checkpoint，支持单顶点重启
+    notify_master_done(State, Inbox, NewVertices, CombinedOutbox, FailedVertices, InterruptedVertices),
 
     %% 5. 返回更新后的状态
     State#state{vertices = NewVertices, inbox = #{}}.
@@ -337,21 +366,25 @@ apply_combiner(Outbox, Combiner) ->
 %%
 %% 上报内容包括：
 %% - 活跃顶点数和消息数（用于终止检测）
+%% - inbox 消息映射（用于 checkpoint，支持单顶点重启）
 %% - outbox 消息列表（用于 Master 集中路由）
 %% - 失败和中断顶点信息（用于错误处理）
 -spec notify_master_done(
     State :: #state{},
+    Inbox :: #{vertex_id() => [term()]},
     Vertices :: #{vertex_id() => vertex()},
     Outbox :: [{vertex_id(), term()}],
     FailedVertices :: [{vertex_id(), term()}],
     InterruptedVertices :: [{vertex_id(), term()}]
 ) -> ok.
 notify_master_done(#state{worker_id = WorkerId, master = Master},
-                   Vertices, Outbox, FailedVertices, InterruptedVertices) ->
+                   Inbox, Vertices, Outbox, FailedVertices, InterruptedVertices) ->
     Result = #{
         worker_id => WorkerId,
         active_count => pregel_utils:map_count(fun pregel_vertex:is_active/1, Vertices),
         message_count => length(Outbox),
+        %% inbox 消息映射（用于 checkpoint，支持单顶点重启）
+        inbox => Inbox,
         %% outbox 消息列表（用于 Master 集中路由）
         outbox => Outbox,
         %% 失败信息
@@ -377,3 +410,47 @@ state_to_map(#state{
         inbox_count => maps:size(Inbox),
         superstep => Superstep
     }.
+
+%%====================================================================
+%% 顶点重试
+%%====================================================================
+
+%% @private 执行顶点重试
+%%
+%% 只重新计算指定的顶点，使用提供的 inbox 消息。
+%% 返回 {Result, NewState}，其中 Result 包含重试结果。
+-spec do_retry_vertices([vertex_id()], #{vertex_id() => [term()]}, #state{}) ->
+    {{ok, retry_result()}, #state{}}.
+do_retry_vertices(VertexIds, Inbox, #state{
+    vertices = Vertices,
+    compute_fn = ComputeFn,
+    combiner = Combiner,
+    superstep = Superstep,
+    num_vertices = NumVertices
+} = State) ->
+    %% 1. 筛选本 Worker 拥有的顶点
+    LocalVertexIds = [Id || Id <- VertexIds, maps:is_key(Id, Vertices)],
+
+    %% 2. 构建要重试的顶点映射
+    RetryVertices = maps:with(LocalVertexIds, Vertices),
+
+    %% 3. 执行顶点计算
+    {NewVertices, Outbox, FailedVertices, InterruptedVertices} = compute_vertices(
+        RetryVertices, Vertices, Inbox, ComputeFn, Superstep, NumVertices
+    ),
+
+    %% 4. 应用合并器
+    CombinedOutbox = apply_combiner(Outbox, Combiner),
+
+    %% 5. 构建结果
+    Result = #{
+        vertices => maps:with(LocalVertexIds, NewVertices),
+        outbox => CombinedOutbox,
+        failed_vertices => FailedVertices,
+        interrupted_vertices => InterruptedVertices
+    },
+
+    %% 6. 更新 Worker 状态（合并新顶点状态）
+    NewState = State#state{vertices = NewVertices},
+
+    {{ok, Result}, NewState}.

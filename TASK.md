@@ -58,7 +58,8 @@
 -type checkpoint_data() :: #{
     superstep := non_neg_integer(),
     vertices := #{vertex_id() => vertex()},
-    pending_messages := [{vertex_id(), term()}]  %% 来自汇总的 outbox
+    pending_messages := [{vertex_id(), term()}],  %% 来自汇总的 outbox
+    vertex_inbox := #{vertex_id() => [term()]}   %% 顶点收件箱（支持单顶点重启）
 }.
 
 %% 回调返回值
@@ -174,6 +175,7 @@
 │  • 包含 failed_count/failed_vertices                            │
 │  • 包含 interrupted_count/interrupted_vertices                  │
 │  • 包含 outbox（所有 Worker 的输出消息）                        │
+│  • 包含 inbox（所有 Worker 的收件箱，用于 checkpoint）         │
 │                                                                 │
 │  ─────────────────────────────────────────────────────────────  │
 │                                                                 │
@@ -183,6 +185,7 @@
 │  • 上报 failed_count/failed_vertices                            │
 │  • 上报 interrupted_count/interrupted_vertices                  │
 │  • 上报 outbox（不再直接路由）                                  │
+│  • 上报 inbox（用于 checkpoint，支持单顶点重启）               │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -197,9 +200,9 @@
 | `pregel_barrier_tests.erl` | 9 tests |
 | `pregel_master_callback_tests.erl` | 11 tests |
 | `pregel_message_routing_tests.erl` | 8 tests |
-| `pregel_checkpoint_restore_tests.erl` | 13 tests |
+| `pregel_checkpoint_restore_tests.erl` | 15 tests |
 | `graph_compute_tests.erl` | 4 tests |
-| **总计** | **58 tests** |
+| **总计** | **60 tests** |
 
 ---
 
@@ -210,6 +213,7 @@
 - `info/pregel_worker_error_handling_design.md` - Worker 错误处理设计
 - `info/pregel_message_reliability_analysis.md` - 消息可靠性分析
 - `info/pregel_outbox_vs_pending_writes.md` - Outbox 与 pending_writes 对比
+- `info/pregel_single_vertex_restart.md` - 单顶点重启设计
 
 ---
 
@@ -266,7 +270,6 @@
     combiner => pregel_combiner:spec(),
     max_supersteps => pos_integer(),
     num_workers => pos_integer(),
-    on_superstep => fun((non_neg_integer(), graph()) -> ok),
     on_superstep_complete => superstep_complete_callback(),
     restore_from => restore_opts()  %% 从 checkpoint 恢复
 }.
@@ -323,14 +326,59 @@
 - [x] 测试消息注入（injected_messages_received_test）
 - [x] 测试完整的保存-恢复流程（save_and_restore_consistency_test）
 - [x] 测试边界情况（empty_messages_restore_test, partial_vertices_restore_test 等）
+- [x] 测试 vertex_inbox（checkpoint_contains_vertex_inbox_test, vertex_inbox_for_single_vertex_restart_test）
 
-**测试统计**: 13 tests
+**测试统计**: 15 tests
 
 ---
 
 ### 5.6 更新文档
 
 - [ ] 更新 `info/pregel_callback_checkpoint_analysis.md` 添加恢复流程说明
+
+---
+
+### 5.7 增强 vertex_inbox 支持单顶点重启 ✅
+
+**目标**: 支持单顶点重启场景，在 checkpoint 中保存每个顶点的收件箱
+
+**设计说明**:
+```
+原有设计（仅支持全图恢复）:
+┌─────────────────────────────────────────────────────────────┐
+│  checkpoint_data = #{                                        │
+│      superstep => 2,                                         │
+│      vertices => #{v1 => ..., v2 => ...},                   │
+│      pending_messages => [{v3, msg1}, {v4, msg2}]  ◀── outbox│
+│  }                                                           │
+│                                                              │
+│  问题: pending_messages 是 outbox（输出消息），不是 inbox   │
+│        无法知道某个顶点在该超步收到了哪些消息                │
+│        无法对单个失败顶点重放消息                            │
+└─────────────────────────────────────────────────────────────┘
+
+增强设计（支持单顶点重启）:
+┌─────────────────────────────────────────────────────────────┐
+│  checkpoint_data = #{                                        │
+│      superstep => 2,                                         │
+│      vertices => #{v1 => ..., v2 => ...},                   │
+│      pending_messages => [{v3, msg1}, {v4, msg2}],           │
+│      vertex_inbox => #{v1 => [msg_a], v2 => [msg_b, msg_c]} │
+│  }              ▲                                            │
+│                 └── 新增：每个顶点在该超步收到的消息         │
+│                                                              │
+│  支持场景:                                                   │
+│  1. 顶点 v1 计算失败，可以只重启 v1，重放 inbox 中的消息    │
+│  2. human-in-the-loop 中断后，可以只恢复特定顶点            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**修改内容**:
+
+- [x] `pregel_worker.erl`: 上报 inbox 到 Master
+- [x] `pregel_barrier.erl`: 汇总所有 Worker 的 inbox
+- [x] `pregel_master.erl`: 在 checkpoint_data 中包含 vertex_inbox
+- [x] 添加测试验证 vertex_inbox 功能
 
 ---
 

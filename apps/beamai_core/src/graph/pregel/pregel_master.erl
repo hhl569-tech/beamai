@@ -19,7 +19,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% 类型导出
--export_type([opts/0, result/0, restore_opts/0]).
+-export_type([opts/0, result/0, restore_opts/0, retry_opts/0]).
 -export_type([superstep_complete_info/0, superstep_complete_result/0, checkpoint_data/0]).
 
 %%====================================================================
@@ -35,10 +35,12 @@
 -type callback_type() :: initial | step | final.
 
 %% Checkpoint 数据（按需获取）
+%% vertex_inbox: 各顶点的 inbox（计算前的消息），用于单顶点重启
 -type checkpoint_data() :: #{
     superstep := non_neg_integer(),
     vertices := #{vertex_id() => vertex()},
-    pending_messages := [{vertex_id(), term()}]
+    pending_messages := [{vertex_id(), term()}],
+    vertex_inbox := #{vertex_id() => [term()]}
 }.
 
 %% 超步完成回调信息
@@ -54,8 +56,19 @@
     get_checkpoint_data := fun(() -> checkpoint_data())
 }.
 
+%% 重试选项
+%% vertices: 要重试的顶点 ID 列表
+%% max_retries: 最大重试次数（默认 1）
+-type retry_opts() :: #{
+    vertices := [vertex_id()],
+    max_retries => pos_integer()
+}.
+
 %% 回调返回值
--type superstep_complete_result() :: continue | {stop, term()}.
+%% continue: 继续执行
+%% {stop, Reason}: 停止执行
+%% {retry, Opts}: 重试指定顶点
+-type superstep_complete_result() :: continue | {stop, term()} | {retry, retry_opts()}.
 
 %% 超步完成回调函数类型
 -type superstep_complete_callback() :: fun((superstep_complete_info()) -> superstep_complete_result()).
@@ -102,7 +115,11 @@
     barrier          :: pregel_barrier:t(),         %% 同步屏障
     caller           :: gen_server:from() | undefined,  %% 调用者
     on_superstep_complete :: superstep_complete_callback() | undefined,  %% 超步完成回调
-    restore_from     :: restore_opts() | undefined  %% 恢复选项（启动后消费）
+    restore_from     :: restore_opts() | undefined,  %% 恢复选项（启动后消费）
+    %% 重试相关状态
+    last_results     :: pregel_barrier:superstep_results() | undefined,  %% 上次超步结果
+    retry_count      :: non_neg_integer(),          %% 当前超步重试次数
+    max_retries      :: pos_integer()               %% 最大重试次数
 }).
 
 %%====================================================================
@@ -159,7 +176,11 @@ init({Graph, ComputeFn, Opts}) ->
         barrier = pregel_barrier:new(0),
         caller = undefined,
         on_superstep_complete = maps:get(on_superstep_complete, Opts, undefined),
-        restore_from = RestoreOpts
+        restore_from = RestoreOpts,
+        %% 重试相关状态初始化
+        last_results = undefined,
+        retry_count = 0,
+        max_retries = 1  %% 默认最大重试 1 次
     },
     {ok, State}.
 
@@ -172,9 +193,15 @@ handle_call(start_execution, From, State) ->
     %% 清除 restore_from（已消费）
     StateReady = StateWithWorkers#state{restore_from = undefined},
     %% 调用 initial 回调
+    %% 注意：initial 回调只支持 continue 和 {stop, Reason}
+    %% {retry, ...} 在 initial 阶段无意义（尚未执行计算），视为 continue
     case call_superstep_complete(initial, empty_superstep_results(), StateReady) of
         continue ->
             %% 继续执行第一个超步
+            broadcast_start_superstep(StateReady),
+            {noreply, StateReady};
+        {retry, _} ->
+            %% 忽略 retry，继续执行
             broadcast_start_superstep(StateReady),
             {noreply, StateReady};
         {stop, Reason} ->
@@ -330,24 +357,165 @@ complete_superstep(#state{
     AllOutbox = maps:get(outbox, AggregatedResults, []),
     route_all_messages(AllOutbox, Workers, NumWorkers),
 
-    %% 3. 检查终止条件
+    %% 3. 保存结果到 state（用于重试）
+    StateWithResults = State#state{last_results = AggregatedResults},
+
+    %% 4. 检查终止条件
     Halted = (TotalActive =:= 0) andalso (TotalMessages =:= 0),
     MaxReached = Superstep >= MaxSupersteps - 1,
 
-    %% 4. 判断回调类型并调用回调
+    %% 5. 判断回调类型并调用回调
     CallbackType = determine_callback_type(Halted, MaxReached),
-    case call_superstep_complete(CallbackType, AggregatedResults, State) of
-        {stop, Reason} ->
-            %% 回调要求停止
-            finish_execution({stopped, Reason}, State);
-        continue ->
-            %% 根据终止条件决定下一步
-            case {Halted, MaxReached} of
-                {true, _} -> finish_execution(completed, State);
-                {_, true} -> finish_execution(max_supersteps, State);
-                {false, false} -> start_next_superstep(State)
+    handle_callback_result(
+        call_superstep_complete(CallbackType, AggregatedResults, StateWithResults),
+        Halted,
+        MaxReached,
+        StateWithResults
+    ).
+
+%% @private 处理回调返回结果
+%%
+%% 支持三种返回值：
+%% - continue: 继续执行
+%% - {stop, Reason}: 停止执行
+%% - {retry, Opts}: 重试指定顶点
+-spec handle_callback_result(superstep_complete_result(), boolean(), boolean(), #state{}) ->
+    #state{}.
+handle_callback_result({stop, Reason}, _Halted, _MaxReached, State) ->
+    finish_execution({stopped, Reason}, State);
+
+handle_callback_result(continue, Halted, MaxReached, State) ->
+    %% 重置重试计数
+    StateReset = State#state{retry_count = 0},
+    case {Halted, MaxReached} of
+        {true, _} ->
+            finish_execution(completed, StateReset);
+        {_, true} ->
+            finish_execution(max_supersteps, StateReset);
+        {false, false} ->
+            start_next_superstep(StateReset)
+    end;
+
+handle_callback_result({retry, RetryOpts}, Halted, MaxReached, State) ->
+    %% 处理重试请求
+    handle_retry_request(RetryOpts, Halted, MaxReached, State).
+
+%% @private 处理重试请求
+%%
+%% 检查是否超过最大重试次数，如果没有则执行重试。
+%% 只重试实际失败的顶点（指定的顶点与失败顶点的交集）。
+-spec handle_retry_request(retry_opts(), boolean(), boolean(), #state{}) -> #state{}.
+handle_retry_request(RetryOpts, Halted, MaxReached, #state{
+    retry_count = RetryCount,
+    last_results = LastResults
+} = State) ->
+    %% 1. 解析重试选项
+    RequestedIds = maps:get(vertices, RetryOpts, []),
+    MaxRetries = maps:get(max_retries, RetryOpts, 1),
+
+    %% 2. 更新状态中的最大重试次数
+    StateWithMax = State#state{max_retries = MaxRetries},
+
+    %% 3. 只重试实际失败的顶点（请求的顶点与失败顶点的交集）
+    FailedVertices = maps:get(failed_vertices, LastResults, []),
+    FailedIds = [Id || {Id, _} <- FailedVertices],
+    VertexIds = [Id || Id <- RequestedIds, lists:member(Id, FailedIds)],
+
+    %% 4. 检查是否有顶点需要重试
+    case VertexIds of
+        [] ->
+            %% 没有顶点需要重试，继续正常流程
+            handle_callback_result(continue, Halted, MaxReached, StateWithMax);
+        _ ->
+            %% 5. 检查是否超过最大重试次数
+            case RetryCount >= MaxRetries of
+                true ->
+                    %% 超过最大重试次数，停止执行
+                    finish_execution({stopped, {max_retries_exceeded, FailedVertices}}, StateWithMax);
+                false ->
+                    %% 6. 执行重试
+                    execute_retry(VertexIds, Halted, MaxReached, StateWithMax)
             end
     end.
+
+%% @private 执行顶点重试
+%%
+%% 从 last_results 获取 inbox，调用 Workers 重试，合并结果
+-spec execute_retry([vertex_id()], boolean(), boolean(), #state{}) -> #state{}.
+execute_retry(VertexIds, _Halted, MaxReached, #state{
+    workers = Workers,
+    num_workers = NumWorkers,
+    retry_count = RetryCount,
+    last_results = LastResults
+} = State) ->
+    %% 1. 从上次结果获取 inbox
+    Inbox = maps:get(inbox, LastResults, #{}),
+
+    %% 2. 调用所有 Workers 重试指定顶点
+    RetryResults = maps:fold(
+        fun(_WorkerId, Pid, Acc) ->
+            case pregel_worker:retry_vertices(Pid, VertexIds, Inbox) of
+                {ok, Result} -> [Result | Acc];
+                _ -> Acc
+            end
+        end,
+        [],
+        Workers
+    ),
+
+    %% 3. 合并重试结果
+    MergedResults = merge_retry_results(RetryResults, LastResults),
+
+    %% 4. 路由重试产生的 outbox 消息
+    RetryOutbox = lists:flatmap(
+        fun(R) -> maps:get(outbox, R, []) end,
+        RetryResults
+    ),
+    route_all_messages(RetryOutbox, Workers, NumWorkers),
+
+    %% 5. 重新计算终止条件（基于重试后的状态）
+    TotalActive = maps:get(active_count, MergedResults, 0),
+    TotalMessages = maps:get(message_count, MergedResults, 0) + length(RetryOutbox),
+    NewHalted = (TotalActive =:= 0) andalso (TotalMessages =:= 0),
+
+    %% 6. 更新状态
+    NewState = State#state{
+        retry_count = RetryCount + 1,
+        last_results = MergedResults
+    },
+
+    %% 7. 重新调用回调（让 Graph 层决定继续重试还是停止）
+    CallbackResult = call_superstep_complete(step, MergedResults, NewState),
+    handle_callback_result(
+        CallbackResult,
+        NewHalted,
+        MaxReached,
+        NewState
+    ).
+
+%% @private 合并重试结果到上次结果
+%%
+%% 更新 failed_vertices 和 interrupted_vertices
+-spec merge_retry_results([pregel_worker:retry_result()], pregel_barrier:superstep_results()) ->
+    pregel_barrier:superstep_results().
+merge_retry_results(RetryResults, LastResults) ->
+    %% 收集重试后仍然失败/中断的顶点
+    {StillFailed, StillInterrupted} = lists:foldl(
+        fun(R, {FAcc, IAcc}) ->
+            {maps:get(failed_vertices, R, []) ++ FAcc,
+             maps:get(interrupted_vertices, R, []) ++ IAcc}
+        end,
+        {[], []},
+        RetryResults
+    ),
+
+    %% 更新结果
+    LastResults#{
+        failed_count => length(StillFailed),
+        failed_vertices => StillFailed,
+        interrupted_count => length(StillInterrupted),
+        interrupted_vertices => StillInterrupted
+    }.
 
 %% @private 统一路由所有消息到目标 Worker
 %%
@@ -467,8 +635,9 @@ build_superstep_complete_info(Type, Results, #state{
     superstep = Superstep,
     workers = Workers
 }) ->
-    %% 从汇总结果中获取 outbox（已路由的消息）
+    %% 从汇总结果中获取 outbox 和 inbox
     Outbox = maps:get(outbox, Results, []),
+    Inbox = maps:get(inbox, Results, #{}),
     #{
         type => Type,
         superstep => Superstep,
@@ -478,24 +647,27 @@ build_superstep_complete_info(Type, Results, #state{
         failed_vertices => maps:get(failed_vertices, Results, []),
         interrupted_count => maps:get(interrupted_count, Results, 0),
         interrupted_vertices => maps:get(interrupted_vertices, Results, []),
-        get_checkpoint_data => make_get_checkpoint_data(Superstep, Workers, Outbox)
+        get_checkpoint_data => make_get_checkpoint_data(Superstep, Workers, Outbox, Inbox)
     }.
 
 %% @private 创建按需获取 checkpoint 数据的函数
 %%
 %% 返回一个闭包，调用时收集当前状态快照。
-%% 注意：pending_messages 现在来自汇总的 outbox，而不是 Master 缓存
+%% - pending_messages: 发出的消息（用于恢复后继续路由）
+%% - vertex_inbox: 各顶点收到的消息（用于单顶点重启）
 -spec make_get_checkpoint_data(non_neg_integer(),
                                 #{non_neg_integer() => pid()},
-                                [{term(), term()}]) ->
+                                [{term(), term()}],
+                                #{term() => [term()]}) ->
     fun(() -> checkpoint_data()).
-make_get_checkpoint_data(Superstep, Workers, Outbox) ->
+make_get_checkpoint_data(Superstep, Workers, Outbox, Inbox) ->
     fun() ->
         Vertices = collect_vertices_from_workers(Workers),
         #{
             superstep => Superstep,
             vertices => Vertices,
-            pending_messages => Outbox  %% 已路由的消息列表
+            pending_messages => Outbox,
+            vertex_inbox => Inbox
         }
     end.
 
@@ -527,6 +699,7 @@ empty_superstep_results() ->
     #{
         active_count => 0,
         message_count => 0,
+        inbox => #{},
         outbox => [],
         failed_count => 0,
         failed_vertices => [],
