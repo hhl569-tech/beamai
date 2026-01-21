@@ -8,7 +8,7 @@
 %%%   - 创建和管理同步屏障状态
 %%%   - 记录 Worker 完成通知
 %%%   - 检测屏障完成条件
-%%%   - 汇总超步执行结果
+%%%   - 汇总超步执行结果（含失败和中断信息）
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
@@ -16,6 +16,13 @@
 
 -export([new/1, record_done/2, is_complete/1, get_results/1, reset/2]).
 -export([aggregate_results/1]).
+
+%% 类型导出
+-export_type([t/0, superstep_results/0]).
+
+%%====================================================================
+%% 类型定义
+%%====================================================================
 
 %% 同步屏障记录
 -record(barrier, {
@@ -25,7 +32,16 @@
 }).
 
 -opaque t() :: #barrier{}.
--export_type([t/0]).
+
+%% 超步结果汇总类型
+-type superstep_results() :: #{
+    active_count := non_neg_integer(),
+    message_count := non_neg_integer(),
+    failed_count := non_neg_integer(),
+    failed_vertices := [{term(), term()}],
+    interrupted_count := non_neg_integer(),
+    interrupted_vertices := [{term(), term()}]
+}.
 
 %%====================================================================
 %% API
@@ -63,16 +79,50 @@ get_results(#barrier{results = Rs}) ->
 reset(NumWorkers, _Barrier) ->
     new(NumWorkers).
 
-%% @doc 汇总 Worker 结果
-%% 返回 {活跃顶点数, 消息数}
--spec aggregate_results([map()]) -> {non_neg_integer(), non_neg_integer()}.
+%% @doc 汇总所有 Worker 的执行结果
+%%
+%% 将多个 Worker 的结果合并为单一的超步结果，包括：
+%% - 活跃顶点数、消息数
+%% - 失败顶点数和列表
+%% - 中断顶点数和列表
+%%
+%% @param Results Worker 结果列表
+%% @returns 汇总后的超步结果
+-spec aggregate_results([map()]) -> superstep_results().
 aggregate_results(Results) ->
-    lists:foldl(
-        fun(Result, {AccA, AccM}) ->
-            Active = maps:get(active_count, Result, 0),
-            Messages = maps:get(message_count, Result, 0),
-            {AccA + Active, AccM + Messages}
-        end,
-        {0, 0},
-        Results
-    ).
+    InitAcc = empty_results(),
+    lists:foldl(fun merge_worker_result/2, InitAcc, Results).
+
+%%====================================================================
+%% 内部函数
+%%====================================================================
+
+%% @private 创建空的结果结构
+-spec empty_results() -> superstep_results().
+empty_results() ->
+    #{
+        active_count => 0,
+        message_count => 0,
+        failed_count => 0,
+        failed_vertices => [],
+        interrupted_count => 0,
+        interrupted_vertices => []
+    }.
+
+%% @private 合并单个 Worker 的结果到累加器
+-spec merge_worker_result(map(), superstep_results()) -> superstep_results().
+merge_worker_result(WorkerResult, Acc) ->
+    #{
+        active_count => maps:get(active_count, Acc) +
+                        maps:get(active_count, WorkerResult, 0),
+        message_count => maps:get(message_count, Acc) +
+                         maps:get(message_count, WorkerResult, 0),
+        failed_count => maps:get(failed_count, Acc) +
+                        maps:get(failed_count, WorkerResult, 0),
+        failed_vertices => maps:get(failed_vertices, WorkerResult, []) ++
+                           maps:get(failed_vertices, Acc),
+        interrupted_count => maps:get(interrupted_count, Acc) +
+                             maps:get(interrupted_count, WorkerResult, 0),
+        interrupted_vertices => maps:get(interrupted_vertices, WorkerResult, []) ++
+                                maps:get(interrupted_vertices, Acc)
+    }.

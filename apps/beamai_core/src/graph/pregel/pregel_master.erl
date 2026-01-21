@@ -20,25 +20,58 @@
 
 %% 类型导出
 -export_type([opts/0, result/0]).
+-export_type([superstep_complete_info/0, superstep_complete_result/0, checkpoint_data/0]).
 
 %%====================================================================
 %% 类型定义
 %%====================================================================
 
 -type graph() :: pregel_graph:graph().
+-type vertex_id() :: pregel_vertex:vertex_id().
+-type vertex() :: pregel_vertex:vertex().
 -type compute_fn() :: fun((pregel_worker:context()) -> pregel_worker:context()).
+
+%% 回调类型定义
+-type callback_type() :: initial | step | final.
+
+%% Checkpoint 数据（按需获取）
+-type checkpoint_data() :: #{
+    superstep := non_neg_integer(),
+    vertices := #{vertex_id() => vertex()},
+    pending_messages := [{vertex_id(), term()}]
+}.
+
+%% 超步完成回调信息
+-type superstep_complete_info() :: #{
+    type := callback_type(),
+    superstep := non_neg_integer(),
+    active_count := non_neg_integer(),
+    message_count := non_neg_integer(),
+    failed_count := non_neg_integer(),
+    failed_vertices := [{vertex_id(), term()}],
+    interrupted_count := non_neg_integer(),
+    interrupted_vertices := [{vertex_id(), term()}],
+    get_checkpoint_data := fun(() -> checkpoint_data())
+}.
+
+%% 回调返回值
+-type superstep_complete_result() :: continue | {stop, term()}.
+
+%% 超步完成回调函数类型
+-type superstep_complete_callback() :: fun((superstep_complete_info()) -> superstep_complete_result()).
 
 %% Pregel 执行选项
 -type opts() :: #{
     combiner => pregel_combiner:spec(),
     max_supersteps => pos_integer(),
     num_workers => pos_integer(),
-    on_superstep => fun((non_neg_integer(), graph()) -> ok)
+    on_superstep => fun((non_neg_integer(), graph()) -> ok),
+    on_superstep_complete => superstep_complete_callback()
 }.
 
 %% Pregel 执行结果
 -type result() :: #{
-    status := completed | max_supersteps,
+    status := completed | max_supersteps | {stopped, term()},
     graph := graph(),
     supersteps := non_neg_integer(),
     stats := #{atom() => term()}
@@ -56,6 +89,7 @@
     barrier          :: pregel_barrier:t(),         %% 同步屏障
     caller           :: gen_server:from() | undefined,  %% 调用者
     on_superstep     :: fun((non_neg_integer(), graph()) -> ok) | undefined,
+    on_superstep_complete :: superstep_complete_callback() | undefined,  %% 超步完成回调
     pending_messages :: #{non_neg_integer() => [{term(), term()}]}  %% 待发送消息
 }).
 
@@ -109,14 +143,26 @@ init({Graph, ComputeFn, Opts}) ->
         barrier = pregel_barrier:new(0),
         caller = undefined,
         on_superstep = maps:get(on_superstep, Opts, undefined),
+        on_superstep_complete = maps:get(on_superstep_complete, Opts, undefined),
         pending_messages = #{}
     },
     {ok, State}.
 
 handle_call(start_execution, From, State) ->
-    NewState = start_workers(State#state{caller = From}),
-    broadcast_start_superstep(NewState),
-    {noreply, NewState};
+    StateWithCaller = State#state{caller = From},
+    %% 启动 Workers
+    StateWithWorkers = start_workers(StateWithCaller),
+    %% 调用 initial 回调
+    case call_superstep_complete(initial, empty_superstep_results(), StateWithWorkers) of
+        continue ->
+            %% 继续执行第一个超步
+            broadcast_start_superstep(StateWithWorkers),
+            {noreply, StateWithWorkers};
+        {stop, Reason} ->
+            %% 回调要求停止，返回结果
+            finish_execution({stopped, Reason}, StateWithWorkers),
+            {noreply, StateWithWorkers}
+    end;
 
 handle_call(get_graph, _From, #state{graph = Graph} = State) ->
     {reply, Graph, State};
@@ -257,9 +303,11 @@ complete_superstep(#state{
     workers = Workers,
     pending_messages = PendingMessages
 } = State) ->
-    %% 1. 汇总结果
+    %% 1. 汇总结果（返回 map 格式）
     Results = pregel_barrier:get_results(Barrier),
-    {TotalActive, TotalMessages} = pregel_barrier:aggregate_results(Results),
+    AggregatedResults = pregel_barrier:aggregate_results(Results),
+    TotalActive = maps:get(active_count, AggregatedResults),
+    TotalMessages = maps:get(message_count, AggregatedResults),
 
     %% 2. 发送待处理消息
     deliver_pending_messages(PendingMessages, Workers),
@@ -268,11 +316,19 @@ complete_superstep(#state{
     Halted = (TotalActive =:= 0) andalso (TotalMessages =:= 0),
     MaxReached = Superstep >= MaxSupersteps - 1,
 
-    %% 4. 决定下一步
-    case {Halted, MaxReached} of
-        {true, _} -> finish_execution(completed, State);
-        {_, true} -> finish_execution(max_supersteps, State);
-        {false, false} -> start_next_superstep(State)
+    %% 4. 判断回调类型并调用回调
+    CallbackType = determine_callback_type(Halted, MaxReached),
+    case call_superstep_complete(CallbackType, AggregatedResults, State) of
+        {stop, Reason} ->
+            %% 回调要求停止
+            finish_execution({stopped, Reason}, State);
+        continue ->
+            %% 根据终止条件决定下一步
+            case {Halted, MaxReached} of
+                {true, _} -> finish_execution(completed, State);
+                {_, true} -> finish_execution(max_supersteps, State);
+                {false, false} -> start_next_superstep(State)
+            end
     end.
 
 %% @private 发送待处理消息
@@ -305,7 +361,7 @@ start_next_superstep(#state{superstep = Superstep, workers = Workers} = State) -
 %%====================================================================
 
 %% @private 完成执行
--spec finish_execution(completed | max_supersteps, #state{}) -> #state{}.
+-spec finish_execution(completed | max_supersteps | {stopped, term()}, #state{}) -> #state{}.
 finish_execution(Status, #state{
     caller = Caller,
     superstep = Superstep,
@@ -362,3 +418,104 @@ handle_route_messages(TargetWorkerId, Messages, #state{
             pregel_worker:receive_messages(Pid, Messages),
             State
     end.
+
+%%====================================================================
+%% 回调机制
+%%====================================================================
+
+%% @private 调用超步完成回调
+%%
+%% 如果没有配置回调，直接返回 continue。
+%% 否则构建回调信息并调用回调函数。
+-spec call_superstep_complete(callback_type(), pregel_barrier:superstep_results(), #state{}) ->
+    superstep_complete_result().
+call_superstep_complete(_Type, _Results, #state{on_superstep_complete = undefined}) ->
+    continue;
+call_superstep_complete(Type, Results, State) ->
+    Info = build_superstep_complete_info(Type, Results, State),
+    Callback = State#state.on_superstep_complete,
+    Callback(Info).
+
+%% @private 构建超步完成回调信息
+-spec build_superstep_complete_info(callback_type(), pregel_barrier:superstep_results(), #state{}) ->
+    superstep_complete_info().
+build_superstep_complete_info(Type, Results, #state{
+    superstep = Superstep,
+    workers = Workers,
+    pending_messages = PendingMessages
+}) ->
+    #{
+        type => Type,
+        superstep => Superstep,
+        active_count => maps:get(active_count, Results, 0),
+        message_count => maps:get(message_count, Results, 0),
+        failed_count => maps:get(failed_count, Results, 0),
+        failed_vertices => maps:get(failed_vertices, Results, []),
+        interrupted_count => maps:get(interrupted_count, Results, 0),
+        interrupted_vertices => maps:get(interrupted_vertices, Results, []),
+        get_checkpoint_data => make_get_checkpoint_data(Superstep, Workers, PendingMessages)
+    }.
+
+%% @private 创建按需获取 checkpoint 数据的函数
+%%
+%% 返回一个闭包，调用时收集当前状态快照。
+-spec make_get_checkpoint_data(non_neg_integer(),
+                                #{non_neg_integer() => pid()},
+                                #{non_neg_integer() => [{term(), term()}]}) ->
+    fun(() -> checkpoint_data()).
+make_get_checkpoint_data(Superstep, Workers, PendingMessages) ->
+    fun() ->
+        Vertices = collect_vertices_from_workers(Workers),
+        Messages = collect_pending_messages_list(PendingMessages),
+        #{
+            superstep => Superstep,
+            vertices => Vertices,
+            pending_messages => Messages
+        }
+    end.
+
+%% @private 从所有 Worker 收集顶点状态
+-spec collect_vertices_from_workers(#{non_neg_integer() => pid()}) ->
+    #{vertex_id() => vertex()}.
+collect_vertices_from_workers(Workers) ->
+    maps:fold(
+        fun(_WorkerId, Pid, Acc) ->
+            maps:merge(Acc, pregel_worker:get_vertices(Pid))
+        end,
+        #{},
+        Workers
+    ).
+
+%% @private 将待处理消息转换为列表格式
+-spec collect_pending_messages_list(#{non_neg_integer() => [{term(), term()}]}) ->
+    [{vertex_id(), term()}].
+collect_pending_messages_list(PendingMessages) ->
+    maps:fold(
+        fun(_WorkerId, Messages, Acc) ->
+            Messages ++ Acc
+        end,
+        [],
+        PendingMessages
+    ).
+
+%% @private 判断回调类型
+%%
+%% - initial: 执行前（superstep = 0，尚未开始）
+%% - final: 终止条件满足或达到最大超步
+%% - step: 超步完成但未终止
+-spec determine_callback_type(boolean(), boolean()) -> callback_type().
+determine_callback_type(true, _) -> final;      %% 终止
+determine_callback_type(_, true) -> final;      %% 达到最大超步
+determine_callback_type(false, false) -> step.  %% 继续执行
+
+%% @private 创建空的结果（用于 initial 回调）
+-spec empty_superstep_results() -> pregel_barrier:superstep_results().
+empty_superstep_results() ->
+    #{
+        active_count => 0,
+        message_count => 0,
+        failed_count => 0,
+        failed_vertices => [],
+        interrupted_count => 0,
+        interrupted_vertices => []
+    }.
