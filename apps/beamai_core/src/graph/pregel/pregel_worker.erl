@@ -17,11 +17,14 @@
 -export([start_superstep/2, receive_messages/2]).
 -export([get_state/1, get_vertices/1]).
 
+%% 内部函数导出（用于测试）
+-export([compute_vertices/6]).
+
 %% gen_server 回调
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% 类型导出
--export_type([opts/0, context/0]).
+-export_type([opts/0, context/0, compute_result/0, compute_status/0]).
 
 %%====================================================================
 %% 类型定义
@@ -49,6 +52,21 @@
     superstep := non_neg_integer(),
     num_vertices := non_neg_integer(),
     outbox := [{vertex_id(), term()}]
+}.
+
+%% 计算结果状态
+%% ok - 计算成功
+%% {error, Reason} - 计算失败，Reason 为失败原因
+-type compute_status() :: ok | {error, term()}.
+
+%% 计算结果（计算函数必须返回此结构）
+%% vertex - 新顶点状态（成功时更新，失败时保持原值）
+%% outbox - 发出的消息（失败时应为空列表）
+%% status - 计算状态（必需）
+-type compute_result() :: #{
+    vertex := vertex(),
+    outbox := [{vertex_id(), term()}],
+    status := compute_status()
 }.
 
 %% 内部状态
@@ -164,6 +182,7 @@ terminate(_Reason, _State) ->
 %%====================================================================
 
 %% @private 执行一个超步
+%% 返回更新后的 Worker 状态
 -spec execute_superstep(#state{}) -> #state{}.
 execute_superstep(#state{
     vertices = Vertices,
@@ -176,8 +195,8 @@ execute_superstep(#state{
     %% 1. 筛选需要计算的顶点（有消息或活跃）
     ActiveVertices = filter_active_vertices(Vertices, Inbox),
 
-    %% 2. 执行所有顶点计算
-    {NewVertices, Outbox} = compute_vertices(
+    %% 2. 执行所有顶点计算（返回失败列表）
+    {NewVertices, Outbox, FailedVertices} = compute_vertices(
         ActiveVertices, Vertices, Inbox, ComputeFn, Superstep, NumVertices
     ),
 
@@ -187,8 +206,8 @@ execute_superstep(#state{
     %% 4. 路由消息到目标 Worker
     route_messages(CombinedOutbox, State),
 
-    %% 5. 通知 Master 完成
-    notify_master_done(State, NewVertices, CombinedOutbox),
+    %% 5. 通知 Master 完成（含失败信息）
+    notify_master_done(State, NewVertices, CombinedOutbox, FailedVertices),
 
     %% 6. 返回更新后的状态
     State#state{vertices = NewVertices, inbox = #{}}.
@@ -206,28 +225,48 @@ filter_active_vertices(Vertices, Inbox) ->
         Vertices
     ).
 
-%% @private 执行所有顶点计算
--spec compute_vertices(#{vertex_id() => vertex()},
-                       #{vertex_id() => vertex()},
-                       #{vertex_id() => [term()]},
-                       fun((context()) -> context()),
-                       non_neg_integer(),
-                       non_neg_integer()) ->
-    {#{vertex_id() => vertex()}, [{vertex_id(), term()}]}.
+%% @doc 执行所有顶点计算
+%%
+%% 根据计算函数返回的 status 字段处理计算结果：
+%% - status == ok: 更新顶点，收集 outbox
+%% - status == {error, Reason}: 记录失败，不更新顶点，不发消息
+%% - 无 status 字段: 向后兼容，视为 ok
+%%
+%% @returns {更新后的顶点集合, 输出消息列表, 失败顶点列表}
+-spec compute_vertices(
+    ActiveVertices :: #{vertex_id() => vertex()},
+    AllVertices :: #{vertex_id() => vertex()},
+    Inbox :: #{vertex_id() => [term()]},
+    ComputeFn :: fun((context()) -> compute_result()),
+    Superstep :: non_neg_integer(),
+    NumVertices :: non_neg_integer()
+) -> {#{vertex_id() => vertex()}, [{vertex_id(), term()}], [{vertex_id(), term()}]}.
 compute_vertices(ActiveVertices, AllVertices, Inbox, ComputeFn, Superstep, NumVertices) ->
     maps:fold(
-        fun(Id, Vertex, {VAcc, OAcc}) ->
+        fun(Id, Vertex, Acc) ->
             Messages = maps:get(Id, Inbox, []),
-            %% 有消息时激活顶点
             ActiveVertex = activate_if_has_messages(Vertex, Messages),
-            %% 创建上下文并执行计算
             Context = make_context(ActiveVertex, Messages, Superstep, NumVertices),
-            #{vertex := NewVertex, outbox := Out} = ComputeFn(Context),
-            {VAcc#{Id => NewVertex}, Out ++ OAcc}
+            Result = ComputeFn(Context),
+            process_compute_result(Id, Result, Acc)
         end,
-        {AllVertices, []},
+        {AllVertices, [], []},  %% {Vertices, Outbox, FailedVertices}
         ActiveVertices
     ).
+
+%% @private 处理单个顶点的计算结果
+%% 根据 status 字段决定如何处理结果
+-spec process_compute_result(
+    vertex_id(),
+    compute_result(),
+    {#{vertex_id() => vertex()}, [{vertex_id(), term()}], [{vertex_id(), term()}]}
+) -> {#{vertex_id() => vertex()}, [{vertex_id(), term()}], [{vertex_id(), term()}]}.
+process_compute_result(Id, #{status := ok, vertex := NewVertex, outbox := Out}, {VAcc, OAcc, FailedAcc}) ->
+    %% 成功：更新顶点，收集消息
+    {VAcc#{Id => NewVertex}, Out ++ OAcc, FailedAcc};
+process_compute_result(Id, #{status := {error, Reason}}, {VAcc, OAcc, FailedAcc}) ->
+    %% 失败：记录失败信息，不更新顶点，不收集消息
+    {VAcc, OAcc, [{Id, Reason} | FailedAcc]}.
 
 %% @private 如果有消息则激活顶点
 -spec activate_if_has_messages(vertex(), [term()]) -> vertex().
@@ -326,13 +365,21 @@ send_to_worker(TargetId, Messages, MyId, WorkerPids, Master) ->
 %%====================================================================
 
 %% @private 通知 Master 超步完成
--spec notify_master_done(#state{}, #{vertex_id() => vertex()},
-                         [{vertex_id(), term()}]) -> ok.
-notify_master_done(#state{worker_id = WorkerId, master = Master}, Vertices, Outbox) ->
+%% 包含失败顶点信息供 Master 处理
+-spec notify_master_done(
+    #state{},
+    #{vertex_id() => vertex()},
+    [{vertex_id(), term()}],
+    [{vertex_id(), term()}]
+) -> ok.
+notify_master_done(#state{worker_id = WorkerId, master = Master}, Vertices, Outbox, FailedVertices) ->
     Result = #{
         worker_id => WorkerId,
         active_count => pregel_utils:map_count(fun pregel_vertex:is_active/1, Vertices),
-        message_count => length(Outbox)
+        message_count => length(Outbox),
+        %% 新增：失败信息
+        failed_count => length(FailedVertices),
+        failed_vertices => FailedVertices  %% [{vertex_id(), Reason}]
     },
     gen_server:cast(Master, {worker_done, self(), Result}).
 
