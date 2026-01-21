@@ -52,7 +52,6 @@
         %% Pregel
         pregel,
         pregel_barrier,
-        pregel_combiner,
         pregel_graph,
         pregel_master,
         pregel_partition,

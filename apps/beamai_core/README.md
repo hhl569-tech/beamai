@@ -48,7 +48,6 @@ Agent Framework 的核心模块，提供 Agent 行为定义、数据类型、图
 - **pregel_graph** - Pregel 图
 - **pregel_partition** - 分区管理
 - **pregel_barrier** - 同步屏障
-- **pregel_combiner** - 消息合并
 
 ### 图计算模式
 

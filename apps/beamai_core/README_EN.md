@@ -48,7 +48,6 @@ Distributed graph computation Pregel model implementation:
 - **pregel_graph** - Pregel graph
 - **pregel_partition** - Partition management
 - **pregel_barrier** - Synchronization barrier
-- **pregel_combiner** - Message combiner
 
 ### Graph Computation Patterns
 

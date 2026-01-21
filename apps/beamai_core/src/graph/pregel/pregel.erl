@@ -180,7 +180,6 @@ run(Graph, ComputeFn) ->
 
 %% @doc 执行 Pregel 计算（带选项）
 %% 可用选项:
-%% - combiner: 消息合并器（sum, min, max 等）
 %% - max_supersteps: 最大超步数（默认100）
 %% - num_workers: Worker 数量（默认CPU核心数）
 %% - state_reducer: 消息整合函数（默认 last_write_win）

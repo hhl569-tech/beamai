@@ -40,7 +40,6 @@
     master := pid(),
     vertices := #{vertex_id() => vertex()},
     compute_fn := fun((context()) -> context()),
-    combiner => pregel_combiner:spec(),
     num_workers := pos_integer(),
     num_vertices => non_neg_integer(),
     worker_pids => #{non_neg_integer() => pid()}
@@ -99,7 +98,6 @@
     vertices      :: #{vertex_id() => vertex()},  % 本地顶点
     inbox         :: #{vertex_id() => [term()]},  % 收件箱
     compute_fn    :: fun((context()) -> context()),  % 计算函数
-    combiner      :: pregel_combiner:spec() | undefined,  % 合并器
     superstep     :: non_neg_integer(),    % 当前超步
     num_workers   :: pos_integer(),        % Worker 总数
     num_vertices  :: non_neg_integer(),    % 全图顶点总数
@@ -171,7 +169,6 @@ init(Opts) ->
         vertices = Vertices,
         inbox = #{},
         compute_fn = ComputeFn,
-        combiner = maps:get(combiner, Opts, undefined),
         superstep = 0,
         num_workers = NumWorkers,
         num_vertices = maps:get(num_vertices, Opts, maps:size(Vertices)),
@@ -230,7 +227,6 @@ execute_superstep(#state{
     vertices = Vertices,
     inbox = Inbox,
     compute_fn = ComputeFn,
-    combiner = Combiner,
     superstep = Superstep,
     num_vertices = NumVertices
 } = State) ->
@@ -242,14 +238,12 @@ execute_superstep(#state{
         ActiveVertices, Vertices, Inbox, ComputeFn, Superstep, NumVertices
     ),
 
-    %% 3. 应用合并器（如果有）
-    CombinedOutbox = apply_combiner(Outbox, Combiner),
-
-    %% 4. 通知 Master 完成（含 inbox、outbox、失败和中断信息）
+    %% 3. 通知 Master 完成（含 inbox、outbox、失败和中断信息）
     %% 注意：inbox 用于 checkpoint，支持单顶点重启
-    notify_master_done(State, Inbox, NewVertices, CombinedOutbox, FailedVertices, InterruptedVertices),
+    %% 消息合并由 Master 的 state_reducer 统一处理
+    notify_master_done(State, Inbox, NewVertices, Outbox, FailedVertices, InterruptedVertices),
 
-    %% 5. 返回更新后的状态
+    %% 4. 返回更新后的状态
     State#state{vertices = NewVertices, inbox = #{}}.
 
 %% @private 筛选需要计算的顶点
@@ -343,20 +337,10 @@ add_to_inbox(Messages, #state{inbox = Inbox} = State) ->
     ),
     State#state{inbox = NewInbox}.
 
-%% @private 应用合并器到消息
--spec apply_combiner([{vertex_id(), term()}], pregel_combiner:spec() | undefined) ->
-    [{vertex_id(), term()}].
-apply_combiner(Outbox, undefined) ->
-    Outbox;
-apply_combiner(Outbox, Combiner) ->
-    CombinerFn = pregel_combiner:get(Combiner),
-    Grouped = pregel_utils:group_messages(Outbox),
-    Combined = pregel_utils:apply_to_groups(CombinerFn, Grouped),
-    [{Target, Value} || {Target, Value} <- maps:to_list(Combined)].
-
-%% 注意：route_messages, group_by_target_worker, send_to_worker 函数已移除
+%% 注意：route_messages, group_by_target_worker, send_to_worker, apply_combiner 函数已移除
 %% BSP 模型改进：Worker 不再直接路由消息，改为上报 outbox 给 Master
 %% Master 在 complete_superstep 中统一路由所有消息
+%% 消息合并由 Master 的 state_reducer 统一处理
 
 %%====================================================================
 %% 辅助函数
@@ -419,12 +403,12 @@ state_to_map(#state{
 %%
 %% 只重新计算指定的顶点，使用提供的 inbox 消息。
 %% 返回 {Result, NewState}，其中 Result 包含重试结果。
+%% 消息合并由 Master 的 state_reducer 统一处理。
 -spec do_retry_vertices([vertex_id()], #{vertex_id() => [term()]}, #state{}) ->
     {{ok, retry_result()}, #state{}}.
 do_retry_vertices(VertexIds, Inbox, #state{
     vertices = Vertices,
     compute_fn = ComputeFn,
-    combiner = Combiner,
     superstep = Superstep,
     num_vertices = NumVertices
 } = State) ->
@@ -439,18 +423,15 @@ do_retry_vertices(VertexIds, Inbox, #state{
         RetryVertices, Vertices, Inbox, ComputeFn, Superstep, NumVertices
     ),
 
-    %% 4. 应用合并器
-    CombinedOutbox = apply_combiner(Outbox, Combiner),
-
-    %% 5. 构建结果
+    %% 4. 构建结果
     Result = #{
         vertices => maps:with(LocalVertexIds, NewVertices),
-        outbox => CombinedOutbox,
+        outbox => Outbox,
         failed_vertices => FailedVertices,
         interrupted_vertices => InterruptedVertices
     },
 
-    %% 6. 更新 Worker 状态（合并新顶点状态）
+    %% 5. 更新 Worker 状态（合并新顶点状态）
     NewState = State#state{vertices = NewVertices},
 
     {{ok, Result}, NewState}.

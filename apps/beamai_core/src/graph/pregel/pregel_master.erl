@@ -86,7 +86,6 @@
 
 %% Pregel 执行选项
 -type opts() :: #{
-    combiner => pregel_combiner:spec(),
     max_supersteps => pos_integer(),
     num_workers => pos_integer(),
     restore_from => restore_opts(),  %% 从 checkpoint 恢复
@@ -108,7 +107,6 @@
 -record(state, {
     graph            :: graph(),                    %% 原始图
     compute_fn       :: compute_fn(),               %% 计算函数
-    combiner         :: pregel_combiner:spec() | undefined,  %% 合并器
     max_supersteps   :: pos_integer(),              %% 最大超步数
     num_workers      :: pos_integer(),              %% Worker 数
     workers          :: #{non_neg_integer() => pid()},  %% Worker 映射
@@ -171,7 +169,6 @@ init({Graph, ComputeFn, Opts}) ->
     State = #state{
         graph = Graph,
         compute_fn = ComputeFn,
-        combiner = maps:get(combiner, Opts, undefined),
         max_supersteps = maps:get(max_supersteps, Opts, 100),
         num_workers = maps:get(num_workers, Opts, erlang:system_info(schedulers)),
         workers = #{},
@@ -291,7 +288,6 @@ terminate(_Reason, #state{workers = Workers}) ->
 start_workers(#state{
     graph = Graph,
     compute_fn = ComputeFn,
-    combiner = Combiner,
     num_workers = NumWorkers,
     restore_from = RestoreOpts
 } = State) ->
@@ -303,7 +299,7 @@ start_workers(#state{
     RestoredVertices = get_restore_vertices(RestoreOpts),
 
     %% 启动 Worker（传入恢复的顶点状态）
-    Workers = start_worker_processes(Partitions, ComputeFn, Combiner, NumWorkers, NumVertices, RestoredVertices),
+    Workers = start_worker_processes(Partitions, ComputeFn, NumWorkers, NumVertices, RestoredVertices),
 
     %% 广播 Worker PID 映射
     broadcast_worker_pids(Workers),
@@ -317,12 +313,11 @@ start_workers(#state{
 %% RestoredVertices: 恢复的顶点状态映射，用于覆盖分区中对应的顶点
 -spec start_worker_processes(#{non_neg_integer() => graph()},
                               compute_fn(),
-                              pregel_combiner:spec() | undefined,
                               pos_integer(),
                               non_neg_integer(),
                               #{vertex_id() => vertex()}) ->
     #{non_neg_integer() => pid()}.
-start_worker_processes(Partitions, ComputeFn, Combiner, NumWorkers, NumVertices, RestoredVertices) ->
+start_worker_processes(Partitions, ComputeFn, NumWorkers, NumVertices, RestoredVertices) ->
     maps:fold(
         fun(WorkerId, WorkerGraph, Acc) ->
             %% 获取分区顶点
@@ -334,7 +329,6 @@ start_worker_processes(Partitions, ComputeFn, Combiner, NumWorkers, NumVertices,
                 master => self(),
                 vertices => Vertices,
                 compute_fn => ComputeFn,
-                combiner => Combiner,
                 num_workers => NumWorkers,
                 num_vertices => NumVertices
             },
