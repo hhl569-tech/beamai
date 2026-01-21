@@ -8,8 +8,7 @@
 %%%
 %%% - Thread: 单个对话会话，由 thread_id 标识
 %%% - Checkpoint: 某一时刻的状态快照
-%%% - Channel: 图节点的输出值和版本
-%%% - Pending Writes: 待处理的状态写入
+%%% - Values: 状态数据（messages, context 等）
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
@@ -32,17 +31,9 @@
     %% 父检查点 ID（用于分支/回溯）
     parent_id :: binary() | undefined,
 
-    %% 通道值 - 图节点的输出
-    %% #{channel_name => value}
-    channel_values = #{} :: map(),
-
-    %% 通道版本 - 用于冲突检测
-    %% #{channel_name => version}
-    channel_versions = #{} :: map(),
-
-    %% 待处理写入 - 当前步骤的写入操作
-    %% [{task_id, channel_name, value}]
-    pending_writes = [] :: list(),
+    %% 状态数据
+    %% #{messages => [...], full_messages => [...], scratchpad => [...], context => #{}, ...}
+    values = #{} :: map(),
 
     %% 创建时间戳
     timestamp :: integer(),

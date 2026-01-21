@@ -226,7 +226,7 @@ checkpoint_to_summary({Checkpoint, _Metadata, _ParentConfig}) ->
         thread_id => Checkpoint#checkpoint.thread_id,
         parent_id => Checkpoint#checkpoint.parent_id,
         timestamp => Checkpoint#checkpoint.timestamp,
-        channel_count => maps:size(Checkpoint#checkpoint.channel_values),
+        channel_count => maps:size(Checkpoint#checkpoint.values),
         version => Checkpoint#checkpoint.version
     }.
 

@@ -336,9 +336,7 @@ checkpoint_tuple_to_map({Checkpoint, Metadata, ParentConfig}) ->
             <<"id">> => Checkpoint#checkpoint.id,
             <<"thread_id">> => Checkpoint#checkpoint.thread_id,
             <<"parent_id">> => Checkpoint#checkpoint.parent_id,
-            <<"channel_values">> => Checkpoint#checkpoint.channel_values,
-            <<"channel_versions">> => Checkpoint#checkpoint.channel_versions,
-            <<"pending_writes">> => Checkpoint#checkpoint.pending_writes,
+            <<"values">> => Checkpoint#checkpoint.values,
             <<"timestamp">> => Checkpoint#checkpoint.timestamp,
             <<"version">> => Checkpoint#checkpoint.version
         },
@@ -367,9 +365,7 @@ map_to_checkpoint_tuple(Map) when is_map(Map) ->
                 id = maps_get(<<"id">>, CpMap),
                 thread_id = maps_get(<<"thread_id">>, CpMap),
                 parent_id = maps_get(<<"parent_id">>, CpMap, undefined),
-                channel_values = maps_get(<<"channel_values">>, CpMap, #{}),
-                channel_versions = maps_get(<<"channel_versions">>, CpMap, #{}),
-                pending_writes = maps_get(<<"pending_writes">>, CpMap, []),
+                values = maps_get(<<"values">>, CpMap, #{}),
                 timestamp = maps_get(<<"timestamp">>, CpMap, 0),
                 version = maps_get(<<"version">>, CpMap, 0)
             },

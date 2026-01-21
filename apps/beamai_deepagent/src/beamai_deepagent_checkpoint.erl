@@ -360,7 +360,7 @@ apply_checkpoint_data(Data, State) ->
 checkpoint_to_map({Checkpoint, Metadata, _ParentConfig}) when is_map(Checkpoint) ->
     #{
         id => maps:get(id, Checkpoint, undefined),
-        data => maps:get(channel_values, Checkpoint, #{}),
+        data => maps:get(values, Checkpoint, maps:get(channel_values, Checkpoint, #{})),
         metadata => Metadata
     };
 checkpoint_to_map(_) ->

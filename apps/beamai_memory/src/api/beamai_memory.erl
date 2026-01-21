@@ -191,9 +191,7 @@ new(Opts) ->
 -spec save_checkpoint(memory(), config(), map()) -> {ok, checkpoint_id()} | {error, term()}.
 save_checkpoint(#memory{checkpointer = Checkpointer}, Config, State) ->
     Checkpoint = #checkpoint{
-        channel_values = State,
-        channel_versions = build_versions(State),
-        pending_writes = []
+        values = State
     },
     beamai_checkpoint_manager:save(Checkpointer, Checkpoint, Config).
 
@@ -440,16 +438,14 @@ delete_archived(#memory{store_manager = StoreManager}, SessionId) ->
 
 %% @doc 将检查点转换为图状态
 -spec checkpoint_to_state(checkpoint()) -> map().
-checkpoint_to_state(#checkpoint{channel_values = Values}) ->
+checkpoint_to_state(#checkpoint{values = Values}) ->
     Values.
 
 %% @doc 将图状态转换为检查点
 -spec state_to_checkpoint(config(), map()) -> checkpoint().
 state_to_checkpoint(_Config, State) when is_map(State) ->
     #checkpoint{
-        channel_values = State,
-        channel_versions = build_versions(State),
-        pending_writes = []
+        values = State
     }.
 
 %% @doc 获取 Checkpointer 管理器（高级用法）
@@ -474,14 +470,9 @@ checkpoint_tuple_to_summary({Checkpoint, _Metadata, _ParentConfig}) ->
         thread_id => Checkpoint#checkpoint.thread_id,
         parent_id => Checkpoint#checkpoint.parent_id,
         timestamp => Checkpoint#checkpoint.timestamp,
-        channel_count => maps:size(Checkpoint#checkpoint.channel_values),
+        channel_count => maps:size(Checkpoint#checkpoint.values),
         version => Checkpoint#checkpoint.version
     }.
-
-%% @private 构建版本号映射
--spec build_versions(map()) -> map().
-build_versions(State) ->
-    maps:map(fun(_, _) -> 1 end, State).
 
 %%====================================================================
 %% 统计和清理 API

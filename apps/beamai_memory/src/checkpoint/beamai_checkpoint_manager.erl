@@ -22,7 +22,7 @@
 %%% Checkpoint = #checkpoint{
 %%%     id = <<"cp-1">>,
 %%%     thread_id = <<"thread-1">>,
-%%%     channel_values = #{messages => []}
+%%%     values = #{messages => []}
 %%% },
 %%% {ok, CpId} = beamai_checkpoint_manager:save(Manager, Checkpoint, Config).
 %%%
@@ -370,9 +370,7 @@ branch(#manager{store = _Store, current_branch = _CurrentBranch, branches = _Bra
                 id = NewCpId,
                 thread_id = NewThreadId,
                 parent_id = SourceCpId,
-                channel_values = SourceCp#checkpoint.channel_values,
-                channel_versions = SourceCp#checkpoint.channel_versions,
-                pending_writes = [],
+                values = SourceCp#checkpoint.values,
                 timestamp = erlang:system_time(millisecond),
                 version = 0
             },
@@ -440,8 +438,8 @@ get_lineage(#manager{store = Store}, Config) ->
 diff(Manager, Config1, Config2) ->
     case {load(Manager, latest, Config1), load(Manager, latest, Config2)} of
         {{ok, {Cp1, _, _}}, {ok, {Cp2, _, _}}} ->
-            Values1 = Cp1#checkpoint.channel_values,
-            Values2 = Cp2#checkpoint.channel_values,
+            Values1 = Cp1#checkpoint.values,
+            Values2 = Cp2#checkpoint.values,
 
             Keys1 = maps:keys(Values1),
             Keys2 = maps:keys(Values2),
@@ -686,9 +684,7 @@ checkpoint_to_map(Checkpoint) ->
             <<"id">> => Checkpoint#checkpoint.id,
             <<"thread_id">> => Checkpoint#checkpoint.thread_id,
             <<"parent_id">> => Checkpoint#checkpoint.parent_id,
-            <<"channel_values">> => Checkpoint#checkpoint.channel_values,
-            <<"channel_versions">> => Checkpoint#checkpoint.channel_versions,
-            <<"pending_writes">> => Checkpoint#checkpoint.pending_writes,
+            <<"values">> => Checkpoint#checkpoint.values,
             <<"timestamp">> => Checkpoint#checkpoint.timestamp,
             <<"version">> => Checkpoint#checkpoint.version
         },
@@ -714,9 +710,7 @@ map_to_checkpoint_tuple(Map) when is_map(Map) ->
                 id = get_flex(<<"id">>, CpMap),
                 thread_id = get_flex(<<"thread_id">>, CpMap),
                 parent_id = get_flex(<<"parent_id">>, CpMap, undefined),
-                channel_values = get_flex(<<"channel_values">>, CpMap, #{}),
-                channel_versions = get_flex(<<"channel_versions">>, CpMap, #{}),
-                pending_writes = get_flex(<<"pending_writes">>, CpMap, []),
+                values = get_flex(<<"values">>, CpMap, #{}),
                 timestamp = get_flex(<<"timestamp">>, CpMap, 0),
                 version = get_flex(<<"version">>, CpMap, 0)
             },

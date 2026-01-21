@@ -191,9 +191,7 @@ save_checkpoint(#{context_store := Store}, Config, State, MetadataMap) ->
         id = generate_checkpoint_id(),
         thread_id = ThreadId,
         parent_id = ParentCpId,
-        channel_values = State,
-        channel_versions = build_versions(State),
-        pending_writes = [],
+        values = State,
         timestamp = erlang:system_time(millisecond),
         version = 0
     },
@@ -332,7 +330,7 @@ branch(Memory, Config, BranchOpts, MetadataMap) ->
                     generate_branch_thread_id(SourceCp#checkpoint.thread_id))),
 
             %% 复制源检查点到新分支
-            BranchState = SourceCp#checkpoint.channel_values,
+            BranchState = SourceCp#checkpoint.values,
             BranchConfig = #{thread_id => NewThreadId, checkpoint_id => SourceCpId},
             BranchMetadata = MetadataMap#{
                 source => branch,
@@ -402,8 +400,8 @@ get_branches(#{context_store := Store}, Config) ->
 diff_checkpoints(Memory, Config1, Config2) ->
     case {load_checkpoint_tuple(Memory, Config1), load_checkpoint_tuple(Memory, Config2)} of
         {{ok, {Cp1, _, _}}, {ok, {Cp2, _, _}}} ->
-            Values1 = Cp1#checkpoint.channel_values,
-            Values2 = Cp2#checkpoint.channel_values,
+            Values1 = Cp1#checkpoint.values,
+            Values2 = Cp2#checkpoint.values,
 
             Keys1 = maps:keys(Values1),
             Keys2 = maps:keys(Values2),
@@ -617,7 +615,7 @@ list_archived_sessions(#{persistent_store := PersistentStore}, Opts) ->
 
 %% @doc 将检查点转换为图状态
 -spec checkpoint_to_state(checkpoint()) -> map().
-checkpoint_to_state(#checkpoint{channel_values = Values}) ->
+checkpoint_to_state(#checkpoint{values = Values}) ->
     Values.
 
 %% @doc 将图状态转换为检查点
@@ -630,9 +628,7 @@ state_to_checkpoint(Config, State) when is_map(State) ->
         id = generate_checkpoint_id(),
         thread_id = ThreadId,
         parent_id = ParentCpId,
-        channel_values = State,
-        channel_versions = build_versions(State),
-        pending_writes = [],
+        values = State,
         timestamp = erlang:system_time(millisecond),
         version = 0
     }.
@@ -824,9 +820,7 @@ checkpoint_to_map(Checkpoint, Metadata, ParentConfig) ->
             id => Checkpoint#checkpoint.id,
             thread_id => Checkpoint#checkpoint.thread_id,
             parent_id => Checkpoint#checkpoint.parent_id,
-            channel_values => Checkpoint#checkpoint.channel_values,
-            channel_versions => Checkpoint#checkpoint.channel_versions,
-            pending_writes => Checkpoint#checkpoint.pending_writes,
+            values => Checkpoint#checkpoint.values,
             timestamp => Checkpoint#checkpoint.timestamp,
             version => Checkpoint#checkpoint.version
         },
@@ -861,9 +855,7 @@ map_to_checkpoint_tuple(Map) when is_map(Map) ->
                 id = get_flex(id, CpMap),
                 thread_id = get_flex(thread_id, CpMap),
                 parent_id = get_flex(parent_id, CpMap, undefined),
-                channel_values = get_flex(channel_values, CpMap, #{}),
-                channel_versions = get_flex(channel_versions, CpMap, #{}),
-                pending_writes = get_flex(pending_writes, CpMap, []),
+                values = get_flex(values, CpMap, #{}),
                 timestamp = get_flex(timestamp, CpMap, 0),
                 version = get_flex(version, CpMap, 0)
             },
@@ -908,11 +900,6 @@ generate_checkpoint_id() ->
 generate_branch_thread_id(SourceThreadId) ->
     Rand = rand:uniform(16#FFFF),
     <<SourceThreadId/binary, "_branch_", (integer_to_binary(Rand))/binary>>.
-
-%% @private 构建版本号映射
--spec build_versions(map()) -> map().
-build_versions(State) ->
-    maps:map(fun(_, _) -> 1 end, State).
 
 %% @private 获取 map 值（同时支持 atom 和 binary 键）
 %% JSON 序列化后键会变成 binary，此函数兼容两种格式

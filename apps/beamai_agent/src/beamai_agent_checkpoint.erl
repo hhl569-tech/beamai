@@ -257,7 +257,7 @@ apply_checkpoint_data(Data, #state{context = CurrentCtx} = State) ->
 
 %% @private 将检查点元组转换为 map
 -spec checkpoint_to_map(tuple()) -> map().
-checkpoint_to_map({#checkpoint{id = Id, channel_values = Values}, Metadata, _ParentConfig}) ->
+checkpoint_to_map({#checkpoint{id = Id, values = Values}, Metadata, _ParentConfig}) ->
     #{
         id => Id,
         data => Values,
@@ -267,7 +267,7 @@ checkpoint_to_map({Checkpoint, Metadata, _ParentConfig}) when is_map(Checkpoint)
     %% 兼容 map 格式
     #{
         id => maps:get(id, Checkpoint, undefined),
-        data => maps:get(channel_values, Checkpoint, #{}),
+        data => maps:get(values, Checkpoint, maps:get(channel_values, Checkpoint, #{})),
         metadata => Metadata
     };
 checkpoint_to_map(_) ->

@@ -254,8 +254,8 @@ is_ancestor_recursive(TargetId, Checkpoint) ->
 %% @private 比较两个检查点的状态
 -spec compare_checkpoints(checkpoint(), checkpoint()) -> map().
 compare_checkpoints(Cp1, Cp2) ->
-    Values1 = Cp1#checkpoint.channel_values,
-    Values2 = Cp2#checkpoint.channel_values,
+    Values1 = Cp1#checkpoint.values,
+    Values2 = Cp2#checkpoint.values,
 
     Keys1 = maps:keys(Values1),
     Keys2 = maps:keys(Values2),
