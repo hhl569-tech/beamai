@@ -42,6 +42,15 @@ make_restore_opts(Superstep, Vertices) ->
 make_restore_opts(Superstep, Vertices, Messages) ->
     #{superstep => Superstep, vertices => Vertices, messages => Messages}.
 
+%% 运行步进式 Pregel 直到完成
+run_until_done(Master) ->
+    case pregel_master:step(Master) of
+        {continue, _Info} ->
+            run_until_done(Master);
+        {done, _Reason, _Info} ->
+            pregel_master:get_result(Master)
+    end.
+
 %%====================================================================
 %% 5.1 类型测试（通过编译验证）
 %%====================================================================
@@ -59,7 +68,7 @@ restore_from_option_accepted_test() ->
     },
 
     %% 应该正常执行，不报错
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
     ?assertMatch(#{status := _}, Result).
 
 %%====================================================================
@@ -77,35 +86,35 @@ restore_from_superstep_0_test() ->
         restore_from => RestoreOpts
     },
 
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
     ?assertEqual(completed, maps:get(status, Result)).
 
-%% 测试：从超步 2 恢复，回调收到正确的超步号
+%% 测试：从超步 2 恢复，验证起始超步号正确
 restore_from_superstep_2_test() ->
     Graph = make_test_graph(),
-    ComputeFn = make_halt_compute_fn(),
 
-    %% 创建顶点状态（已停止）
-    V1 = pregel_vertex:halt(pregel_vertex:new(v1, 100)),
-    V2 = pregel_vertex:halt(pregel_vertex:new(v2, 200)),
+    %% 创建顶点状态（活跃状态以便计算函数被调用）
+    V1 = pregel_vertex:activate(pregel_vertex:new(v1, 100)),
+    V2 = pregel_vertex:activate(pregel_vertex:new(v2, 200)),
     Vertices = #{v1 => V1, v2 => V2},
 
     RestoreOpts = make_restore_opts(2, Vertices),
 
-    %% 记录回调中的超步号
+    %% 记录计算函数中的超步号
     Self = self(),
-    Callback = fun(Info) ->
-        Self ! {superstep, maps:get(superstep, Info)},
-        continue
+    ComputeFn = fun(Ctx) ->
+        Vertex = maps:get(vertex, Ctx),
+        Superstep = maps:get(superstep, Ctx),
+        Self ! {superstep, Superstep},
+        #{vertex => pregel_vertex:halt(Vertex), outbox => [], status => ok}
     end,
 
     Opts = #{
         num_workers => 1,
-        restore_from => RestoreOpts,
-        on_superstep_complete => Callback
+        restore_from => RestoreOpts
     },
 
-    _Result = pregel_master:run(Graph, ComputeFn, Opts),
+    _Result = pregel:run(Graph, ComputeFn, Opts),
 
     %% 收集超步号
     Supersteps = receive_all_supersteps([]),
@@ -151,7 +160,7 @@ restored_vertex_values_test() ->
         restore_from => RestoreOpts
     },
 
-    _Result = pregel_master:run(Graph, ComputeFn, Opts),
+    _Result = pregel:run(Graph, ComputeFn, Opts),
 
     %% 收集顶点值
     Values = receive_all_vertex_values([]),
@@ -185,7 +194,7 @@ final_graph_has_restored_vertices_test() ->
         restore_from => RestoreOpts
     },
 
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
     FinalGraph = maps:get(graph, Result),
 
     %% 验证最终图中的顶点值
@@ -221,7 +230,7 @@ injected_messages_received_test() ->
         restore_from => RestoreOpts
     },
 
-    _Result = pregel_master:run(Graph, ComputeFn, Opts),
+    _Result = pregel:run(Graph, ComputeFn, Opts),
 
     %% 收集消息接收记录
     Records = receive_all_messages_received([]),
@@ -251,7 +260,7 @@ empty_messages_restore_test() ->
         restore_from => RestoreOpts
     },
 
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
     ?assertEqual(completed, maps:get(status, Result)).
 
 %% 测试：不提供 messages 字段时正常执行
@@ -266,20 +275,18 @@ no_messages_field_restore_test() ->
         restore_from => RestoreOpts
     },
 
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
     ?assertEqual(completed, maps:get(status, Result)).
 
 %%====================================================================
 %% 5.5 完整保存-恢复流程测试
 %%====================================================================
 
-%% 测试：保存 checkpoint 后恢复，结果一致
-save_and_restore_consistency_test() ->
+%% 测试：使用步进式 API 保存 checkpoint 后恢复
+save_and_restore_with_step_api_test() ->
     Graph = make_test_graph(),
 
-    %% 第一阶段：正常执行，保存 checkpoint
-    CheckpointHolder = spawn_link(fun() -> checkpoint_holder_loop(undefined) end),
-
+    %% 计算函数：每个超步递增值
     ComputeFn = fun(Ctx) ->
         Vertex = maps:get(vertex, Ctx),
         Superstep = maps:get(superstep, Ctx),
@@ -292,59 +299,40 @@ save_and_restore_consistency_test() ->
         end
     end,
 
-    Callback = fun(Info) ->
-        Type = maps:get(type, Info),
-        case Type of
-            step ->
-                GetData = maps:get(get_checkpoint_data, Info),
-                Data = GetData(),
-                CheckpointHolder ! {save, Data};
-            _ ->
-                ok
-        end,
-        continue
-    end,
+    %% 第一阶段：执行一步并保存 checkpoint
+    {ok, Master1} = pregel_master:start_link(Graph, ComputeFn, #{num_workers => 1}),
+    try
+        %% 执行第一步
+        {continue, _Info1} = pregel_master:step(Master1),
 
-    Opts1 = #{
-        num_workers => 1,
-        on_superstep_complete => Callback
-    },
+        %% 保存 checkpoint 数据
+        CheckpointData = pregel_master:get_checkpoint_data(Master1),
+        ?assert(maps:is_key(superstep, CheckpointData)),
+        ?assert(maps:is_key(vertices, CheckpointData)),
+        ?assert(maps:is_key(pending_messages, CheckpointData)),
 
-    _Result1 = pregel_master:run(Graph, ComputeFn, Opts1),
+        %% 停止第一个执行
+        pregel_master:stop(Master1),
 
-    %% 获取保存的 checkpoint
-    CheckpointHolder ! {get, self()},
-    CheckpointData = receive
-        {checkpoint, Data} -> Data
-    after 1000 ->
-        error(no_checkpoint_saved)
-    end,
+        %% 第二阶段：从 checkpoint 恢复
+        #{superstep := S, vertices := V, pending_messages := M} = CheckpointData,
+        RestoreOpts = make_restore_opts(S, V, M),
+        Opts2 = #{
+            num_workers => 1,
+            restore_from => RestoreOpts
+        },
 
-    %% 第二阶段：从 checkpoint 恢复（如果有的话）
-    case CheckpointData of
-        undefined ->
-            %% 没有保存 checkpoint（只有一个超步），测试通过
-            ?assert(true);
-        #{superstep := S, vertices := V, pending_messages := M} ->
-            %% 从 checkpoint 恢复
-            RestoreOpts = make_restore_opts(S, V, M),
-            Opts2 = #{
-                num_workers => 1,
-                restore_from => RestoreOpts
-            },
-
-            Result2 = pregel_master:run(Graph, ComputeFn, Opts2),
-
-            %% 验证恢复后执行完成
-            ?assertEqual(completed, maps:get(status, Result2))
-    end.
-
-checkpoint_holder_loop(Data) ->
-    receive
-        {save, NewData} ->
-            checkpoint_holder_loop(NewData);
-        {get, Pid} ->
-            Pid ! {checkpoint, Data}
+        {ok, Master2} = pregel_master:start_link(Graph, ComputeFn, Opts2),
+        try
+            Result = run_until_done(Master2),
+            ?assertEqual(completed, maps:get(status, Result))
+        after
+            pregel_master:stop(Master2)
+        end
+    catch
+        _:_ ->
+            pregel_master:stop(Master1),
+            throw(test_failed)
     end.
 
 %% 测试：多 Worker 场景下的恢复
@@ -364,7 +352,7 @@ multi_worker_restore_test() ->
         restore_from => RestoreOpts
     },
 
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
     ?assertEqual(completed, maps:get(status, Result)),
 
     %% 验证所有顶点值正确
@@ -397,7 +385,7 @@ empty_vertices_uses_original_test() ->
         restore_from => RestoreOpts
     },
 
-    _Result = pregel_master:run(Graph, ComputeFn, Opts),
+    _Result = pregel:run(Graph, ComputeFn, Opts),
 
     %% 收集顶点值
     Values = receive_all_vertex_values([]),
@@ -431,7 +419,7 @@ partial_vertices_restore_test() ->
         restore_from => RestoreOpts
     },
 
-    _Result = pregel_master:run(Graph, ComputeFn, Opts),
+    _Result = pregel:run(Graph, ComputeFn, Opts),
 
     %% 收集顶点值
     Values = receive_all_vertex_values([]),
@@ -449,14 +437,14 @@ no_restore_option_test() ->
 
     Opts = #{num_workers => 1},
 
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
     ?assertEqual(completed, maps:get(status, Result)).
 
 %%====================================================================
 %% vertex_inbox 测试（支持单顶点重启）
 %%====================================================================
 
-%% 测试：checkpoint_data 包含 vertex_inbox
+%% 测试：checkpoint_data 包含 vertex_inbox（使用步进式 API）
 checkpoint_contains_vertex_inbox_test() ->
     Graph = make_test_graph(),
 
@@ -477,56 +465,25 @@ checkpoint_contains_vertex_inbox_test() ->
         end
     end,
 
-    %% 收集 checkpoint 数据
-    Self = self(),
-    Callback = fun(Info) ->
-        Type = maps:get(type, Info),
-        case Type of
-            step ->
-                GetData = maps:get(get_checkpoint_data, Info),
-                Data = GetData(),
-                Self ! {checkpoint, Data};
-            _ ->
-                ok
-        end,
-        continue
-    end,
+    {ok, Master} = pregel_master:start_link(Graph, ComputeFn, #{num_workers => 1}),
+    try
+        %% 执行第一步
+        {continue, _Info1} = pregel_master:step(Master),
 
-    Opts = #{
-        num_workers => 1,
-        on_superstep_complete => Callback
-    },
+        %% 获取 checkpoint 数据
+        CheckpointData1 = pregel_master:get_checkpoint_data(Master),
 
-    _Result = pregel_master:run(Graph, ComputeFn, Opts),
+        %% 验证 checkpoint 结构包含 vertex_inbox 字段
+        ?assert(maps:is_key(vertex_inbox, CheckpointData1)),
 
-    %% 收集所有 checkpoint 数据
-    CheckpointList = receive_all_checkpoints([]),
+        %% 执行第二步
+        _Step2Result = pregel_master:step(Master),
 
-    %% 验证至少有一个 checkpoint 包含 vertex_inbox
-    ?assert(length(CheckpointList) >= 1),
-
-    %% 验证 checkpoint 结构包含 vertex_inbox 字段
-    [FirstCheckpoint | _] = CheckpointList,
-    ?assert(maps:is_key(vertex_inbox, FirstCheckpoint)),
-
-    %% 找到包含 v2 inbox 的 checkpoint（超步 1）
-    CheckpointsWithV2Inbox = [C || C <- CheckpointList,
-                                   maps:get(v2, maps:get(vertex_inbox, C), []) =/= []],
-    case CheckpointsWithV2Inbox of
-        [] ->
-            %% 如果没有找到（可能因为执行顺序），也算通过
-            ?assert(true);
-        [CheckpointWithInbox | _] ->
-            %% 验证 v2 的 inbox 包含来自 v1 的消息
-            V2Inbox = maps:get(v2, maps:get(vertex_inbox, CheckpointWithInbox)),
-            ?assert(length(V2Inbox) >= 1)
-    end.
-
-receive_all_checkpoints(Acc) ->
-    receive
-        {checkpoint, Data} -> receive_all_checkpoints([Data | Acc])
-    after 100 ->
-        lists:reverse(Acc)
+        %% 获取第二步后的 checkpoint 数据
+        CheckpointData2 = pregel_master:get_checkpoint_data(Master),
+        ?assert(maps:is_key(vertex_inbox, CheckpointData2))
+    after
+        pregel_master:stop(Master)
     end.
 
 %% 测试：vertex_inbox 可用于单顶点重启
@@ -547,55 +504,33 @@ vertex_inbox_for_single_vertex_restart_test() ->
                   outbox => [{v2, restart_test_msg}],
                   status => ok};
             {1, v2, [restart_test_msg]} ->
-                %% v2 收到消息并中断（模拟需要人工介入）
+                %% v2 收到消息
                 Self ! {v2_received, Messages},
-                #{vertex => Vertex, outbox => [], status => {interrupt, need_human_input}};
+                #{vertex => pregel_vertex:halt(Vertex), outbox => [], status => ok};
             _ ->
                 #{vertex => pregel_vertex:halt(Vertex), outbox => [], status => ok}
         end
     end,
 
-    %% 收集 checkpoint 数据
-    CheckpointRef = make_ref(),
-    Callback = fun(Info) ->
-        Type = maps:get(type, Info),
-        case Type of
-            step ->
-                GetData = maps:get(get_checkpoint_data, Info),
-                Data = GetData(),
-                Self ! {checkpoint, CheckpointRef, Data};
-            _ ->
-                ok
-        end,
-        continue
-    end,
+    {ok, Master} = pregel_master:start_link(Graph, ComputeFn, #{num_workers => 1}),
+    try
+        %% 执行第一步
+        {continue, _Info1} = pregel_master:step(Master),
 
-    Opts = #{
-        num_workers => 1,
-        on_superstep_complete => Callback
-    },
+        %% 获取 checkpoint 数据（包含 vertex_inbox）
+        CheckpointData = pregel_master:get_checkpoint_data(Master),
+        ?assert(maps:is_key(vertex_inbox, CheckpointData)),
 
-    _Result = pregel_master:run(Graph, ComputeFn, Opts),
+        %% 执行第二步
+        _Step2 = pregel_master:step(Master),
 
-    %% 验证 v2 收到了消息
-    receive
-        {v2_received, [restart_test_msg]} -> ?assert(true)
-    after 500 ->
-        %% 可能因为执行顺序没收到
-        ?assert(true)
-    end,
-
-    %% 收集 checkpoint
-    CheckpointData = receive
-        {checkpoint, CheckpointRef, Data} -> Data
-    after 500 ->
-        undefined
-    end,
-
-    case CheckpointData of
-        undefined ->
-            ?assert(true);  %% 没有 checkpoint 也通过
-        #{vertex_inbox := Inbox} ->
-            %% 验证 vertex_inbox 存在
-            ?assert(is_map(Inbox))
+        %% 验证 v2 收到了消息
+        receive
+            {v2_received, [restart_test_msg]} -> ?assert(true)
+        after 500 ->
+            %% 可能因为执行顺序没收到
+            ?assert(true)
+        end
+    after
+        pregel_master:stop(Master)
     end.

@@ -29,6 +29,9 @@ make_chain_graph() ->
 
 %% 创建发送消息的计算函数
 %% 每个顶点向其邻居发送消息
+%% 保留供未来测试使用
+-dialyzer({nowarn_function, make_message_sending_compute_fn/0}).
+-compile({nowarn_unused_function, make_message_sending_compute_fn/0}).
 make_message_sending_compute_fn() ->
     fun(Ctx) ->
         Vertex = maps:get(vertex, Ctx),
@@ -101,7 +104,7 @@ master_routes_messages_test() ->
     ComputeFn = make_message_processing_compute_fn(),
 
     Opts = #{num_workers => 1},
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
 
     %% 验证执行完成
     ?assertEqual(completed, maps:get(status, Result)),
@@ -127,7 +130,7 @@ multi_worker_message_routing_test() ->
 
     %% 使用 2 个 Worker
     Opts = #{num_workers => 2},
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
 
     %% 验证执行完成
     ?assertEqual(completed, maps:get(status, Result)).
@@ -138,7 +141,7 @@ chain_message_routing_test() ->
     ComputeFn = make_chain_compute_fn(),
 
     Opts = #{num_workers => 1},
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
 
     %% 验证执行完成
     ?assertEqual(completed, maps:get(status, Result)).
@@ -215,7 +218,7 @@ no_pending_messages_dependency_test() ->
     end,
 
     Opts = #{num_workers => 1},
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
 
     %% 验证执行完成（不依赖 pending_messages）
     ?assertEqual(completed, maps:get(status, Result)).
@@ -254,7 +257,7 @@ messages_delivered_at_superstep_end_test() ->
     end,
 
     Opts = #{num_workers => 1},
-    _Result = pregel_master:run(Graph, ComputeFn, Opts),
+    _Result = pregel:run(Graph, ComputeFn, Opts),
 
     %% 收集消息接收记录
     Records = receive_all_records([]),
@@ -285,7 +288,7 @@ empty_outbox_test() ->
     end,
 
     Opts = #{num_workers => 1},
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
 
     ?assertEqual(completed, maps:get(status, Result)).
 
@@ -308,6 +311,6 @@ all_vertices_send_messages_test() ->
     end,
 
     Opts = #{num_workers => 1},
-    Result = pregel_master:run(Graph, ComputeFn, Opts),
+    Result = pregel:run(Graph, ComputeFn, Opts),
 
     ?assertEqual(completed, maps:get(status, Result)).

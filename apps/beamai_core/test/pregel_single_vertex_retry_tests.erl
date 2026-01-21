@@ -1,7 +1,7 @@
 %%%-------------------------------------------------------------------
 %%% @doc 单顶点重试功能测试
 %%%
-%%% 测试 Pregel 层原生的单顶点重试 API
+%%% 测试 Pregel 层步进式 API 的重试功能
 %%% @end
 %%%-------------------------------------------------------------------
 -module(pregel_single_vertex_retry_tests).
@@ -75,24 +75,6 @@ fail_then_success_compute_fn(FailVertexId) ->
         end
     end.
 
-%% 总是失败的计算函数（用于测试超过最大重试次数）
-always_fail_compute_fn(FailVertexId) ->
-    fun(#{vertex := V} = _Ctx) ->
-        Id = pregel_vertex:id(V),
-        case Id =:= FailVertexId of
-            true ->
-                #{status => {error, always_fails},
-                  vertex => V,
-                  outbox => []};
-            false ->
-                NewVertex = pregel_vertex:set_value(
-                    pregel_vertex:halt(V),
-                    success
-                ),
-                #{status => ok, vertex => NewVertex, outbox => []}
-        end
-    end.
-
 %% 带消息的计算函数（失败后重试时需要消息）
 %% 使用 ETS 表跟踪重试次数
 fail_then_success_with_messages_fn(FailVertexId) ->
@@ -130,6 +112,35 @@ fail_then_success_with_messages_fn(FailVertexId) ->
     end.
 
 %%====================================================================
+%% 辅助函数
+%%====================================================================
+
+%% 运行步进式 Pregel，遇到失败时重试
+run_with_retry(Master) ->
+    run_with_retry(Master, 10).  %% 最大重试 10 次
+
+run_with_retry(_Master, MaxRetries) when MaxRetries =< 0 ->
+    %% 超过最大重试次数
+    {error, max_retries_exceeded};
+run_with_retry(Master, MaxRetries) ->
+    case pregel_master:step(Master) of
+        {continue, #{failed_count := FC, failed_vertices := FVs}} when FC > 0 ->
+            %% 有失败的顶点，重试
+            VertexIds = [Id || {Id, _} <- FVs],
+            case pregel_master:retry(Master, VertexIds) of
+                {continue, _Info} ->
+                    run_with_retry(Master, MaxRetries - 1);
+                {done, _Reason, _Info} ->
+                    pregel_master:get_result(Master)
+            end;
+        {continue, _Info} ->
+            %% 无失败，继续下一步
+            run_with_retry(Master, MaxRetries);
+        {done, _Reason, _Info} ->
+            pregel_master:get_result(Master)
+    end.
+
+%%====================================================================
 %% 测试用例
 %%====================================================================
 
@@ -138,30 +149,21 @@ basic_retry_test() ->
     Graph = simple_graph(),
     ComputeFn = fail_then_success_compute_fn(v1),
 
-    %% 创建回调：遇到失败时请求重试
-    Callback = fun(#{failed_count := FailedCount, failed_vertices := FailedVs}) ->
-        case FailedCount > 0 of
-            true ->
-                VertexIds = [Id || {Id, _} <- FailedVs],
-                {retry, #{vertices => VertexIds}};
-            false ->
-                continue
-        end
-    end,
+    {ok, Master} = pregel_master:start_link(Graph, ComputeFn, #{num_workers => 1}),
+    try
+        Result = run_with_retry(Master),
 
-    Result = pregel_master:run(Graph, ComputeFn, #{
-        on_superstep_complete => Callback,
-        num_workers => 1
-    }),
+        %% 验证执行完成
+        ?assertEqual(completed, maps:get(status, Result)),
 
-    %% 验证执行完成
-    ?assertEqual(completed, maps:get(status, Result)),
-
-    %% 验证 v1 被重试成功
-    FinalGraph = maps:get(graph, Result),
-    V1 = pregel_graph:get(FinalGraph, v1),
-    V1Value = pregel_vertex:value(V1),
-    ?assertEqual({retried, 2}, V1Value).
+        %% 验证 v1 被重试成功
+        FinalGraph = maps:get(graph, Result),
+        V1 = pregel_graph:get(FinalGraph, v1),
+        V1Value = pregel_vertex:value(V1),
+        ?assertEqual({retried, 2}, V1Value)
+    after
+        pregel_master:stop(Master)
+    end.
 
 %% 测试：重试时使用保存的 inbox 消息
 %% 注意：默认 state_reducer 使用 last_write_win，多条相同消息会被合并
@@ -170,59 +172,28 @@ retry_uses_saved_inbox_test() ->
     Graph = simple_graph(),
     ComputeFn = fail_then_success_with_messages_fn(v1),
 
-    Callback = fun(#{failed_count := FailedCount, failed_vertices := FailedVs}) ->
-        case FailedCount > 0 of
-            true ->
-                VertexIds = [Id || {Id, _} <- FailedVs],
-                {retry, #{vertices => VertexIds}};
-            false ->
-                continue
-        end
-    end,
-
     %% 使用 append reducer 保留所有消息
     AppendReducer = fun(#{messages := Msgs}) -> Msgs end,
 
-    Result = pregel_master:run(Graph, ComputeFn, #{
-        on_superstep_complete => Callback,
+    {ok, Master} = pregel_master:start_link(Graph, ComputeFn, #{
         num_workers => 1,
         state_reducer => AppendReducer
     }),
+    try
+        Result = run_with_retry(Master),
 
-    ?assertEqual(completed, maps:get(status, Result)),
+        ?assertEqual(completed, maps:get(status, Result)),
 
-    %% 验证 v1 重试时收到了消息
-    FinalGraph = maps:get(graph, Result),
-    V1 = pregel_graph:get(FinalGraph, v1),
-    V1Value = pregel_vertex:value(V1),
+        %% 验证 v1 重试时收到了消息
+        FinalGraph = maps:get(graph, Result),
+        V1 = pregel_graph:get(FinalGraph, v1),
+        V1Value = pregel_vertex:value(V1),
 
-    %% 使用 append reducer，应该收到来自 v2 和 v3 的所有消息
-    ?assertMatch({retried_with_messages, [hello, hello]}, V1Value).
-
-%% 测试：超过最大重试次数后停止
-max_retries_exceeded_test() ->
-    Graph = simple_graph(),
-    ComputeFn = always_fail_compute_fn(v1),
-
-    Callback = fun(#{failed_count := FailedCount, failed_vertices := FailedVs}) ->
-        case FailedCount > 0 of
-            true ->
-                VertexIds = [Id || {Id, _} <- FailedVs],
-                %% 设置最大重试 2 次
-                {retry, #{vertices => VertexIds, max_retries => 2}};
-            false ->
-                continue
-        end
-    end,
-
-    Result = pregel_master:run(Graph, ComputeFn, #{
-        on_superstep_complete => Callback,
-        num_workers => 1
-    }),
-
-    %% 应该因为超过最大重试次数而停止
-    Status = maps:get(status, Result),
-    ?assertMatch({stopped, {max_retries_exceeded, _}}, Status).
+        %% 使用 append reducer，应该收到来自 v2 和 v3 的所有消息
+        ?assertMatch({retried_with_messages, [hello, hello]}, V1Value)
+    after
+        pregel_master:stop(Master)
+    end.
 
 %% 测试：重试成功后 outbox 消息被正确路由
 retry_outbox_routing_test() ->
@@ -260,137 +231,27 @@ retry_outbox_routing_test() ->
         end
     end,
 
-    Callback = fun(#{failed_count := FC, failed_vertices := FVs}) ->
-        case FC > 0 of
-            true -> {retry, #{vertices => [Id || {Id, _} <- FVs]}};
-            false -> continue
-        end
-    end,
+    {ok, Master} = pregel_master:start_link(Graph, ComputeFn, #{num_workers => 1}),
+    try
+        Result = run_with_retry(Master),
 
-    Result = pregel_master:run(Graph, ComputeFn, #{
-        on_superstep_complete => Callback,
-        num_workers => 1
-    }),
+        ?assertEqual(completed, maps:get(status, Result)),
 
-    ?assertEqual(completed, maps:get(status, Result)),
+        %% 验证 v2 收到了 v1 重试后发送的消息
+        FinalGraph = maps:get(graph, Result),
+        V2Final = pregel_graph:get(FinalGraph, v2),
+        V2Value = pregel_vertex:value(V2Final),
+        ?assertEqual({received, [from_v1]}, V2Value)
+    after
+        pregel_master:stop(Master)
+    end.
 
-    %% 验证 v2 收到了 v1 重试后发送的消息
-    FinalGraph = maps:get(graph, Result),
-    V2Final = pregel_graph:get(FinalGraph, v2),
-    V2Value = pregel_vertex:value(V2Final),
-    ?assertEqual({received, [from_v1]}, V2Value).
-
-%% 测试：只重试指定的顶点，其他顶点不受影响
-partial_retry_test() ->
-    Graph = simple_graph(),
-
-    %% 使用 ETS 跟踪 v1 的调用次数
-    Table = ets:new(partial_retry_tracker, [public, set]),
-
-    %% v1 和 v2 都失败，但只重试 v1
-    %% 注意：失败的顶点状态不会被更新，所以 v2 会保持 active
-    ComputeFn = fun(#{vertex := V} = _Ctx) ->
-        Id = pregel_vertex:id(V),
-        case Id of
-            v1 ->
-                Count = case ets:lookup(Table, v1) of
-                    [] -> 0;
-                    [{_, N}] -> N
-                end,
-                ets:insert(Table, {v1, Count + 1}),
-                case Count of
-                    0 -> #{status => {error, v1_fail}, vertex => V, outbox => []};
-                    _ ->
-                        NewV = pregel_vertex:halt(pregel_vertex:set_value(V, v1_retried)),
-                        #{status => ok, vertex => NewV, outbox => []}
-                end;
-            v2 ->
-                %% v2 总是失败
-                #{status => {error, v2_fail}, vertex => V, outbox => []};
-            v3 ->
-                NewV = pregel_vertex:halt(pregel_vertex:set_value(V, v3_ok)),
-                #{status => ok, vertex => NewV, outbox => []}
-        end
-    end,
-
-    %% 只重试 v1，不重试 v2
-    %% 当 v1 成功后（不在 failed_vertices 中），停止执行
-    %% （因为 v2 会继续失败，但我们选择不重试它）
-    Callback = fun(#{type := Type, failed_vertices := FVs}) ->
-        case Type of
-            initial ->
-                %% 初始阶段，继续执行
-                continue;
-            _ ->
-                case lists:keyfind(v1, 1, FVs) of
-                    {v1, _} ->
-                        %% v1 仍在失败列表中，重试 v1
-                        {retry, #{vertices => [v1]}};
-                    false ->
-                        %% v1 已成功，停止执行（接受 v2 的失败状态）
-                        {stop, partial_success}
-                end
-        end
-    end,
-
-    Result = pregel_master:run(Graph, ComputeFn, #{
-        on_superstep_complete => Callback,
-        num_workers => 1
-    }),
-
-    %% 应该因为 partial_success 停止
-    ?assertEqual({stopped, partial_success}, maps:get(status, Result)),
-
-    FinalGraph = maps:get(graph, Result),
-
-    %% v1 应该被重试成功
-    V1Final = pregel_graph:get(FinalGraph, v1),
-    ?assertEqual(v1_retried, pregel_vertex:value(V1Final)),
-
-    %% v3 不受影响
-    V3Final = pregel_graph:get(FinalGraph, v3),
-    ?assertEqual(v3_ok, pregel_vertex:value(V3Final)).
-
-%% 测试：无失败时返回 {retry, ...} 被忽略
-retry_with_no_failures_test() ->
+%% 测试：pregel:run 简化 API 正常工作（无失败情况）
+simple_run_test() ->
     Graph = simple_graph(),
     ComputeFn = success_compute_fn(),
 
-    Callback = fun(_Info) ->
-        %% 即使没有失败也返回 retry（应该被忽略）
-        {retry, #{vertices => [v1]}}
-    end,
-
-    Result = pregel_master:run(Graph, ComputeFn, #{
-        on_superstep_complete => Callback,
-        num_workers => 1
-    }),
+    Result = pregel:run(Graph, ComputeFn, #{num_workers => 1}),
 
     %% 应该正常完成
     ?assertEqual(completed, maps:get(status, Result)).
-
-%% 测试：回调返回 {retry, ...} 的类型验证
-retry_opts_type_test() ->
-    Graph = simple_graph(),
-    ComputeFn = fail_then_success_compute_fn(v1),
-
-    %% 使用完整的 retry_opts
-    Callback = fun(#{failed_count := FC, failed_vertices := FVs}) ->
-        case FC > 0 of
-            true ->
-                {retry, #{
-                    vertices => [Id || {Id, _} <- FVs],
-                    max_retries => 5
-                }};
-            false ->
-                continue
-        end
-    end,
-
-    Result = pregel_master:run(Graph, ComputeFn, #{
-        on_superstep_complete => Callback,
-        num_workers => 1
-    }),
-
-    ?assertEqual(completed, maps:get(status, Result)).
-

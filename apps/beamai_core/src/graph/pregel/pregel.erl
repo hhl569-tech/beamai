@@ -36,7 +36,9 @@
 -export([add_edge/3, add_edge/4]).
 -export([from_edges/1, from_edges/2]).
 
-%% Pregel 执行
+%% Pregel 执行 - 步进式 API
+-export([start/3, step/1, retry/2, get_checkpoint_data/1, get_result/1, stop/1]).
+%% Pregel 执行 - 简化 API（内部使用步进式）
 -export([run/2, run/3]).
 
 %% 计算上下文 - 读取
@@ -57,6 +59,7 @@
 
 %% 类型导出
 -export_type([graph/0, vertex/0, compute_fn/0, context/0, opts/0, result/0]).
+-export_type([step_result/0, superstep_info/0, checkpoint_data/0]).
 
 %%====================================================================
 %% 类型定义
@@ -76,6 +79,9 @@
 %% 执行选项和结果
 -type opts() :: pregel_master:opts().
 -type result() :: pregel_master:result().
+-type step_result() :: pregel_master:step_result().
+-type superstep_info() :: pregel_master:superstep_info().
+-type checkpoint_data() :: pregel_master:checkpoint_data().
 
 %%====================================================================
 %% 图构建 API
@@ -130,7 +136,41 @@ from_edges(Edges, InitialValues) ->
     pregel_graph:from_edges(Edges, InitialValues).
 
 %%====================================================================
-%% Pregel 执行 API
+%% Pregel 执行 API - 步进式
+%%====================================================================
+
+%% @doc 启动 Pregel 执行（返回 Master 进程）
+-spec start(graph(), compute_fn(), opts()) -> {ok, pid()} | {error, term()}.
+start(Graph, ComputeFn, Opts) ->
+    pregel_master:start_link(Graph, ComputeFn, Opts).
+
+%% @doc 执行单个超步
+-spec step(pid()) -> step_result().
+step(Master) ->
+    pregel_master:step(Master).
+
+%% @doc 重试指定顶点
+-spec retry(pid(), [vertex_id()]) -> step_result().
+retry(Master, VertexIds) ->
+    pregel_master:retry(Master, VertexIds).
+
+%% @doc 获取当前 checkpoint 数据
+-spec get_checkpoint_data(pid()) -> checkpoint_data().
+get_checkpoint_data(Master) ->
+    pregel_master:get_checkpoint_data(Master).
+
+%% @doc 获取最终结果（仅在终止后调用）
+-spec get_result(pid()) -> result() | {error, not_halted}.
+get_result(Master) ->
+    pregel_master:get_result(Master).
+
+%% @doc 停止 Pregel 执行
+-spec stop(pid()) -> ok.
+stop(Master) ->
+    pregel_master:stop(Master).
+
+%%====================================================================
+%% Pregel 执行 API - 简化（内部使用步进式）
 %%====================================================================
 
 %% @doc 执行 Pregel 计算（使用默认选项）
@@ -143,9 +183,25 @@ run(Graph, ComputeFn) ->
 %% - combiner: 消息合并器（sum, min, max 等）
 %% - max_supersteps: 最大超步数（默认100）
 %% - num_workers: Worker 数量（默认CPU核心数）
+%% - state_reducer: 消息整合函数（默认 last_write_win）
 -spec run(graph(), compute_fn(), opts()) -> result().
 run(Graph, ComputeFn, Opts) ->
-    pregel_master:run(Graph, ComputeFn, Opts).
+    {ok, Master} = start(Graph, ComputeFn, Opts),
+    try
+        run_loop(Master)
+    after
+        stop(Master)
+    end.
+
+%% @private 内部执行循环
+-spec run_loop(pid()) -> result().
+run_loop(Master) ->
+    case step(Master) of
+        {continue, _Info} ->
+            run_loop(Master);
+        {done, _Reason, _Info} ->
+            get_result(Master)
+    end.
 
 %%====================================================================
 %% 计算上下文 - 读取 API
