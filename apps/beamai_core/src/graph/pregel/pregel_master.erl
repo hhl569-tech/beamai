@@ -78,6 +78,9 @@
 }.
 
 %% Master 内部状态
+%%
+%% 注意：pending_messages 已移除
+%% BSP 模型改进：Worker 在超步结束时上报 outbox，Master 集中路由
 -record(state, {
     graph            :: graph(),                    %% 原始图
     compute_fn       :: compute_fn(),               %% 计算函数
@@ -89,8 +92,7 @@
     barrier          :: pregel_barrier:t(),         %% 同步屏障
     caller           :: gen_server:from() | undefined,  %% 调用者
     on_superstep     :: fun((non_neg_integer(), graph()) -> ok) | undefined,
-    on_superstep_complete :: superstep_complete_callback() | undefined,  %% 超步完成回调
-    pending_messages :: #{non_neg_integer() => [{term(), term()}]}  %% 待发送消息
+    on_superstep_complete :: superstep_complete_callback() | undefined  %% 超步完成回调
 }).
 
 %%====================================================================
@@ -143,8 +145,7 @@ init({Graph, ComputeFn, Opts}) ->
         barrier = pregel_barrier:new(0),
         caller = undefined,
         on_superstep = maps:get(on_superstep, Opts, undefined),
-        on_superstep_complete = maps:get(on_superstep_complete, Opts, undefined),
-        pending_messages = #{}
+        on_superstep_complete = maps:get(on_superstep_complete, Opts, undefined)
     },
     {ok, State}.
 
@@ -174,9 +175,9 @@ handle_cast({worker_done, _WorkerPid, Result}, State) ->
     NewState = handle_worker_done(Result, State),
     {noreply, NewState};
 
-handle_cast({route_messages, TargetWorkerId, Messages}, State) ->
-    NewState = handle_route_messages(TargetWorkerId, Messages, State),
-    {noreply, NewState};
+%% 注意：route_messages 已移除
+%% Worker 不再实时发送消息，改为在超步结束时上报 outbox
+%% Master 在 complete_superstep 中统一路由
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -295,22 +296,25 @@ handle_worker_done(Result, #state{barrier = Barrier} = State) ->
     end.
 
 %% @private 完成超步处理
+%%
+%% BSP 模型：从所有 Worker 的 outbox 汇总消息，统一路由到目标 Worker
 -spec complete_superstep(#state{}) -> #state{}.
 complete_superstep(#state{
     barrier = Barrier,
     superstep = Superstep,
     max_supersteps = MaxSupersteps,
     workers = Workers,
-    pending_messages = PendingMessages
+    num_workers = NumWorkers
 } = State) ->
-    %% 1. 汇总结果（返回 map 格式）
+    %% 1. 汇总结果（返回 map 格式，包含所有 Worker 的 outbox）
     Results = pregel_barrier:get_results(Barrier),
     AggregatedResults = pregel_barrier:aggregate_results(Results),
     TotalActive = maps:get(active_count, AggregatedResults),
     TotalMessages = maps:get(message_count, AggregatedResults),
 
-    %% 2. 发送待处理消息
-    deliver_pending_messages(PendingMessages, Workers),
+    %% 2. 从汇总结果中获取所有 outbox 消息，统一路由
+    AllOutbox = maps:get(outbox, AggregatedResults, []),
+    route_all_messages(AllOutbox, Workers, NumWorkers),
 
     %% 3. 检查终止条件
     Halted = (TotalActive =:= 0) andalso (TotalMessages =:= 0),
@@ -331,18 +335,46 @@ complete_superstep(#state{
             end
     end.
 
-%% @private 发送待处理消息
--spec deliver_pending_messages(#{non_neg_integer() => [{term(), term()}]},
-                                #{non_neg_integer() => pid()}) -> ok.
-deliver_pending_messages(PendingMessages, Workers) ->
+%% @private 统一路由所有消息到目标 Worker
+%%
+%% BSP 模型的消息路由：
+%% 1. 按目标顶点 ID 计算目标 Worker ID
+%% 2. 按 Worker 分组消息
+%% 3. 批量发送到各 Worker 的 inbox
+-spec route_all_messages([{term(), term()}],
+                          #{non_neg_integer() => pid()},
+                          pos_integer()) -> ok.
+route_all_messages([], _Workers, _NumWorkers) ->
+    ok;
+route_all_messages(Messages, Workers, NumWorkers) ->
+    %% 按目标 Worker 分组消息
+    GroupedMessages = group_messages_by_worker(Messages, NumWorkers),
+    %% 发送到各 Worker
     maps:foreach(
-        fun(TargetWorkerId, Messages) ->
+        fun(TargetWorkerId, Msgs) ->
             case maps:get(TargetWorkerId, Workers, undefined) of
-                undefined -> ok;
-                Pid -> pregel_worker:receive_messages(Pid, Messages)
+                undefined ->
+                    %% Worker 不存在，记录警告（不应该发生）
+                    ok;
+                Pid ->
+                    pregel_worker:receive_messages(Pid, Msgs)
             end
         end,
-        PendingMessages
+        GroupedMessages
+    ).
+
+%% @private 按目标 Worker 分组消息
+-spec group_messages_by_worker([{term(), term()}], pos_integer()) ->
+    #{non_neg_integer() => [{term(), term()}]}.
+group_messages_by_worker(Messages, NumWorkers) ->
+    lists:foldl(
+        fun({TargetVertex, Value}, Acc) ->
+            WorkerId = pregel_partition:worker_id(TargetVertex, NumWorkers, hash),
+            Existing = maps:get(WorkerId, Acc, []),
+            Acc#{WorkerId => [{TargetVertex, Value} | Existing]}
+        end,
+        #{},
+        Messages
     ).
 
 %% @private 开始下一超步
@@ -350,8 +382,7 @@ deliver_pending_messages(PendingMessages, Workers) ->
 start_next_superstep(#state{superstep = Superstep, workers = Workers} = State) ->
     NewState = State#state{
         superstep = Superstep + 1,
-        barrier = pregel_barrier:new(maps:size(Workers)),
-        pending_messages = #{}
+        barrier = pregel_barrier:new(maps:size(Workers))
     },
     broadcast_start_superstep(NewState),
     NewState.
@@ -399,27 +430,6 @@ collect_final_graph(Workers, OriginalGraph) ->
     end).
 
 %%====================================================================
-%% 消息路由
-%%====================================================================
-
-%% @private 处理消息路由请求
--spec handle_route_messages(non_neg_integer(), [{term(), term()}], #state{}) -> #state{}.
-handle_route_messages(TargetWorkerId, Messages, #state{
-    pending_messages = Pending,
-    workers = Workers
-} = State) ->
-    case maps:get(TargetWorkerId, Workers, undefined) of
-        undefined ->
-            %% Worker 不存在，缓存消息
-            Existing = maps:get(TargetWorkerId, Pending, []),
-            State#state{pending_messages = Pending#{TargetWorkerId => Messages ++ Existing}};
-        Pid ->
-            %% 直接发送
-            pregel_worker:receive_messages(Pid, Messages),
-            State
-    end.
-
-%%====================================================================
 %% 回调机制
 %%====================================================================
 
@@ -441,9 +451,10 @@ call_superstep_complete(Type, Results, State) ->
     superstep_complete_info().
 build_superstep_complete_info(Type, Results, #state{
     superstep = Superstep,
-    workers = Workers,
-    pending_messages = PendingMessages
+    workers = Workers
 }) ->
+    %% 从汇总结果中获取 outbox（已路由的消息）
+    Outbox = maps:get(outbox, Results, []),
     #{
         type => Type,
         superstep => Superstep,
@@ -453,24 +464,24 @@ build_superstep_complete_info(Type, Results, #state{
         failed_vertices => maps:get(failed_vertices, Results, []),
         interrupted_count => maps:get(interrupted_count, Results, 0),
         interrupted_vertices => maps:get(interrupted_vertices, Results, []),
-        get_checkpoint_data => make_get_checkpoint_data(Superstep, Workers, PendingMessages)
+        get_checkpoint_data => make_get_checkpoint_data(Superstep, Workers, Outbox)
     }.
 
 %% @private 创建按需获取 checkpoint 数据的函数
 %%
 %% 返回一个闭包，调用时收集当前状态快照。
+%% 注意：pending_messages 现在来自汇总的 outbox，而不是 Master 缓存
 -spec make_get_checkpoint_data(non_neg_integer(),
                                 #{non_neg_integer() => pid()},
-                                #{non_neg_integer() => [{term(), term()}]}) ->
+                                [{term(), term()}]) ->
     fun(() -> checkpoint_data()).
-make_get_checkpoint_data(Superstep, Workers, PendingMessages) ->
+make_get_checkpoint_data(Superstep, Workers, Outbox) ->
     fun() ->
         Vertices = collect_vertices_from_workers(Workers),
-        Messages = collect_pending_messages_list(PendingMessages),
         #{
             superstep => Superstep,
             vertices => Vertices,
-            pending_messages => Messages
+            pending_messages => Outbox  %% 已路由的消息列表
         }
     end.
 
@@ -484,18 +495,6 @@ collect_vertices_from_workers(Workers) ->
         end,
         #{},
         Workers
-    ).
-
-%% @private 将待处理消息转换为列表格式
--spec collect_pending_messages_list(#{non_neg_integer() => [{term(), term()}]}) ->
-    [{vertex_id(), term()}].
-collect_pending_messages_list(PendingMessages) ->
-    maps:fold(
-        fun(_WorkerId, Messages, Acc) ->
-            Messages ++ Acc
-        end,
-        [],
-        PendingMessages
     ).
 
 %% @private 判断回调类型
@@ -514,6 +513,7 @@ empty_superstep_results() ->
     #{
         active_count => 0,
         message_count => 0,
+        outbox => [],
         failed_count => 0,
         failed_vertices => [],
         interrupted_count => 0,

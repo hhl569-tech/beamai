@@ -37,6 +37,8 @@
 -type superstep_results() :: #{
     active_count := non_neg_integer(),
     message_count := non_neg_integer(),
+    %% 所有 Worker 的 outbox 汇总（用于 Master 集中路由）
+    outbox := [{term(), term()}],
     failed_count := non_neg_integer(),
     failed_vertices := [{term(), term()}],
     interrupted_count := non_neg_integer(),
@@ -103,6 +105,7 @@ empty_results() ->
     #{
         active_count => 0,
         message_count => 0,
+        outbox => [],
         failed_count => 0,
         failed_vertices => [],
         interrupted_count => 0,
@@ -117,6 +120,9 @@ merge_worker_result(WorkerResult, Acc) ->
                         maps:get(active_count, WorkerResult, 0),
         message_count => maps:get(message_count, Acc) +
                          maps:get(message_count, WorkerResult, 0),
+        %% 汇总所有 Worker 的 outbox（用于 Master 集中路由）
+        outbox => maps:get(outbox, WorkerResult, []) ++
+                  maps:get(outbox, Acc),
         failed_count => maps:get(failed_count, Acc) +
                         maps:get(failed_count, WorkerResult, 0),
         failed_vertices => maps:get(failed_vertices, WorkerResult, []) ++

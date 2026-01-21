@@ -193,6 +193,9 @@ terminate(_Reason, _State) ->
 
 %% @private 执行一个超步
 %% 返回更新后的 Worker 状态
+%%
+%% BSP 模型：消息在超步结束时统一上报给 Master，由 Master 集中路由
+%% 不再实时发送消息，确保消息可靠性
 -spec execute_superstep(#state{}) -> #state{}.
 execute_superstep(#state{
     vertices = Vertices,
@@ -213,13 +216,11 @@ execute_superstep(#state{
     %% 3. 应用合并器（如果有）
     CombinedOutbox = apply_combiner(Outbox, Combiner),
 
-    %% 4. 路由消息到目标 Worker
-    route_messages(CombinedOutbox, State),
-
-    %% 5. 通知 Master 完成（含失败和中断信息）
+    %% 4. 通知 Master 完成（含 outbox、失败和中断信息）
+    %% 注意：不再直接路由消息，改为上报给 Master 集中路由
     notify_master_done(State, NewVertices, CombinedOutbox, FailedVertices, InterruptedVertices),
 
-    %% 6. 返回更新后的状态
+    %% 5. 返回更新后的状态
     State#state{vertices = NewVertices, inbox = #{}}.
 
 %% @private 筛选需要计算的顶点
@@ -324,64 +325,20 @@ apply_combiner(Outbox, Combiner) ->
     Combined = pregel_utils:apply_to_groups(CombinerFn, Grouped),
     [{Target, Value} || {Target, Value} <- maps:to_list(Combined)].
 
-%% @private 路由消息到目标 Worker
--spec route_messages([{vertex_id(), term()}], #state{}) -> ok.
-route_messages(Outbox, #state{
-    worker_id = MyId,
-    num_workers = NumWorkers,
-    worker_pids = WorkerPids,
-    master = Master
-}) ->
-    %% 按目标 Worker 分组
-    GroupedByWorker = group_by_target_worker(Outbox, NumWorkers),
-
-    %% 发送到各 Worker
-    maps:foreach(
-        fun(TargetId, Messages) ->
-            send_to_worker(TargetId, Messages, MyId, WorkerPids, Master)
-        end,
-        GroupedByWorker
-    ).
-
-%% @private 按目标 Worker 分组消息
--spec group_by_target_worker([{vertex_id(), term()}], pos_integer()) ->
-    #{non_neg_integer() => [{vertex_id(), term()}]}.
-group_by_target_worker(Messages, NumWorkers) ->
-    lists:foldl(
-        fun({Target, Value}, Acc) ->
-            WorkerId = pregel_partition:worker_id(Target, NumWorkers, hash),
-            Existing = maps:get(WorkerId, Acc, []),
-            Acc#{WorkerId => [{Target, Value} | Existing]}
-        end,
-        #{},
-        Messages
-    ).
-
-%% @private 发送消息到指定 Worker
--spec send_to_worker(non_neg_integer(), [{vertex_id(), term()}],
-                     non_neg_integer(), #{non_neg_integer() => pid()}, pid()) -> ok.
-send_to_worker(TargetId, Messages, MyId, WorkerPids, Master) ->
-    case TargetId of
-        MyId ->
-            %% 本地消息
-            self() ! {local_messages, Messages};
-        _ ->
-            %% 远程消息
-            case maps:get(TargetId, WorkerPids, undefined) of
-                undefined ->
-                    gen_server:cast(Master, {route_messages, TargetId, Messages});
-                Pid ->
-                    receive_messages(Pid, Messages)
-            end
-    end,
-    ok.
+%% 注意：route_messages, group_by_target_worker, send_to_worker 函数已移除
+%% BSP 模型改进：Worker 不再直接路由消息，改为上报 outbox 给 Master
+%% Master 在 complete_superstep 中统一路由所有消息
 
 %%====================================================================
 %% 辅助函数
 %%====================================================================
 
 %% @private 通知 Master 超步完成
-%% 包含失败和中断顶点信息供 Master 处理
+%%
+%% 上报内容包括：
+%% - 活跃顶点数和消息数（用于终止检测）
+%% - outbox 消息列表（用于 Master 集中路由）
+%% - 失败和中断顶点信息（用于错误处理）
 -spec notify_master_done(
     State :: #state{},
     Vertices :: #{vertex_id() => vertex()},
@@ -395,6 +352,8 @@ notify_master_done(#state{worker_id = WorkerId, master = Master},
         worker_id => WorkerId,
         active_count => pregel_utils:map_count(fun pregel_vertex:is_active/1, Vertices),
         message_count => length(Outbox),
+        %% outbox 消息列表（用于 Master 集中路由）
+        outbox => Outbox,
         %% 失败信息
         failed_count => length(FailedVertices),
         failed_vertices => FailedVertices,

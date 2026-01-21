@@ -11,7 +11,7 @@
 
 ---
 
-## P0: 回调函数设计与实现
+## P0: 回调函数设计与实现 ✅
 
 **优先级**: P0 (必须)
 
@@ -58,7 +58,7 @@
 -type checkpoint_data() :: #{
     superstep := non_neg_integer(),
     vertices := #{vertex_id() => vertex()},
-    pending_messages := [{vertex_id(), term()}]
+    pending_messages := [{vertex_id(), term()}]  %% 来自汇总的 outbox
 }.
 
 %% 回调返回值
@@ -78,35 +78,6 @@
 - [x] 修改 `execute_superstep/1`，收集 interrupted_vertices
 - [x] 修改 `notify_master_done/5`，上报 interrupted_count 和 interrupted_vertices
 
-```erlang
-%% 修改后的计算状态
--type compute_status() :: ok | {error, term()} | {interrupt, term()}.
-
-%% 计算结果累加器（内部使用）
--type compute_acc() :: {
-    Vertices :: #{vertex_id() => vertex()},
-    Outbox :: [{vertex_id(), term()}],
-    FailedVertices :: [{vertex_id(), term()}],
-    InterruptedVertices :: [{vertex_id(), term()}]
-}.
-
-%% process_compute_result 新增 interrupt 处理
-process_compute_result(Id, #{status := {interrupt, Reason}}, {VAcc, OAcc, FailedAcc, InterruptedAcc}) ->
-    %% 中断：记录中断信息，不更新顶点，不发消息
-    {VAcc, OAcc, FailedAcc, [{Id, Reason} | InterruptedAcc]}.
-
-%% notify_master_done 上报中断信息
-Result = #{
-    worker_id => WorkerId,
-    active_count => N,
-    message_count => M,
-    failed_count => F,
-    failed_vertices => [...],
-    interrupted_count => I,
-    interrupted_vertices => [...]
-}.
-```
-
 ---
 
 ### 4.1 定义回调类型 ✅
@@ -125,26 +96,7 @@ Result = #{
 **文件**: `apps/beamai_core/src/graph/pregel/pregel_master.erl`
 
 - [x] 实现 `collect_vertices_from_workers/1` - 从 Workers 收集顶点状态
-- [x] 实现 `collect_pending_messages_list/1` - 收集待处理消息
 - [x] 实现 `make_get_checkpoint_data/3` - 创建按需获取函数
-
-```erlang
-%% 创建按需获取 checkpoint 数据的函数
--spec make_get_checkpoint_data(non_neg_integer(),
-                                #{non_neg_integer() => pid()},
-                                #{non_neg_integer() => [{term(), term()}]}) ->
-    fun(() -> checkpoint_data()).
-make_get_checkpoint_data(Superstep, Workers, PendingMessages) ->
-    fun() ->
-        Vertices = collect_vertices_from_workers(Workers),
-        Messages = collect_pending_messages_list(PendingMessages),
-        #{
-            superstep => Superstep,
-            vertices => Vertices,
-            pending_messages => Messages
-        }
-    end.
-```
 
 ---
 
@@ -169,110 +121,91 @@ make_get_checkpoint_data(Superstep, Workers, PendingMessages) ->
 - [x] 修改 `aggregate_results/1` 返回 map 格式
 - [x] 添加 failed_count 和 failed_vertices 汇总
 - [x] 添加 interrupted_count 和 interrupted_vertices 汇总
-
-```erlang
-%% 修改后的返回值
--spec aggregate_results([map()]) -> superstep_results().
-
--type superstep_results() :: #{
-    active_count := non_neg_integer(),
-    message_count := non_neg_integer(),
-    %% 错误汇总
-    failed_count := non_neg_integer(),
-    failed_vertices := [{vertex_id(), term()}],
-    %% 中断汇总
-    interrupted_count := non_neg_integer(),
-    interrupted_vertices := [{vertex_id(), term()}]
-}.
-```
+- [x] 添加 outbox 汇总（用于 Master 集中路由）
 
 ---
 
 ### 4.5 添加测试 ✅
 
-**文件**: `apps/beamai_core/test/pregel_worker_tests.erl` (补充)
-
-- [x] 测试 interrupt 状态处理
-- [x] 测试 Worker 上报 interrupted_count 和 interrupted_vertices
-
-**文件**: `apps/beamai_core/test/pregel_barrier_tests.erl`
-
-- [x] 测试屏障基本功能
-- [x] 测试结果汇总（含失败和中断信息）
-
-**文件**: `apps/beamai_core/test/pregel_master_callback_tests.erl`
-
-- [x] 测试 initial 回调调用
-- [x] 测试 step 回调调用
-- [x] 测试 final 回调调用
-- [x] 测试 get_checkpoint_data 函数
-- [x] 测试回调返回 continue
-- [x] 测试回调返回 {stop, Reason}
-- [x] 测试回调收到 failed_vertices 和 interrupted_vertices
+- [x] `pregel_worker_tests.erl` - 13 tests
+- [x] `pregel_barrier_tests.erl` - 9 tests
+- [x] `pregel_master_callback_tests.erl` - 11 tests
+- [x] `graph_compute_tests.erl` - 4 tests
 
 ---
 
-## P1: Graph 层实现回调
+### 4.6 移除 pending_messages，实现 BSP 集中路由 ✅
 
-**优先级**: P1 (依赖 P0)
+**完成日期**: 2026-01-21
 
-**前置条件**: P0 回调机制已完成
+**目的**: 根据 `info/pregel_message_reliability_analysis.md` 的分析，移除不合理的 `pending_messages` 机制，改用 BSP 模型的集中路由方式
 
-### 5.1 实现 checkpoint 回调
+#### 修改内容
 
-**文件**: `apps/beamai_core/src/graph/graph_runner.erl` (或新文件)
+**pregel_worker.erl**:
+- [x] 移除 `route_messages/2` 函数（不再实时发送消息）
+- [x] 移除 `group_by_target_worker/2` 函数
+- [x] 移除 `send_to_worker/5` 函数
+- [x] 修改 `notify_master_done/5`，上报 outbox 给 Master
 
-- [ ] 实现 `make_superstep_complete_callback/1`
-- [ ] 实现 checkpoint 保存逻辑
-- [ ] 实现 checkpoint 恢复逻辑
+**pregel_barrier.erl**:
+- [x] 扩展 `superstep_results()` 类型，增加 `outbox` 字段
+- [x] 修改 `merge_worker_result/2`，汇总所有 Worker 的 outbox
 
-```erlang
-%% 创建回调函数
-make_superstep_complete_callback(Opts) ->
-    CheckpointFn = maps:get(checkpoint_fn, Opts, undefined),
-    ErrorStrategy = maps:get(on_vertex_error, Opts, fail_fast),
+**pregel_master.erl**:
+- [x] 移除 `pending_messages` 字段
+- [x] 移除 `handle_route_messages/3` 函数
+- [x] 移除 `collect_pending_messages_list/1` 函数
+- [x] 新增 `route_all_messages/3` 函数（集中路由）
+- [x] 新增 `group_messages_by_worker/2` 函数
+- [x] 修改 `complete_superstep/1`，从汇总结果获取 outbox 并路由
 
-    fun(#{
-        type := Type,
-        superstep := Superstep,
-        failed_count := FailedCount,
-        failed_vertices := FailedVertices,
-        interrupted_count := InterruptedCount,
-        interrupted_vertices := InterruptedVertices,
-        get_checkpoint_data := GetData
-    }) ->
-        %% 1. 优先处理中断（human-in-the-loop）
-        case InterruptedCount > 0 of
-            true ->
-                Data = GetData(),
-                save_checkpoint(step, Data),
-                {stop, {interrupted, InterruptedVertices}};
-            false ->
-                %% 2. 处理 checkpoint
-                maybe_save_checkpoint(Type, Superstep, GetData, CheckpointFn),
-                %% 3. 处理失败并决策
-                handle_failures_and_decide(Type, FailedCount, FailedVertices, ErrorStrategy)
-        end
-    end.
+#### 新架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    BSP 消息路由架构                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  超步执行阶段:                                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Worker 执行顶点计算                                     │   │
+│  │  • 计算结果保存在 superstep_state                        │   │
+│  │  • 发出的消息保存在 Worker 的 outbox                     │   │
+│  │  • 不实时发送消息（BSP 模型）                            │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                              │                                  │
+│                              ▼                                  │
+│  超步完成阶段:                                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Worker 上报 Master                                      │   │
+│  │  • 汇总结果（active_count, failed_vertices 等）          │   │
+│  │  • outbox 内容（待路由的消息）                           │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                              │                                  │
+│                              ▼                                  │
+│  消息路由阶段:                                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Master 统一路由                                         │   │
+│  │  • 收集所有 Worker 的 outbox                            │   │
+│  │  • 按目标 Worker 分组                                    │   │
+│  │  • 可靠投递到各 Worker 的 inbox                         │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.2 实现失败和中断处理决策
+#### 新增测试
 
-- [ ] 实现 `handle_failures_and_decide/4`
-- [ ] 支持 fail_fast 策略
-- [ ] 支持 continue 策略
-- [ ] 支持 callback 策略
-- [ ] 实现中断恢复逻辑（从 checkpoint 恢复并注入人工输入）
-
----
-
-### 5.3 可选：重试逻辑
-
-**文件**: `apps/beamai_core/src/graph/pregel/graph_compute.erl`
-
-- [ ] 实现 should_retry/1 函数
-- [ ] 实现 retry_with_backoff/3 函数
-- [ ] 配置最大重试次数
+**pregel_message_routing_tests.erl** - 8 tests:
+- [x] Master 路由消息测试
+- [x] 多 Worker 消息路由测试
+- [x] 链式消息传递测试
+- [x] Worker outbox 上报测试
+- [x] 无 pending_messages 依赖测试
+- [x] 消息在超步结束时投递测试
+- [x] 空 outbox 测试
+- [x] 所有顶点发送消息测试
 
 ---
 
@@ -298,6 +231,7 @@ make_superstep_complete_callback(Opts) ->
 │  • 在合适时机调用回调（initial/step/final）                      │
 │  • 提供 get_checkpoint_data 函数                                │
 │  • 汇总并传递 failed/interrupted 信息                           │
+│  • 集中路由所有消息（从 Worker outbox 汇总后路由）              │
 │  • 根据回调返回值执行（继续或停止）                              │
 │  • 不做业务决策                                                  │
 │                                                                 │
@@ -308,6 +242,7 @@ make_superstep_complete_callback(Opts) ->
 │  • 汇总所有 Worker 的结果                                        │
 │  • 包含 failed_count/failed_vertices                            │
 │  • 包含 interrupted_count/interrupted_vertices                  │
+│  • 包含 outbox（所有 Worker 的输出消息）                        │
 │                                                                 │
 │  ─────────────────────────────────────────────────────────────  │
 │                                                                 │
@@ -316,30 +251,23 @@ make_superstep_complete_callback(Opts) ->
 │  • 处理 compute_status: ok | {error, R} | {interrupt, R}       │
 │  • 上报 failed_count/failed_vertices                            │
 │  • 上报 interrupted_count/interrupted_vertices                  │
-│  • ✅ error 和 interrupt 上报已完成                              │
+│  • 上报 outbox（不再直接路由）                                  │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 依赖关系
+## 测试覆盖
 
-```
-P0-已完成: pregel_worker 错误上报 ✅
-       ↓
-P0-已完成: pregel_worker 中断支持 (4.0) ✅
-       ↓
-P0-已完成: pregel_barrier 汇总失败和中断信息 (4.4) ✅
-       ↓
-P0-已完成: pregel_master 回调机制 (4.1-4.3) ✅
-       ↓
-P0-已完成: 回调测试 (4.5) ✅
-       ↓
-P1-待做: Graph 层实现回调 (5.1-5.2)
-       ↓
-P1-可选: 重试逻辑 (5.3)
-```
+| 测试文件 | 测试数量 |
+|----------|----------|
+| `pregel_worker_tests.erl` | 13 tests |
+| `pregel_barrier_tests.erl` | 9 tests |
+| `pregel_master_callback_tests.erl` | 11 tests |
+| `pregel_message_routing_tests.erl` | 8 tests |
+| `graph_compute_tests.erl` | 4 tests |
+| **总计** | **45 tests** |
 
 ---
 
@@ -348,6 +276,8 @@ P1-可选: 重试逻辑 (5.3)
 - `info/pregel_callback_checkpoint_analysis.md` - 回调与 Checkpoint 分析
 - `info/pregel_master_failure_handling.md` - Master 失败处理设计
 - `info/pregel_worker_error_handling_design.md` - Worker 错误处理设计
+- `info/pregel_message_reliability_analysis.md` - 消息可靠性分析
+- `info/pregel_outbox_vs_pending_writes.md` - Outbox 与 pending_writes 对比
 
 ---
 
