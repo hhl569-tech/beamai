@@ -41,9 +41,6 @@
 -export([build_tool_handlers/1]).
 -export([extract_final_response/1]).
 
-%% 回调辅助函数（委托给 beamai_callback_utils）
--export([invoke_callback/3, invoke_callback/4]).
-
 %%====================================================================
 %% LLM 节点（委托给 beamai_llm_node）
 %%====================================================================
@@ -299,18 +296,3 @@ handle_agent_hook({goto, _Target, State1}, _State, _Hook) ->
     %% Agent 钩子忽略 goto（已经在开始/结束）
     {ok, State1}.
 
-%%====================================================================
-%% 回调辅助函数
-%%====================================================================
-
-%% @doc 调用回调函数（从图状态获取回调和元数据）
-%% 委托给 beamai_callback_utils
--spec invoke_callback(atom(), list(), map()) -> ok.
-invoke_callback(CallbackName, Args, State) ->
-    ?INVOKE_CALLBACK_FROM_STATE(CallbackName, Args, State).
-
-%% @doc 调用回调函数（直接传入回调映射和元数据）
-%% 委托给 beamai_callback_utils
--spec invoke_callback(atom(), list(), map(), map()) -> ok.
-invoke_callback(CallbackName, Args, Callbacks, Meta) ->
-    ?INVOKE_CALLBACK(CallbackName, Args, Callbacks, Meta).

@@ -44,7 +44,7 @@ build_graph(Opts) ->
 %% @doc 执行图
 %%
 %% 执行编译后的图并返回结果。
-%% 将新消息追加到历史记录，保留完整对话。
+%% 直接使用 Agent 的 graph_state，将新消息追加到历史记录。
 %%
 %% 消息压缩由 middleware_summarization 在
 %% before_model 钩子中处理。
@@ -59,9 +59,7 @@ execute(Msg, Opts, #state{config = #agent_config{graph = Graph, system_prompt = 
                                                   tools = Tools, max_iterations = MaxIter,
                                                   callbacks = Callbacks,
                                                   id = AgentId, name = AgentName},
-                           messages = HistoryMsgs,
-                           full_messages = HistoryFullMsgs,
-                           context = Context} = State) ->
+                           graph_state = GS} = State) ->
     %% 构建回调元数据（run_id 由图执行层管理，在图状态中获取）
     CallbackMeta = #{
         agent_id => AgentId,
@@ -69,30 +67,36 @@ execute(Msg, Opts, #state{config = #agent_config{graph = Graph, system_prompt = 
         timestamp => erlang:system_time(millisecond)
     },
 
+    %% 从 graph_state 获取历史消息
+    HistoryMsgs = graph_state:get(GS, <<"messages">>, []),
+    HistoryFullMsgs = graph_state:get(GS, <<"full_messages">>, []),
+    Context = graph_state:get(GS, <<"context">>, #{}),
+    Scratchpad = graph_state:get(GS, <<"scratchpad">>, []),
+
     %% 将新用户消息追加到历史记录
     NewUserMsg = #{role => user, content => Msg},
     AllMessages = HistoryMsgs ++ [NewUserMsg],
     AllFullMessages = HistoryFullMsgs ++ [NewUserMsg],
 
-    %% 构建包含原始输入的上下文
+    %% 构建包含原始输入的上下文（使用 binary 键）
     ContextWithInput = Context#{
-        original_input => Msg,
-        last_user_message => Msg
+        <<"original_input">> => Msg,
+        <<"last_user_message">> => Msg
     },
 
-    %% 构建初始图状态
-    InitState = graph:state(#{
-        messages => AllMessages,
-        full_messages => AllFullMessages,
-        system_prompt => Prompt,
-        tools => [to_tool_spec(Tool) || Tool <- Tools],
-        max_iterations => MaxIter,
-        iteration => 0,
-        scratchpad => [],
-        context => ContextWithInput,
-        callbacks => beamai_agent_callbacks:to_map(Callbacks),
-        callback_meta => CallbackMeta
-    }),
+    %% 直接更新现有 graph_state，设置图执行所需字段
+    InitState = graph_state:set_many(GS, [
+        {<<"messages">>, AllMessages},
+        {<<"full_messages">>, AllFullMessages},
+        {<<"system_prompt">>, Prompt},
+        {<<"tools">>, [to_tool_spec(Tool) || Tool <- Tools]},
+        {<<"max_iterations">>, MaxIter},
+        {<<"iteration">>, 0},
+        {<<"scratchpad">>, Scratchpad},
+        {<<"context">>, ContextWithInput},
+        {<<"callbacks">>, beamai_agent_callbacks:to_map(Callbacks)},
+        {<<"callback_meta">>, CallbackMeta}
+    ]),
 
     %% 构建执行选项（run_id 由图层自动生成，on_checkpoint 由 Agent 提供）
     RunOptions = build_run_options(State, Opts),
@@ -277,73 +281,59 @@ route_after_tools(State) ->
 
 %% @private 处理图执行结果
 %%
-%% 将 messages、full_messages 和 scratchpad 保存到状态。
+%% 直接使用 FinalState 作为新的 graph_state，无需提取和重建。
 -spec handle_graph_result(map(), #state{}) ->
     {ok, map(), #state{}} | {error, term(), #state{}}.
 handle_graph_result(#{status := completed, final_state := FinalState}, State) ->
     Result = build_result(FinalState),
-    NewState = extract_and_update_state(FinalState, State),
+    NewState = State#state{graph_state = FinalState},
     {ok, Result, NewState};
 
 handle_graph_result(#{status := max_iterations, final_state := FinalState}, State) ->
     Result = build_result(FinalState),
-    NewState = extract_and_update_state(FinalState, State),
+    NewState = State#state{graph_state = FinalState},
     {ok, Result#{warning => max_iterations_reached}, NewState};
 
 %% 处理停止状态（pregel 层的中断）
 handle_graph_result(#{status := stopped, final_state := FinalState,
                       checkpoint := Checkpoint, checkpoint_type := Type}, State) ->
     Result = build_result(FinalState),
-    NewState = extract_and_update_state(FinalState, State),
+    NewState = State#state{graph_state = FinalState},
     %% 返回中断信息供调用方处理
     {ok, Result#{
         status => interrupted,
         checkpoint => Checkpoint,
         checkpoint_type => Type,
-        pending_action => graph:get(FinalState, pending_action, undefined),
-        interrupt_point => graph:get(FinalState, interrupt_point, undefined)
+        pending_action => graph_state:get(FinalState, <<"pending_action">>, undefined),
+        interrupt_point => graph_state:get(FinalState, <<"interrupt_point">>, undefined)
     }, NewState};
 
 handle_graph_result(#{status := error, error := Reason, final_state := FinalState}, State) ->
-    NewState = extract_and_update_state(FinalState, State),
+    NewState = State#state{graph_state = FinalState},
     {error, Reason, NewState};
 
 handle_graph_result(#{status := error, final_state := FinalState}, State) ->
-    NewState = extract_and_update_state(FinalState, State),
+    NewState = State#state{graph_state = FinalState},
     {error, unknown_error, NewState};
 
 handle_graph_result(UnexpectedResult, State) ->
     logger:warning("意外的图执行结果: ~p", [UnexpectedResult]),
     {error, {unexpected_graph_result, UnexpectedResult}, State}.
 
-%% @private 从图状态提取数据并更新 Agent 状态
--spec extract_and_update_state(map(), #state{}) -> #state{}.
-extract_and_update_state(FinalState, State) ->
-    Messages = graph:get(FinalState, messages, []),
-    FullMessages = graph:get(FinalState, full_messages, []),
-    Scratchpad = graph:get(FinalState, scratchpad, []),
-    Context = graph:get(FinalState, context, #{}),
-    State#state{
-        messages = Messages,
-        full_messages = FullMessages,
-        scratchpad = Scratchpad,
-        context = Context
-    }.
-
 %% @private 从图状态构建结果
--spec build_result(map()) -> map().
+-spec build_result(graph_state:state()) -> map().
 build_result(FinalState) ->
-    Messages = graph:get(FinalState, messages, []),
+    Messages = graph_state:get(FinalState, <<"messages">>, []),
     FinalResponse = beamai_nodes:extract_final_response(Messages),
-    FinishReason = graph:get(FinalState, finish_reason, <<"stop">>),
-    ValidatedContent = graph:get(FinalState, validated_content, undefined),
+    FinishReason = graph_state:get(FinalState, <<"finish_reason">>, <<"stop">>),
+    ValidatedContent = graph_state:get(FinalState, <<"validated_content">>, undefined),
 
     Result = #{
         status => completed,
         messages => Messages,
         final_response => FinalResponse,
         finish_reason => FinishReason,
-        iterations => graph:get(FinalState, iteration, 0)
+        iterations => graph_state:get(FinalState, <<"iteration">>, 0)
     },
 
     maybe_add_validated_content(Result, ValidatedContent).

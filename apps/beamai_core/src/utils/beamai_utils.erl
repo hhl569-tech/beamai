@@ -6,10 +6,11 @@
 %%%
 %%% 功能分类：
 %%%   - 时间相关：时间戳生成、格式化
-%%%   - ID 生成：唯一标识符生成
 %%%   - Map 操作：安全访问、合并、转换
 %%%   - 列表操作：分页、过滤、排序
 %%%   - 验证函数：数据验证
+%%%
+%%% 注意：ID 生成已迁移至 beamai_id 模块
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
@@ -17,7 +18,6 @@
 
 %% 导出公共 API
 -export([timestamp/0, timestamp_seconds/0]).
--export([gen_id/0, gen_id/1]).
 -export([safe_get/3, safe_merge/2]).
 -export([paginate/3, filter_by_time/3]).
 -export([validate_binary/1, validate_map/1]).
@@ -30,7 +30,6 @@
 %%====================================================================
 
 -type timestamp() :: integer().
--type id() :: binary().
 
 %%====================================================================
 %% 时间相关函数
@@ -55,26 +54,6 @@ timestamp() ->
 -spec timestamp_seconds() -> pos_integer().
 timestamp_seconds() ->
     erlang:system_time(second).
-
-%%====================================================================
-%% ID 生成函数
-%%====================================================================
-
-%% @doc 生成唯一 ID
-%%
-%% 使用时间戳 + 随机数生成唯一的二进制 ID。
-%% 格式: timestamp-random
--spec gen_id() -> id().
-gen_id() ->
-    TS = timestamp(),
-    Rand = rand:uniform(100000000),
-    Id = io_lib:format("~p-~p", [TS, Rand]),
-    list_to_binary(Id).
-
-%% @doc 生成带前缀的唯一 ID
--spec gen_id(binary()) -> id().
-gen_id(Prefix) when is_binary(Prefix) ->
-    <<Prefix/binary, "-", (gen_id())/binary>>.
 
 %%====================================================================
 %% Map 操作函数

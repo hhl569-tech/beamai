@@ -156,7 +156,7 @@ process_todos(NewTodos, _ExistingTodos) ->
 %% @private 添加任务元数据
 add_metadata(Todo) ->
     Now = erlang:system_time(millisecond),
-    Id = maps:get(<<"id">>, Todo, generate_id()),
+    Id = maps:get(<<"id">>, Todo, beamai_id:gen_id(<<"todo">>)),
     Status = maps:get(<<"status">>, Todo, <<"pending">>),
 
     Todo#{
@@ -165,11 +165,6 @@ add_metadata(Todo) ->
         <<"updated_at">> => Now,
         <<"status">> => Status
     }.
-
-%% @private 生成任务 ID
-generate_id() ->
-    Rand = rand:uniform(16#FFFFFFFF),
-    iolist_to_binary(io_lib:format("todo_~8.16.0b", [Rand])).
 
 %% @private 计算统计信息
 compute_stats(Todos) ->

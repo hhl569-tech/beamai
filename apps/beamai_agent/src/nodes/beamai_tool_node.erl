@@ -2,7 +2,6 @@
 %%% @doc 工具执行节点模块
 %%%
 %%% 创建用于工具执行的图节点。
-%%% 核心逻辑委托给 beamai_tool_core 实现共享。
 %%%
 %%% == 功能 ==
 %%% - 执行工具调用
@@ -100,9 +99,8 @@ create_basic_node(ToolHandlers) ->
         ToolCalls = beamai_state_helpers:get_tool_calls(State),
         Context = beamai_state_helpers:get_context(State),
 
-        %% 使用共享核心执行所有工具调用
-        {Results, CtxUpdates} = beamai_tool_core:execute_calls(
-            ToolCalls, ToolHandlers, Context, State),
+        %% 执行所有工具调用
+        {Results, CtxUpdates} = execute_calls(ToolCalls, ToolHandlers, Context, State),
 
         %% 构建工具结果消息
         ToolMessages = beamai_agent_utils:build_tool_messages(ToolCalls, Results),
@@ -171,9 +169,8 @@ execute_tools_with_hooks(State, ToolHandlers, MwChain) ->
     %% 存储原始调用供中间件访问
     State0 = graph:set(State, mw_original_tool_calls, ToolCalls),
 
-    %% 使用共享核心执行
-    {Results, CtxUpdates} = beamai_tool_core:execute_calls(
-        ToolCalls, ToolHandlers, Context, State0),
+    %% 执行工具调用
+    {Results, CtxUpdates} = execute_calls(ToolCalls, ToolHandlers, Context, State0),
 
     %% 构建工具消息并更新状态（使用增量模式）
     ToolMessages = beamai_agent_utils:build_tool_messages(ToolCalls, Results),
@@ -211,3 +208,108 @@ handle_after_tools({halt, Reason}, State) ->
 handle_after_tools({interrupt, Action, State1}, _State) ->
     State2 = beamai_state_helpers:set_interrupt(State1, Action, after_tools),
     {interrupt, Action, State2}.
+
+%%====================================================================
+%% 私有函数 - 工具执行核心
+%%====================================================================
+
+%% @private 执行工具调用列表
+%%
+%% 遍历工具调用，使用提供的处理器执行每个调用。
+%% 累积结果和上下文更新。
+-spec execute_calls([map()], #{binary() => function()}, map(), map()) ->
+    {[{ok, binary()} | {error, term()}], map()}.
+execute_calls(ToolCalls, Handlers, Context, State) ->
+    lists:foldl(fun(ToolCall, {Results, CtxAcc}) ->
+        {Result, NewCtx} = execute_single(ToolCall, Handlers, CtxAcc, State),
+        {Results ++ [Result], maps:merge(CtxAcc, NewCtx)}
+    end, {[], Context}, ToolCalls).
+
+%% @private 执行单个工具调用
+-spec execute_single(map(), #{binary() => function()}, map(), map()) ->
+    {{ok, binary()} | {error, term()}, map()}.
+execute_single(ToolCall, Handlers, Context, State) ->
+    {Name, Args} = beamai_agent_utils:extract_tool_info(ToolCall),
+
+    %% 触发开始回调
+    invoke_callback(on_tool_start, [Name, Args], State),
+
+    %% 执行工具
+    case maps:get(Name, Handlers, undefined) of
+        undefined ->
+            Error = {unknown_tool, Name},
+            invoke_callback(on_tool_error, [Name, Error], State),
+            {{error, Error}, #{}};
+        Handler ->
+            {Result, CtxUpdates} = safe_execute(Handler, Args, Context),
+            invoke_tool_callbacks(Name, Result, State),
+            {Result, CtxUpdates}
+    end.
+
+%% @private 安全执行工具处理器
+%%
+%% 使用 try/catch 包装工具执行以处理异常。
+%% 将返回值规范化为标准格式。
+-spec safe_execute(function(), map(), map()) ->
+    {{ok, binary()} | {error, term()}, map()}.
+safe_execute(Handler, Args, Context) ->
+    try
+        RawResult = call_handler(Handler, Args, Context),
+        process_result(RawResult)
+    catch
+        Class:Reason:_Stack ->
+            {{error, {Class, Reason}}, #{}}
+    end.
+
+%% @private 根据 arity 调用处理器
+%%
+%% 支持两种处理器签名：
+%%   - Handler(Args) -> Result
+%%   - Handler(Args, Context) -> Result
+-spec call_handler(function(), map(), map()) -> term().
+call_handler(Handler, Args, Context) ->
+    case erlang:fun_info(Handler, arity) of
+        {arity, 1} -> Handler(Args);
+        {arity, 2} -> Handler(Args, Context);
+        _ -> Handler(Args)
+    end.
+
+%% @private 处理工具执行结果
+%%
+%% 将各种返回格式规范化为标准的 {Result, ContextUpdates}。
+%%
+%% 支持的格式：
+%%   - {Result, CtxUpdates} when is_map(CtxUpdates) -> {{ok, Binary}, CtxUpdates}
+%%   - {ok, Result, CtxUpdates} -> {{ok, Binary}, CtxUpdates}
+%%   - {ok, Result} -> {{ok, Binary}, #{}}
+%%   - {error, Reason} -> {{error, Reason}, #{}}
+%%   - Result -> {{ok, Binary}, #{}}
+-spec process_result(term()) -> {{ok, binary()} | {error, term()}, map()}.
+process_result({Result, CtxUpdates}) when is_map(CtxUpdates) ->
+    {{ok, beamai_utils:to_binary(Result)}, CtxUpdates};
+process_result({ok, Result, CtxUpdates}) when is_map(CtxUpdates) ->
+    {{ok, beamai_utils:to_binary(Result)}, CtxUpdates};
+process_result({ok, Result}) ->
+    {{ok, beamai_utils:to_binary(Result)}, #{}};
+process_result({error, Reason}) ->
+    {{error, Reason}, #{}};
+process_result(Result) ->
+    {{ok, beamai_utils:to_binary(Result)}, #{}}.
+
+%%====================================================================
+%% 私有函数 - 回调辅助
+%%====================================================================
+
+%% @private 触发工具结果回调
+-spec invoke_tool_callbacks(binary(), {ok, binary()} | {error, term()}, map()) -> ok.
+invoke_tool_callbacks(Name, {ok, Result}, State) ->
+    invoke_callback(on_tool_end, [Name, Result], State);
+invoke_tool_callbacks(Name, {error, Reason}, State) ->
+    invoke_callback(on_tool_error, [Name, Reason], State).
+
+%% @private 回调调用辅助
+-spec invoke_callback(atom(), list(), map()) -> ok.
+invoke_callback(CallbackName, Args, State) ->
+    Callbacks = graph:get(State, callbacks, #{}),
+    Meta = graph:get(State, callback_meta, #{}),
+    beamai_callback_utils:invoke(CallbackName, Args, Callbacks, Meta).

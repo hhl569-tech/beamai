@@ -63,7 +63,7 @@
     {ok, memory()} | {error, term()}.
 record_event(Memory, UserId, EventData) ->
     Namespace = get_event_namespace(UserId),
-    EventId = maps:get(id, EventData, beamai_memory_utils:generate_id(<<"evt">>)),
+    EventId = maps:get(id, EventData, beamai_id:gen_id(<<"evt">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
 
     Event = #event{

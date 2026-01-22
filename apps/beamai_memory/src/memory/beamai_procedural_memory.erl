@@ -238,7 +238,7 @@ delete_workflow(Memory, UserId, WorkflowId) ->
     {ok, memory()} | {error, term()}.
 register_tool_pattern(Memory, UserId, PatternData) ->
     Namespace = get_tool_pattern_namespace(UserId),
-    PatternId = maps:get(id, PatternData, beamai_memory_utils:generate_id(<<"pat">>)),
+    PatternId = maps:get(id, PatternData, beamai_id:gen_id(<<"pat">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
 
     Pattern = #tool_pattern{

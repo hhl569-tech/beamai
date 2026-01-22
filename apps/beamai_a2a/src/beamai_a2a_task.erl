@@ -220,7 +220,7 @@ init(Opts) ->
     Now = erlang:system_time(millisecond),
 
     %% 生成或使用提供的 Task ID
-    TaskId = maps:get(task_id, Opts, generate_task_id()),
+    TaskId = maps:get(task_id, Opts, beamai_id:gen_id(<<"task">>)),
     ContextId = maps:get(context_id, Opts, undefined),
     Metadata = maps:get(metadata, Opts, #{}),
 
@@ -304,25 +304,14 @@ code_change(_OldVsn, State, _Extra) ->
 %% 内部函数
 %%====================================================================
 
-%% @private 生成任务 ID
-generate_task_id() ->
-    Timestamp = erlang:system_time(microsecond),
-    Random = rand:uniform(16#FFFFFFFF),
-    iolist_to_binary(io_lib:format("task-~.16b-~.8b", [Timestamp, Random])).
-
 %% @private 确保 Artifact 有 ID
 ensure_artifact_id(Artifact) ->
     case maps:is_key(artifact_id, Artifact) of
         true -> Artifact;
         false ->
-            Id = generate_artifact_id(),
+            Id = beamai_id:gen_id(<<"artifact">>),
             Artifact#{artifact_id => Id}
     end.
-
-%% @private 生成 Artifact ID
-generate_artifact_id() ->
-    Random = rand:uniform(16#FFFFFFFF),
-    iolist_to_binary(io_lib:format("art-~.8b", [Random])).
 
 %% @private 执行状态更新
 do_update_status(NewStatus, State) ->

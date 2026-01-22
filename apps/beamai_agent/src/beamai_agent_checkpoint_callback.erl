@@ -42,6 +42,8 @@
 %% - Info: pregel 超步信息 #{type, superstep, ...}
 %% - CheckpointData: 检查点数据 #{type, pregel_checkpoint, iteration, run_id, ...}
 %%
+%% global_state 已经是 graph_state 格式（binary 键），可以直接保存。
+%%
 %% @param AgentState Agent 的当前状态（#state{}）
 %% @param Memory beamai_memory 实例
 %% @returns on_checkpoint 回调函数
@@ -56,25 +58,9 @@ create_callback(#state{config = #agent_config{id = AgentId, name = AgentName}}, 
         %% 从 pregel_checkpoint 提取状态和执行上下文
         PregelCheckpoint = maps:get(pregel_checkpoint, CheckpointData, #{}),
 
-        %% StateData = global_state（直接存储 agent 状态）
-        %% 重要：使用 checkpoint_data.global_state 而不是 pregel_checkpoint.global_state
-        %% checkpoint_data.global_state 是最新的全局状态（已应用 deltas）
-        %% pregel_checkpoint.global_state 可能是旧的快照
+        %% StateData = global_state（直接是 graph_state 格式）
+        %% 使用 checkpoint_data.global_state（已应用 deltas 的最新状态）
         StateData = maps:get(global_state, CheckpointData, extract_graph_state(PregelCheckpoint)),
-
-        %% DEBUG: 对比两个 global_state
-        PregelGlobalState = extract_graph_state(PregelCheckpoint),
-        PregelMsgs = get_messages_from_state(PregelGlobalState),
-        DirectMsgs = get_messages_from_state(StateData),
-        logger:info("[CHECKPOINT DEBUG] type=~p, superstep=~p",
-                    [CheckpointType, maps:get(superstep, CheckpointData, 0)]),
-        logger:info("[CHECKPOINT DEBUG] pregel_checkpoint.global_state.messages: ~p 条",
-                    [length(PregelMsgs)]),
-        logger:info("[CHECKPOINT DEBUG] checkpoint_data.global_state.messages: ~p 条",
-                    [length(DirectMsgs)]),
-        %% 打印消息角色
-        logger:info("[CHECKPOINT DEBUG] StateData messages roles: ~p",
-                    [[maps:get(role, M, maps:get(<<"role">>, M, unknown)) || M <- DirectMsgs]]),
 
         %% 构建配置
         Config = #{
@@ -85,8 +71,6 @@ create_callback(#state{config = #agent_config{id = AgentId, name = AgentName}}, 
         },
 
         %% 构建元数据
-        %% 扁平字段由 beamai_memory 处理
-        %% metadata 字段存储执行上下文（用于恢复）
         Superstep = maps:get(superstep, CheckpointData, maps:get(superstep, Info, 0)),
         MetadataMap = #{
             checkpoint_type => CheckpointType,
@@ -102,7 +86,7 @@ create_callback(#state{config = #agent_config{id = AgentId, name = AgentName}}, 
             }
         },
 
-        %% 保存 checkpoint
+        %% 保存 checkpoint（StateData 已经是 graph_state 格式）
         case beamai_memory:save_checkpoint(Memory, Config, StateData, MetadataMap) of
             ok -> continue;
             {error, Reason} ->
@@ -121,11 +105,3 @@ create_callback(#state{config = #agent_config{id = AgentId, name = AgentName}}, 
 -spec extract_graph_state(map()) -> map().
 extract_graph_state(PregelCheckpoint) ->
     maps:get(global_state, PregelCheckpoint, #{}).
-
-%% @private 从状态中提取 messages（支持 atom 和 binary 键）
--spec get_messages_from_state(map()) -> [map()].
-get_messages_from_state(State) ->
-    case maps:get(<<"messages">>, State, undefined) of
-        undefined -> maps:get(messages, State, []);
-        Msgs -> Msgs
-    end.

@@ -55,15 +55,21 @@
 }).
 
 %% Agent 运行时状态
+%%
+%% graph_state 使用 binary 键存储以下字段：
+%% - <<"messages">>       - 压缩的消息历史（用于 LLM 调用）
+%% - <<"full_messages">>  - 完整消息历史（用于审计/调试）
+%% - <<"scratchpad">>     - 中间步骤记录
+%% - <<"context">>        - 用户上下文
+%% - <<"pending_action">> - 等待确认的动作
+%%
+%% 设计优势：
+%% 1. 数据单一来源 - 消除 Agent 状态和图状态之间的数据复制
+%% 2. 直接持久化 - checkpoint 直接使用 graph_state，无需二次转换
+%% 3. 简化 API - 状态操作通过 graph_state 统一管理
 -record(state, {
     config          :: #agent_config{},        %% 配置（不可变）
-    %% 以下字段映射到 graph_state
-    messages        :: [map()],                %% 对话消息（可能已压缩）
-    full_messages   :: [map()],                %% 完整对话历史
-    scratchpad      :: [map()],                %% 中间步骤记录
-    context         :: map(),                  %% 用户自定义上下文
-    pending_action  :: map() | undefined       %% 等待确认的动作
-    %% run_id 由图执行层（pregel）管理，不在 Agent state 中维护
+    graph_state     :: graph_state:state()     %% 可变状态（存储在 graph_state 中）
 }).
 
 -endif. %% AGENT_SIMPLE_HRL

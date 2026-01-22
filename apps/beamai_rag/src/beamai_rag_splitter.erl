@@ -21,7 +21,7 @@
 -module(beamai_rag_splitter).
 
 %% 导入工具函数
--import(beamai_rag_utils, [generate_uuid/0, zip_with_index/1]).
+-import(beamai_rag_utils, [zip_with_index/1]).
 
 %%====================================================================
 %% 导出 API
@@ -177,5 +177,5 @@ extract_overlap(Text, Overlap) ->
 %% @private 将二进制块列表转换为块记录列表
 -spec to_chunk_records([binary()]) -> [chunk()].
 to_chunk_records(ChunkBins) ->
-    [#{content => C, chunk_id => generate_uuid(), chunk_index => I}
+    [#{content => C, chunk_id => beamai_id:gen_id(<<"chunk">>), chunk_index => I}
      || {I, C} <- zip_with_index(ChunkBins)].

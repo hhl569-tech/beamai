@@ -315,7 +315,7 @@ delete_entity(Memory, UserId, EntityId) ->
     {ok, memory()} | {error, term()}.
 add_knowledge(Memory, UserId, KnowledgeData) ->
     Namespace = get_knowledge_namespace(UserId),
-    KnowledgeId = get_opt(<<"id">>, KnowledgeData, beamai_memory_utils:generate_id(<<"k">>)),
+    KnowledgeId = get_opt(<<"id">>, KnowledgeData, beamai_id:gen_id(<<"k">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
 
     %% 从 KnowledgeData 中提取值（支持 atom 和 binary 键）
@@ -413,7 +413,7 @@ delete_knowledge(Memory, UserId, KnowledgeId) ->
     {ok, memory()} | {error, term()}.
 add_shared_knowledge(Memory, KnowledgeData) ->
     Namespace = get_shared_knowledge_namespace(),
-    KnowledgeId = maps:get(id, KnowledgeData, beamai_memory_utils:generate_id(<<"k">>)),
+    KnowledgeId = maps:get(id, KnowledgeData, beamai_id:gen_id(<<"k">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
 
     Knowledge = #knowledge{

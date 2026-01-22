@@ -29,7 +29,6 @@
 
 %% 导入公共工具函数
 -import(beamai_rag_utils, [
-    generate_uuid/0,
     ensure_binary/1
 ]).
 
@@ -142,7 +141,7 @@ index_document(Pipeline, Content, Metadata) ->
 -spec index_document(rag_pipeline(), binary(), map(), map()) ->
     {ok, binary(), rag_pipeline()} | {error, term()}.
 index_document(Pipeline, Content, Metadata, _Opts) ->
-    ParentId = generate_uuid(),
+    ParentId = beamai_id:gen_id(<<"parent">>),
     Chunks = split_text(Pipeline, Content),
     store_chunks(Pipeline, Chunks, ParentId, Metadata).
 

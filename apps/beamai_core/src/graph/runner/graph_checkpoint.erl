@@ -399,7 +399,7 @@ build_error_result_from_checkpoint(CheckpointData, Reason, Iteration) ->
 ensure_run_id(Options) ->
     case maps:is_key(run_id, Options) of
         true -> Options;
-        false -> Options#{run_id => generate_run_id()}
+        false -> Options#{run_id => beamai_id:gen_id(<<"run">>)}
     end.
 
 %% @doc 分类顶点状态
@@ -428,14 +428,6 @@ classify_vertices(Vertices) ->
 %%====================================================================
 %% 内部函数
 %%====================================================================
-
-%% @private 生成唯一执行 ID
-%% 格式: UUID v4 风格的 8-4-4-4-12 十六进制字符串
--spec generate_run_id() -> binary().
-generate_run_id() ->
-    <<A:32, B:16, C:16, D:16, E:48>> = crypto:strong_rand_bytes(16),
-    iolist_to_binary(io_lib:format("~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b",
-                                   [A, B, C, D, E])).
 
 %% @private 处理 Pregel 引擎执行结果
 %%

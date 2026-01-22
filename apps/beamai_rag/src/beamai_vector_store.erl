@@ -28,7 +28,6 @@
 
 %% 导入公共工具函数
 -import(beamai_rag_utils, [
-    generate_uuid/0,
     take/2
 ]).
 
@@ -124,7 +123,7 @@ clear(_Store) ->
 %% 返回 {ok, 文档ID, 更新后的存储}。
 -spec add_document(vector_store(), map()) -> {ok, document_id(), vector_store()}.
 add_document(Store, DocInput) ->
-    DocId = generate_uuid(),
+    DocId = beamai_id:gen_id(<<"doc">>),
     Document = build_document(DocId, DocInput),
     NewStore = store_document(Store, Document),
     {ok, DocId, NewStore}.

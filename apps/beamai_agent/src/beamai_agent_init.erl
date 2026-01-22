@@ -154,14 +154,19 @@ build_state(Id, Opts, Graph) ->
         meta = maps:get(meta, Opts, #{})
     },
 
+    %% 构建初始 graph_state（使用 binary 键）
+    InitialGraphState = graph_state:new(#{
+        <<"messages">> => [],
+        <<"full_messages">> => [],
+        <<"scratchpad">> => [],
+        <<"context">> => maps:get(context, Opts, #{}),
+        <<"pending_action">> => undefined
+    }),
+
     %% 构建运行时状态
     #state{
         config = Config,
-        messages = [],
-        full_messages = [],
-        scratchpad = [],
-        context = maps:get(context, Opts, #{}),
-        pending_action = undefined
+        graph_state = InitialGraphState
     }.
 
 %% @private 默认系统提示词

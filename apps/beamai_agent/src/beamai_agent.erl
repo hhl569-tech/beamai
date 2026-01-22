@@ -46,8 +46,6 @@
 -export([
     new/1,                  %% 创建 Agent 状态
     run/2, run/3,           %% 带状态执行
-    export_state/1,         %% 导出状态
-    import_state/2,         %% 导入状态
     restore_from_memory/2   %% 从 Memory 恢复
 ]).
 
@@ -120,7 +118,7 @@
 %% @returns {ok, State} | {error, Reason}
 -spec new(config()) -> {ok, state()} | {error, term()}.
 new(Config) ->
-    Id = maps:get(id, Config, beamai_utils:gen_id()),
+    Id = maps:get(id, Config, beamai_id:gen_id(<<"agent">>)),
     beamai_agent_init:create_state(Id, Config).
 
 %% @doc 执行对话（简化版）
@@ -165,60 +163,6 @@ run(#state{config = #agent_config{callbacks = Callbacks}} = State, Message, Opts
             {error, Reason, NewState}
     end.
 
-%% @doc 导出状态（用于外部持久化）
-%%
-%% 导出对话状态为可序列化的 map，可存储到 Redis、PostgreSQL、文件等。
-%%
-%% 导出内容：
-%% - messages: 压缩后的消息（用于 LLM 调用）
-%% - full_messages: 完整历史（用于审计/调试/回滚）
-%% - scratchpad: 中间步骤记录
-%% - context: 用户自定义上下文
-%%
-%% 配置数据不导出（在 import_state 时传入）。
-%%
-%% @param State Agent 状态
-%% @returns 导出的状态 map
--spec export_state(state()) -> map().
-export_state(#state{} = State) ->
-    #{
-        messages => State#state.messages,
-        full_messages => State#state.full_messages,
-        scratchpad => State#state.scratchpad,
-        context => State#state.context
-    }.
-
-%% @doc 导入状态（从导出数据恢复）
-%%
-%% 从 export_state/1 的输出恢复对话状态。
-%% 配置（tools, llm, middlewares 等）通过 Config 传入。
-%%
-%% @param ExportedData export_state/1 的输出
-%% @param Config Agent 配置
-%% @returns {ok, State} | {error, Reason}
--spec import_state(map(), config()) -> {ok, state()} | {error, term()}.
-import_state(ExportedData, Config) when is_map(ExportedData), is_map(Config) ->
-    Messages = maps:get(messages, ExportedData, []),
-    FullMessages = maps:get(full_messages, ExportedData, []),
-    Scratchpad = maps:get(scratchpad, ExportedData, []),
-    Context = maps:get(context, ExportedData, #{}),
-
-    %% 创建新状态
-    case new(Config) of
-        {ok, State} ->
-            %% 恢复对话状态
-            CurrentCtx = State#state.context,
-            MergedCtx = maps:merge(CurrentCtx, Context),
-            {ok, State#state{
-                messages = Messages,
-                full_messages = FullMessages,
-                scratchpad = Scratchpad,
-                context = MergedCtx
-            }};
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
 %% @doc 从 Memory 恢复最新状态
 %%
 %% 从 beamai_memory 恢复最新的 checkpoint 状态。
@@ -241,33 +185,37 @@ restore_from_memory(Config, Memory) ->
 
 %% @doc 获取消息历史（可能已压缩）
 -spec get_messages(state()) -> [map()].
-get_messages(#state{messages = Messages}) ->
-    Messages.
+get_messages(#state{graph_state = GS}) ->
+    graph_state:get(GS, <<"messages">>, []).
 
 %% @doc 获取完整消息历史
 -spec get_full_messages(state()) -> [map()].
-get_full_messages(#state{full_messages = FullMessages}) ->
-    FullMessages.
+get_full_messages(#state{graph_state = GS}) ->
+    graph_state:get(GS, <<"full_messages">>, []).
 
 %% @doc 获取中间步骤记录
 -spec get_scratchpad(state()) -> [map()].
-get_scratchpad(#state{scratchpad = Scratchpad}) ->
-    lists:reverse(Scratchpad).
+get_scratchpad(#state{graph_state = GS}) ->
+    lists:reverse(graph_state:get(GS, <<"scratchpad">>, [])).
 
 %% @doc 获取完整上下文
 -spec get_context(state()) -> map().
-get_context(#state{context = Context}) ->
-    Context.
+get_context(#state{graph_state = GS}) ->
+    graph_state:get(GS, <<"context">>, #{}).
 
 %% @doc 获取上下文值
 -spec get_context(state(), atom() | binary()) -> term() | undefined.
-get_context(#state{context = Context}, Key) ->
-    maps:get(Key, Context, undefined).
+get_context(#state{graph_state = GS}, Key) ->
+    Context = graph_state:get(GS, <<"context">>, #{}),
+    NormalizedKey = graph_state:normalize_key(Key),
+    maps:get(NormalizedKey, Context, undefined).
 
 %% @doc 获取上下文值（带默认值）
 -spec get_context(state(), atom() | binary(), term()) -> term().
-get_context(#state{context = Context}, Key, Default) ->
-    maps:get(Key, Context, Default).
+get_context(#state{graph_state = GS}, Key, Default) ->
+    Context = graph_state:get(GS, <<"context">>, #{}),
+    NormalizedKey = graph_state:normalize_key(Key),
+    maps:get(NormalizedKey, Context, Default).
 
 %%====================================================================
 %% 状态修改 API 实现
@@ -275,30 +223,49 @@ get_context(#state{context = Context}, Key, Default) ->
 
 %% @doc 设置完整上下文
 -spec set_context(state(), map()) -> state().
-set_context(State, Context) when is_map(Context) ->
-    State#state{context = Context}.
+set_context(#state{graph_state = GS} = State, Context) when is_map(Context) ->
+    NewGS = graph_state:set(GS, <<"context">>, Context),
+    State#state{graph_state = NewGS}.
 
 %% @doc 更新上下文（合并）
 -spec update_context(state(), map()) -> state().
-update_context(#state{context = Context} = State, Updates) when is_map(Updates) ->
-    NewContext = maps:merge(Context, Updates),
-    State#state{context = NewContext}.
+update_context(#state{graph_state = GS} = State, Updates) when is_map(Updates) ->
+    Context = graph_state:get(GS, <<"context">>, #{}),
+    %% 将 Updates 的键规范化为 binary
+    NormalizedUpdates = maps:fold(
+        fun(K, V, Acc) ->
+            Acc#{graph_state:normalize_key(K) => V}
+        end,
+        #{},
+        Updates
+    ),
+    NewContext = maps:merge(Context, NormalizedUpdates),
+    NewGS = graph_state:set(GS, <<"context">>, NewContext),
+    State#state{graph_state = NewGS}.
 
 %% @doc 设置单个上下文值
 -spec put_context(state(), atom() | binary(), term()) -> state().
-put_context(#state{context = Context} = State, Key, Value) ->
-    NewContext = maps:put(Key, Value, Context),
-    State#state{context = NewContext}.
+put_context(#state{graph_state = GS} = State, Key, Value) ->
+    Context = graph_state:get(GS, <<"context">>, #{}),
+    NormalizedKey = graph_state:normalize_key(Key),
+    NewContext = maps:put(NormalizedKey, Value, Context),
+    NewGS = graph_state:set(GS, <<"context">>, NewContext),
+    State#state{graph_state = NewGS}.
 
 %% @doc 清空消息历史
 -spec clear_messages(state()) -> state().
-clear_messages(State) ->
-    State#state{messages = [], full_messages = []}.
+clear_messages(#state{graph_state = GS} = State) ->
+    NewGS = graph_state:set_many(GS, [
+        {<<"messages">>, []},
+        {<<"full_messages">>, []}
+    ]),
+    State#state{graph_state = NewGS}.
 
 %% @doc 清空中间步骤
 -spec clear_scratchpad(state()) -> state().
-clear_scratchpad(State) ->
-    State#state{scratchpad = []}.
+clear_scratchpad(#state{graph_state = GS} = State) ->
+    NewGS = graph_state:set(GS, <<"scratchpad">>, []),
+    State#state{graph_state = NewGS}.
 
 %%====================================================================
 %% 图构建 API 实现

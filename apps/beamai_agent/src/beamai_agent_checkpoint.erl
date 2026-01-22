@@ -69,6 +69,8 @@ maybe_restore(Opts, #state{config = #agent_config{storage = Memory}} = State) ->
 %% 在 Agent 执行完成后调用，将当前状态保存为 checkpoint。
 %% 仅当配置了 storage (Memory) 时才会保存。
 %%
+%% 直接使用 graph_state 作为 StateData，无需二次转换。
+%%
 %% 参数:
 %% - Result: 运行结果 map，包含 status, final_response 等
 %% - State: 当前 Agent 状态
@@ -78,10 +80,12 @@ maybe_restore(Opts, #state{config = #agent_config{storage = Memory}} = State) ->
 maybe_auto_save(_Result, #state{config = #agent_config{storage = undefined}} = State) ->
     %% 未配置 storage，跳过保存
     State;
-maybe_auto_save(Result, #state{config = #agent_config{storage = Memory, id = AgentId}} = State) ->
+maybe_auto_save(Result, #state{config = #agent_config{storage = Memory, id = AgentId},
+                                graph_state = GS} = State) ->
     ThreadId = beamai_memory:get_thread_id(Memory),
-    %% 构建要保存的状态数据
-    StateData = build_checkpoint_state(State),
+    %% 直接使用 graph_state 作为 StateData
+    %% graph_state 已经使用 binary 键存储，与 checkpoint 格式一致
+    StateData = GS,
     %% 构建元数据
     Metadata = #{
         checkpoint_type => final,
@@ -141,55 +145,17 @@ restore_checkpoint_state(Memory, ThreadId, CpId, State) ->
 
 %% @private 应用检查点数据到状态
 %%
-%% 恢复 messages、full_messages、scratchpad、context 到状态。
-%% checkpoint.values 直接是 global_state，键为 binary 格式。
+%% 直接将检查点数据设置为 graph_state。
+%% 检查点数据已经是 graph_state 格式（binary 键）。
 %%
 %% 注意：
 %% - context 使用合并策略，保留当前状态中存在但检查点中不存在的键
 -spec apply_checkpoint_data(map(), #state{}) -> #state{}.
-apply_checkpoint_data(Data, #state{context = CurrentCtx} = State) ->
-    %% global_state 使用 binary 键，所以同时检查 atom 和 binary 键
-    Messages = get_field(Data, messages, []),
-    FullMessages = get_field(Data, full_messages, []),
-    Scratchpad = get_field(Data, scratchpad, []),
-    %% Context 恢复：检查点数据覆盖当前值，但保留检查点中没有的当前键
-    SavedCtx = get_field(Data, context, #{}),
-    NewCtx = maps:merge(CurrentCtx, SavedCtx),
-    State#state{
-        messages = Messages,
-        full_messages = FullMessages,
-        scratchpad = Scratchpad,
-        context = NewCtx
-    }.
-
-%% @private 从 checkpoint data 获取字段
-%% 支持 atom 和 binary 键（global_state 使用 binary 键）
--spec get_field(map(), atom(), term()) -> term().
-get_field(Data, Key, Default) when is_atom(Key) ->
-    BinaryKey = atom_to_binary(Key, utf8),
-    case maps:get(BinaryKey, Data, undefined) of
-        undefined -> maps:get(Key, Data, Default);
-        Value -> Value
-    end.
-
-%% @private 构建要保存的 checkpoint 状态数据
-%%
-%% 从 Agent 状态中提取需要持久化的数据：
-%% - messages: 精简的消息历史
-%% - full_messages: 完整的消息历史
-%% - scratchpad: 中间步骤记录
-%% - context: 上下文数据
--spec build_checkpoint_state(#state{}) -> map().
-build_checkpoint_state(#state{
-    messages = Messages,
-    full_messages = FullMessages,
-    scratchpad = Scratchpad,
-    context = Context
-}) ->
-    %% 使用 binary 键以保持一致性
-    #{
-        <<"messages">> => Messages,
-        <<"full_messages">> => FullMessages,
-        <<"scratchpad">> => Scratchpad,
-        <<"context">> => Context
-    }.
+apply_checkpoint_data(Data, #state{graph_state = CurrentGS} = State) ->
+    %% Context 恢复：合并当前 context 和检查点 context
+    CurrentCtx = graph_state:get(CurrentGS, <<"context">>, #{}),
+    SavedCtx = maps:get(<<"context">>, Data, maps:get(context, Data, #{})),
+    MergedCtx = maps:merge(CurrentCtx, SavedCtx),
+    %% 将检查点数据作为新的 graph_state，更新合并后的 context
+    NewGS = graph_state:set(Data, <<"context">>, MergedCtx),
+    State#state{graph_state = NewGS}.

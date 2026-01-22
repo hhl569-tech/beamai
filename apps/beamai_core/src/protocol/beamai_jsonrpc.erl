@@ -429,14 +429,12 @@ custom_error(Id, Code, Message, Data, encode) ->
 
 %% @doc 生成唯一的请求 ID
 %%
-%% 格式: req-<timestamp_hex>-<random_hex>
+%% 使用统一的 beamai_id 模块生成带 req 前缀的 ID。
 %%
 %% @returns 请求 ID 二进制字符串
 -spec generate_id() -> binary().
 generate_id() ->
-    Timestamp = erlang:system_time(microsecond),
-    Random = rand:uniform(16#FFFF),
-    iolist_to_binary(io_lib:format("req-~.16b-~.4b", [Timestamp, Random])).
+    beamai_id:gen_id(<<"req">>).
 
 %%====================================================================
 %% 内部函数

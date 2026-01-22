@@ -53,12 +53,6 @@
     get_coordinator_state/1     %% 获取协调器 agent 状态
 ]).
 
-%% 状态导出/导入 API
--export([
-    export/1,                   %% 导出协调器完整状态
-    import/2                    %% 导入协调器状态
-]).
-
 %% 便捷函数
 -export([
     delegate/3,                 %% 委托任务给指定 Worker
@@ -266,95 +260,6 @@ get_worker(#coordinator{workers = Workers}, Name) ->
 %% @doc 获取协调器 agent 状态
 -spec get_coordinator_state(coordinator()) -> beamai_agent:state().
 get_coordinator_state(#coordinator{coordinator_state = State}) -> State.
-
-%%====================================================================
-%% 状态导出/导入 API 实现
-%%====================================================================
-
-%% @doc 导出协调器完整状态
-%%
-%% @param Coordinator 协调器
-%% @returns 导出的状态 map
--spec export(coordinator()) -> map().
-export(#coordinator{type = Type, agents = Agents, llm_config = LLMConfig,
-                    coordinator_state = CoordState, workers = Workers}) ->
-    %% 导出协调器状态
-    CoordinatorExport = beamai_agent:export_state(CoordState),
-
-    %% 导出所有 workers 状态
-    WorkersExport = maps:map(fun(_Name, WorkerState) ->
-        beamai_agent:export_state(WorkerState)
-    end, Workers),
-
-    #{
-        type => Type,
-        agents => Agents,
-        llm_config => LLMConfig,
-        coordinator_state => CoordinatorExport,
-        workers_states => WorkersExport,
-        exported_at => erlang:system_time(millisecond)
-    }.
-
-%% @doc 导入协调器状态
-%%
-%% @param ExportedData 通过 export/1 导出的数据
-%% @param Config 配置（主要是 LLM 配置，如果导出数据中没有）
-%% @returns {ok, Coordinator} | {error, Reason}
--spec import(map(), map()) -> {ok, coordinator()} | {error, term()}.
-import(ExportedData, Config) ->
-    #{
-        type := Type,
-        agents := Agents,
-        coordinator_state := CoordinatorExport,
-        workers_states := WorkersExport
-    } = ExportedData,
-
-    %% LLM 配置优先从 Config 获取，否则从导出数据获取
-    LLMConfig = maps:get(llm, Config, maps:get(llm_config, ExportedData, #{})),
-
-    %% 根据类型创建新协调器
-    CreateFun = case Type of
-        pipeline -> fun new_pipeline/1;
-        orchestrator -> fun new_orchestrator/1
-    end,
-
-    case CreateFun(#{agents => Agents, llm => LLMConfig}) of
-        {ok, #coordinator{coordinator_state = CoordState, workers = Workers} = Coordinator} ->
-            %% 恢复协调器状态
-            {ok, NewCoordState} = beamai_agent:import_state(CoordinatorExport,
-                #{llm => LLMConfig}),
-
-            %% 恢复 workers 状态
-            NewWorkers = maps:fold(fun(Name, WorkerExport, Acc) ->
-                case maps:find(Name, Workers) of
-                    {ok, _WorkerState} ->
-                        case beamai_agent:import_state(WorkerExport, #{llm => LLMConfig}) of
-                            {ok, RestoredWorker} ->
-                                Acc#{Name => RestoredWorker};
-                            {error, _} ->
-                                Acc
-                        end;
-                    error ->
-                        Acc
-                end
-            end, Workers, WorkersExport),
-
-            %% 保留原始 context（不被 import 覆盖的部分）
-            FinalCoordState = restore_context_from_old(CoordState, NewCoordState),
-
-            {ok, Coordinator#coordinator{
-                coordinator_state = FinalCoordState,
-                workers = NewWorkers
-            }};
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-%% @private 从旧状态恢复部分 context
--spec restore_context_from_old(beamai_agent:state(), beamai_agent:state()) ->
-    beamai_agent:state().
-restore_context_from_old(_OldState, NewState) ->
-    NewState.
 
 %%====================================================================
 %% 便捷函数实现

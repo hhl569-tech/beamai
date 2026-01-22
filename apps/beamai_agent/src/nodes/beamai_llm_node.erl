@@ -2,7 +2,6 @@
 %%% @doc LLM 调用节点模块
 %%%
 %%% 创建用于 LLM 交互的图节点。
-%%% 核心逻辑委托给 beamai_llm_core 实现共享。
 %%%
 %%% == 功能 ==
 %%% - 构建 LLM 请求
@@ -28,11 +27,6 @@
 
 %% 节点创建 API
 -export([create/1, create/2]).
-
-%% 内部函数（供 beamai_nodes 委托使用）
--export([build_llm_opts/3]).
--export([process_llm_response/4]).
--export([build_assistant_message/2]).
 
 %%====================================================================
 %% 节点创建 API
@@ -85,46 +79,6 @@ create(LLMConfig, Opts) ->
     end.
 
 %%====================================================================
-%% 内部函数（供 beamai_nodes 委托使用）
-%%====================================================================
-
-%% @doc 构建 LLM 调用选项
-%%
-%% 委托给 beamai_llm_core。
-%%
-%% @param Tools 工具定义
-%% @param LLMConfig LLM 配置
-%% @param State 图状态
-%% @returns LLM 选项 map
--spec build_llm_opts([map()], map(), map()) -> map().
-build_llm_opts(Tools, LLMConfig, State) ->
-    beamai_llm_core:build_llm_opts(Tools, LLMConfig, State).
-
-%% @doc 处理 LLM 响应
-%%
-%% 委托给 beamai_llm_core 实现共享。
-%%
-%% @param Response LLM 响应
-%% @param Messages 原始消息
-%% @param State 图状态
-%% @param MsgsKey 消息状态键
-%% @returns {ok, NewState}
--spec process_llm_response(map(), [map()], map(), atom()) -> {ok, map()}.
-process_llm_response(Response, Messages, State, MsgsKey) ->
-    beamai_llm_core:process_response(Response, Messages, State, MsgsKey).
-
-%% @doc 构建 assistant 消息
-%%
-%% 委托给 beamai_llm_core。
-%%
-%% @param Content 消息内容
-%% @param ToolCalls 工具调用列表
-%% @returns Assistant 消息 map
--spec build_assistant_message(binary() | null, [map()]) -> map().
-build_assistant_message(Content, ToolCalls) ->
-    beamai_llm_core:build_assistant_msg(Content, ToolCalls).
-
-%%====================================================================
 %% 私有函数 - 基础节点（无中间件）
 %%====================================================================
 
@@ -146,18 +100,18 @@ create_basic_node(LLMConfig, #{tools_key := ToolsKey, msgs_key := MsgsKey,
 
         %% 构建 LLM 选项并执行调用
         LLMOpts = build_llm_opts(Tools, LLMConfig, State),
-        execute_llm_call(LLMConfig, AllMsgs, LLMOpts, Messages, State, MsgsKey)
+        execute_llm_call(LLMConfig, AllMsgs, LLMOpts, State, MsgsKey)
     end.
 
 %% @private 执行 LLM 调用并处理结果
--spec execute_llm_call(map(), [map()], map(), [map()], map(), atom()) ->
+-spec execute_llm_call(map(), [map()], map(), map(), atom()) ->
     {ok, map()}.
-execute_llm_call(LLMConfig, AllMsgs, LLMOpts, Messages, State, MsgsKey) ->
+execute_llm_call(LLMConfig, AllMsgs, LLMOpts, State, MsgsKey) ->
     case llm_client:chat(LLMConfig, AllMsgs, LLMOpts) of
         {ok, Response} ->
             %% 成功：触发回调并处理响应
             ?INVOKE_CALLBACK_FROM_STATE(on_llm_end, [Response], State),
-            process_llm_response(Response, Messages, State, MsgsKey);
+            process_response(Response, State, MsgsKey);
 
         {error, Reason} ->
             %% 失败：触发错误回调并设置错误状态
@@ -214,14 +168,14 @@ execute_llm_with_hooks(State, LLMConfig, MwChain, #{tools_key := ToolsKey,
 
     %% 触发回调并构建选项
     invoke_callback(on_llm_start, [AllMsgs], State),
-    LLMOpts = beamai_llm_core:build_llm_opts(Tools, LLMConfig, State),
+    LLMOpts = build_llm_opts(Tools, LLMConfig, State),
 
     %% 执行 LLM 调用
     case llm_client:chat(LLMConfig, AllMsgs, LLMOpts) of
         {ok, Response} ->
             invoke_callback(on_llm_end, [Response], State),
-            %% 使用共享核心处理响应
-            {ok, State1} = beamai_llm_core:process_response(Response, Messages, State, MsgsKey),
+            %% 处理响应
+            {ok, State1} = process_response(Response, State, MsgsKey),
             %% 运行 after_model 钩子
             handle_after_model(
                 beamai_middleware_runner:run_hook(after_model, State1, MwChain),
@@ -245,6 +199,79 @@ handle_after_model({halt, Reason}, State) ->
 handle_after_model({interrupt, Action, State1}, _State) ->
     State2 = beamai_state_helpers:set_interrupt(State1, Action, after_model),
     {interrupt, Action, State2}.
+
+%%====================================================================
+%% 私有函数 - LLM 响应处理
+%%====================================================================
+
+%% @private 处理 LLM 响应并更新状态
+%%
+%% 从响应中提取内容、工具调用和完成原因。
+%% 触发文本和动作回调。
+%% 使用增量更新模式更新 messages 和 full_messages。
+%%
+%% 重要：增量更新模式
+%% - 只设置新的 assistant 消息，不包含历史消息
+%% - append_reducer 负责将新消息追加到现有列表
+%% - 避免消息重复问题
+-spec process_response(map(), map(), atom()) -> {ok, map()}.
+process_response(Response, State, MsgsKey) ->
+    %% 提取响应数据
+    Content = extract_content(Response),
+    ToolCalls = extract_tool_calls(Response),
+    FinishReason = extract_finish_reason(Response),
+
+    %% 触发文本和动作回调
+    beamai_agent_utils:invoke_text_callback(Content, State),
+    beamai_agent_utils:invoke_action_callback(ToolCalls, Content, FinishReason, State),
+
+    %% 构建 assistant 消息
+    AssistantMsg = build_assistant_msg(Content, ToolCalls),
+
+    %% 使用增量模式更新状态：只设置新消息
+    %% append_reducer 会将新消息追加到现有消息列表
+    BaseUpdates = [
+        {MsgsKey, [AssistantMsg]},  %% 只设置新消息，不包含历史
+        {last_response, Response},
+        {last_content, Content},
+        {tool_calls, ToolCalls},
+        {finish_reason, FinishReason}
+    ],
+
+    %% 同步到 full_messages（如果存在，也使用增量模式）
+    AllUpdates = beamai_state_helpers:sync_full_messages(BaseUpdates, AssistantMsg, State),
+    NewState = beamai_state_helpers:set_many(State, AllUpdates),
+
+    {ok, NewState}.
+
+%%====================================================================
+%% 私有函数 - 辅助函数
+%%====================================================================
+
+%% @private 构建 LLM 调用选项
+-spec build_llm_opts([map()], map(), map()) -> map().
+build_llm_opts(Tools, LLMConfig, State) ->
+    beamai_agent_utils:build_llm_opts(Tools, LLMConfig, State).
+
+%% @private 构建 assistant 消息
+-spec build_assistant_msg(binary() | null, [map()]) -> map().
+build_assistant_msg(Content, ToolCalls) ->
+    beamai_agent_utils:build_assistant_message(Content, ToolCalls).
+
+%% @private 从 LLM 响应提取内容
+-spec extract_content(map()) -> binary() | null.
+extract_content(Response) ->
+    maps:get(content, Response, null).
+
+%% @private 从 LLM 响应提取工具调用
+-spec extract_tool_calls(map()) -> [map()].
+extract_tool_calls(Response) ->
+    maps:get(tool_calls, Response, []).
+
+%% @private 从 LLM 响应提取完成原因
+-spec extract_finish_reason(map()) -> binary().
+extract_finish_reason(Response) ->
+    maps:get(finish_reason, Response, <<"stop">>).
 
 %% @private 回调调用辅助函数
 -spec invoke_callback(atom(), list(), map()) -> ok.

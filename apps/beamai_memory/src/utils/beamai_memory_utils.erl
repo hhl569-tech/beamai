@@ -2,12 +2,13 @@
 %%% @doc Agent Memory 公共工具模块
 %%%
 %%% 提供 beamai_memory 各子模块共享的工具函数，包括：
-%%% - ID 生成：统一的唯一标识符生成
 %%% - 时间戳：当前时间戳获取
 %%% - 类型转换：二进制与原子的安全转换
 %%% - 命名空间：命名空间路径构建
 %%% - 存储选项：嵌入向量等选项构建
 %%% - 搜索过滤：通用搜索条件构建
+%%%
+%%% 注意：ID 生成已迁移至 beamai_id 模块
 %%%
 %%% 设计原则：
 %%% - 所有函数均为纯函数，无副作用
@@ -17,14 +18,6 @@
 %%% @end
 %%%-------------------------------------------------------------------
 -module(beamai_memory_utils).
-
-%%====================================================================
-%% ID 生成函数
-%%====================================================================
--export([
-    generate_id/1,
-    generate_id/2
-]).
 
 %%====================================================================
 %% 时间戳函数
@@ -100,36 +93,6 @@
 %% 搜索选项
 
 -export_type([namespace/0, filter_spec/0, filter_transform/0, search_opts/0]).
-
-%%====================================================================
-%% ID 生成函数实现
-%%====================================================================
-
-%% @doc 生成带前缀的唯一 ID
-%%
-%% 使用微秒时间戳 + 随机数生成唯一标识符。
-%% 格式：{prefix}_{timestamp_hex}_{random_hex}
-%%
-%% 示例：
-%% ```
-%% generate_id(<<"cp">>) -> <<"cp_0001234567890abc_1a2b">>
-%% generate_id(<<"skill">>) -> <<"skill_0001234567890abc_1a2b">>
-%% ```
--spec generate_id(binary() | string()) -> binary().
-generate_id(Prefix) when is_binary(Prefix) ->
-    Ts = erlang:system_time(microsecond),
-    Rand = rand:uniform(16#FFFF),
-    list_to_binary(io_lib:format("~s_~16.16.0b_~4.16.0b", [Prefix, Ts, Rand]));
-generate_id(Prefix) when is_list(Prefix) ->
-    generate_id(list_to_binary(Prefix)).
-
-%% @doc 生成带前缀和后缀的唯一 ID
-%%
-%% 用于需要额外标识信息的场景。
--spec generate_id(binary(), binary()) -> binary().
-generate_id(Prefix, Suffix) ->
-    BaseId = generate_id(Prefix),
-    <<BaseId/binary, "_", Suffix/binary>>.
 
 %%====================================================================
 %% 时间戳函数实现

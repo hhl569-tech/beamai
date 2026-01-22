@@ -64,7 +64,7 @@
     {ok, memory()} | {error, term()}.
 add_experience(Memory, UserId, ExperienceData) ->
     Namespace = get_experience_namespace(UserId),
-    ExperienceId = maps:get(id, ExperienceData, beamai_memory_utils:generate_id(<<"exp">>)),
+    ExperienceId = maps:get(id, ExperienceData, beamai_id:gen_id(<<"exp">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
 
     Experience = #experience{

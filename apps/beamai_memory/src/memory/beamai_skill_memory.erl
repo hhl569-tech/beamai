@@ -81,7 +81,7 @@
     {ok, memory()} | {error, term()}.
 register_skill(Memory, UserId, SkillData) ->
     Namespace = get_skill_namespace(UserId),
-    SkillId = maps:get(id, SkillData, beamai_memory_utils:generate_id(<<"skill">>)),
+    SkillId = maps:get(id, SkillData, beamai_id:gen_id(<<"skill">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
 
     Skill = #skill{
@@ -239,7 +239,7 @@ delete_skill(Memory, UserId, SkillId) ->
     {ok, memory()} | {error, term()}.
 register_shared_skill(Memory, SkillData) ->
     Namespace = get_shared_skill_namespace(),
-    SkillId = maps:get(id, SkillData, beamai_memory_utils:generate_id(<<"skill">>)),
+    SkillId = maps:get(id, SkillData, beamai_id:gen_id(<<"skill">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
 
     Skill = #skill{

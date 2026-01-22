@@ -30,13 +30,10 @@
 
 %% @doc 初始化回调处理器
 %%
-%% 从配置选项初始化回调，兼容旧的 on_complete/on_error 选项。
+%% 从配置选项初始化回调。
 -spec init(map()) -> #callbacks{}.
 init(Opts) ->
     CallbackOpts = maps:get(callbacks, Opts, #{}),
-    %% 兼容旧的 on_complete/on_error 选项
-    OnComplete = maps:get(on_complete, Opts, undefined),
-    OnError = maps:get(on_error, Opts, undefined),
 
     #callbacks{
         on_llm_start = maps:get(on_llm_start, CallbackOpts, undefined),
@@ -47,12 +44,10 @@ init(Opts) ->
         on_tool_end = maps:get(on_tool_end, CallbackOpts, undefined),
         on_tool_error = maps:get(on_tool_error, CallbackOpts, undefined),
         on_agent_action = maps:get(on_agent_action, CallbackOpts, undefined),
-        on_agent_finish = maps:get(on_agent_finish, CallbackOpts,
-                                   maps:get(on_agent_finish, CallbackOpts, OnComplete)),
+        on_agent_finish = maps:get(on_agent_finish, CallbackOpts, undefined),
         on_chain_start = maps:get(on_chain_start, CallbackOpts, undefined),
         on_chain_end = maps:get(on_chain_end, CallbackOpts, undefined),
-        on_chain_error = maps:get(on_chain_error, CallbackOpts,
-                                  maps:get(on_chain_error, CallbackOpts, OnError)),
+        on_chain_error = maps:get(on_chain_error, CallbackOpts, undefined),
         on_retriever_start = maps:get(on_retriever_start, CallbackOpts, undefined),
         on_retriever_end = maps:get(on_retriever_end, CallbackOpts, undefined),
         on_retriever_error = maps:get(on_retriever_error, CallbackOpts, undefined),
@@ -138,11 +133,27 @@ build_metadata(#state{config = #agent_config{id = Id, name = Name}}) ->
 %% 内部函数
 %%====================================================================
 
-%% @private 获取回调处理器
+%% @private 获取回调处理器（使用模式匹配，O(1) 查找）
 -spec get_handler(atom(), #callbacks{}) -> function() | undefined.
-get_handler(CallbackName, Callbacks) ->
-    CallbackMap = to_map(Callbacks),
-    maps:get(CallbackName, CallbackMap, undefined).
+get_handler(on_llm_start, #callbacks{on_llm_start = H}) -> H;
+get_handler(on_llm_end, #callbacks{on_llm_end = H}) -> H;
+get_handler(on_llm_error, #callbacks{on_llm_error = H}) -> H;
+get_handler(on_llm_new_token, #callbacks{on_llm_new_token = H}) -> H;
+get_handler(on_tool_start, #callbacks{on_tool_start = H}) -> H;
+get_handler(on_tool_end, #callbacks{on_tool_end = H}) -> H;
+get_handler(on_tool_error, #callbacks{on_tool_error = H}) -> H;
+get_handler(on_agent_action, #callbacks{on_agent_action = H}) -> H;
+get_handler(on_agent_finish, #callbacks{on_agent_finish = H}) -> H;
+get_handler(on_chain_start, #callbacks{on_chain_start = H}) -> H;
+get_handler(on_chain_end, #callbacks{on_chain_end = H}) -> H;
+get_handler(on_chain_error, #callbacks{on_chain_error = H}) -> H;
+get_handler(on_retriever_start, #callbacks{on_retriever_start = H}) -> H;
+get_handler(on_retriever_end, #callbacks{on_retriever_end = H}) -> H;
+get_handler(on_retriever_error, #callbacks{on_retriever_error = H}) -> H;
+get_handler(on_text, #callbacks{on_text = H}) -> H;
+get_handler(on_retry, #callbacks{on_retry = H}) -> H;
+get_handler(on_custom_event, #callbacks{on_custom_event = H}) -> H;
+get_handler(_, _) -> undefined.
 
 %% @private 调用回调处理器
 -spec call_handler(function() | undefined, list()) -> ok.

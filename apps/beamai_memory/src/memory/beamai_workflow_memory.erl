@@ -74,7 +74,7 @@
     {ok, memory()} | {error, term()}.
 create_workflow(Memory, UserId, WorkflowData) ->
     Namespace = get_workflow_namespace(UserId),
-    WorkflowId = maps:get(id, WorkflowData, beamai_memory_utils:generate_id(<<"wf">>)),
+    WorkflowId = maps:get(id, WorkflowData, beamai_id:gen_id(<<"wf">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
 
     Steps = maps:get(steps, WorkflowData, []),
