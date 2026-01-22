@@ -26,7 +26,8 @@
 %% 内部 API 导出
 -export([
     init_storage/2,
-    maybe_restore/2
+    maybe_restore/2,
+    maybe_auto_save/2
 ]).
 
 %%====================================================================
@@ -61,6 +62,43 @@ maybe_restore(Opts, #state{config = #agent_config{storage = Memory}} = State) ->
             maybe_restore_latest(Opts, Memory, ThreadId, State);
         CpId when is_binary(CpId) ->
             restore_checkpoint_state(Memory, ThreadId, CpId, State)
+    end.
+
+%% @doc 运行完成后自动保存 checkpoint
+%%
+%% 在 Agent 执行完成后调用，将当前状态保存为 checkpoint。
+%% 仅当配置了 storage (Memory) 时才会保存。
+%%
+%% 参数:
+%% - Result: 运行结果 map，包含 status, final_response 等
+%% - State: 当前 Agent 状态
+%%
+%% 返回: 原始 State（不修改）
+-spec maybe_auto_save(map(), #state{}) -> #state{}.
+maybe_auto_save(_Result, #state{config = #agent_config{storage = undefined}} = State) ->
+    %% 未配置 storage，跳过保存
+    State;
+maybe_auto_save(Result, #state{config = #agent_config{storage = Memory, id = AgentId}} = State) ->
+    ThreadId = beamai_memory:get_thread_id(Memory),
+    %% 构建要保存的状态数据
+    StateData = build_checkpoint_state(State),
+    %% 构建元数据
+    Metadata = #{
+        checkpoint_type => final,
+        agent_id => AgentId,
+        status => maps:get(status, Result, unknown),
+        iterations => maps:get(iterations, Result, 0)
+    },
+    Config = #{thread_id => ThreadId},
+    %% 保存 checkpoint
+    case beamai_memory:save_checkpoint(Memory, Config, StateData, Metadata) of
+        ok ->
+            State;
+        {ok, _CpId} ->
+            State;
+        {error, Reason} ->
+            logger:warning("自动保存 checkpoint 失败: ~p", [Reason]),
+            State
     end.
 
 %%====================================================================
@@ -133,3 +171,25 @@ get_field(Data, Key, Default) when is_atom(Key) ->
         undefined -> maps:get(Key, Data, Default);
         Value -> Value
     end.
+
+%% @private 构建要保存的 checkpoint 状态数据
+%%
+%% 从 Agent 状态中提取需要持久化的数据：
+%% - messages: 精简的消息历史
+%% - full_messages: 完整的消息历史
+%% - scratchpad: 中间步骤记录
+%% - context: 上下文数据
+-spec build_checkpoint_state(#state{}) -> map().
+build_checkpoint_state(#state{
+    messages = Messages,
+    full_messages = FullMessages,
+    scratchpad = Scratchpad,
+    context = Context
+}) ->
+    %% 使用 binary 键以保持一致性
+    #{
+        <<"messages">> => Messages,
+        <<"full_messages">> => FullMessages,
+        <<"scratchpad">> => Scratchpad,
+        <<"context">> => Context
+    }.
