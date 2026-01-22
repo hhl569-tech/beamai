@@ -28,10 +28,11 @@
 
 %% 节点创建 API（LLM 和工具节点委托给子模块）
 -export([llm_node/1, llm_node/2]).
--export([tool_node/1]).
+-export([tool_node/1, tool_node/2]).
 -export([iteration_node/0]).
 -export([scratchpad_node/1]).
 -export([validate_node/1]).
+-export([agent_start_node/1, agent_end_node/1]).
 
 %% 路由函数
 -export([route_after_llm/1]).
@@ -53,6 +54,12 @@ llm_node(LLMConfig) ->
     beamai_llm_node:create(LLMConfig).
 
 %% @doc 创建 LLM 调用节点（带选项）
+%%
+%% 支持的选项：
+%%   - middlewares: 中间件列表
+%%   - tools_key: 工具列表的状态键
+%%   - messages_key: 消息列表的状态键
+%%   - system_prompt_key: 系统提示词的状态键
 -spec llm_node(map(), map()) -> fun((map()) -> {ok, map()} | {error, term()}).
 llm_node(LLMConfig, Opts) ->
     beamai_llm_node:create(LLMConfig, Opts).
@@ -65,6 +72,14 @@ llm_node(LLMConfig, Opts) ->
 -spec tool_node(#{binary() => function()}) -> fun((map()) -> {ok, map()}).
 tool_node(ToolHandlers) ->
     beamai_tool_node:create(ToolHandlers).
+
+%% @doc 创建工具执行节点（带选项）
+%%
+%% 支持的选项：
+%%   - middlewares: 中间件列表
+-spec tool_node(#{binary() => function()}, map()) -> fun((map()) -> {ok, map()}).
+tool_node(ToolHandlers, Opts) ->
+    beamai_tool_node:create(ToolHandlers, Opts).
 
 %%====================================================================
 %% 迭代计数节点
@@ -232,6 +247,57 @@ build_tool_handlers(Tools) ->
 -spec extract_final_response([map()]) -> binary().
 extract_final_response(Messages) ->
     beamai_message:extract_last_content(Messages).
+
+%%====================================================================
+%% Agent 生命周期节点
+%%====================================================================
+
+%% @doc 创建 Agent 开始节点
+%%
+%% 用于触发 before_agent 中间件钩子。
+%%
+%% @param Middlewares 中间件列表
+%% @returns 节点函数
+-spec agent_start_node(list()) -> fun((map()) -> {ok, map()} | {interrupt, term(), map()}).
+agent_start_node(Middlewares) ->
+    MwChain = beamai_middleware_runner:init(Middlewares),
+    fun(State) ->
+        State0 = graph:set(State, mw_chain, MwChain),
+        handle_agent_hook(
+            beamai_middleware_runner:run_hook(before_agent, State0, MwChain),
+            State0, before_agent)
+    end.
+
+%% @doc 创建 Agent 结束节点
+%%
+%% 用于触发 after_agent 中间件钩子。
+%%
+%% @param Middlewares 中间件列表
+%% @returns 节点函数
+-spec agent_end_node(list()) -> fun((map()) -> {ok, map()}).
+agent_end_node(Middlewares) ->
+    MwChain = beamai_middleware_runner:init(Middlewares),
+    fun(State) ->
+        Chain = graph:get(State, mw_chain, MwChain),
+        %% after_agent 的 goto/halt 通常被忽略（已经在结束）
+        case beamai_middleware_runner:run_hook(after_agent, State, Chain) of
+            {ok, State1} -> {ok, State1};
+            {_, State1} -> {ok, State1}
+        end
+    end.
+
+%% @private 处理 Agent 钩子结果
+-spec handle_agent_hook(term(), map(), atom()) -> {ok, map()} | {interrupt, term(), map()}.
+handle_agent_hook({ok, State1}, _State, _Hook) ->
+    {ok, State1};
+handle_agent_hook({halt, Reason}, State, _Hook) ->
+    {ok, beamai_state_helpers:set_error(State, Reason)};
+handle_agent_hook({interrupt, Action, State1}, _State, Hook) ->
+    State2 = beamai_state_helpers:set_interrupt(State1, Action, Hook),
+    {interrupt, Action, State2};
+handle_agent_hook({goto, _Target, State1}, _State, _Hook) ->
+    %% Agent 钩子忽略 goto（已经在开始/结束）
+    {ok, State1}.
 
 %%====================================================================
 %% 回调辅助函数
