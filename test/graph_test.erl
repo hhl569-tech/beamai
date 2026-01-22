@@ -441,7 +441,6 @@ graph_compute_tests() ->
     ComputeFn = graph_compute:compute_fn(),
     ?assert(is_function(ComputeFn, 1)),
 
-    %% 测试 inject_initial_state/2
     %% 构建一个简单图用于测试
     ProcessFun = fun(State) ->
         Value = graph:get(State, value, 0),
@@ -457,16 +456,15 @@ graph_compute_tests() ->
     #{pregel_graph := PregelGraph} = Graph,
     InitialState = graph:state(#{value => 10}),
 
-    %% 注入初始状态
-    InjectedGraph = graph_compute:inject_initial_state(PregelGraph, InitialState),
-    ?assert(is_map(InjectedGraph)),
+    %% 验证 Pregel 图结构正确
+    ?assert(is_map(PregelGraph)),
 
-    %% 验证 __start__ 顶点已激活并包含初始状态
-    StartVertex = pregel:get_graph_vertex(InjectedGraph, '__start__'),
+    %% 验证 __start__ 顶点存在并包含正确的 vertex value 结构
+    StartVertex = pregel:get_graph_vertex(PregelGraph, '__start__'),
     ?assertNotEqual(undefined, StartVertex),
     StartValue = pregel_vertex:value(StartVertex),
-    ?assertEqual(true, maps:get(activated, StartValue)),
-    ?assertEqual(InitialState, maps:get(initial_state, StartValue)),
+    ?assert(maps:is_key(node, StartValue)),
+    ?assert(maps:is_key(edges, StartValue)),
 
     %% 测试 from_pregel_result/1 - 通过完整执行流程验证
     Result = graph:run(Graph, InitialState),
@@ -510,13 +508,11 @@ pregel_graph_generation_tests() ->
     ?assert(lists:member(node_a, VertexIds)),
     ?assert(lists:member(node_b, VertexIds)),
 
-    %% 验证顶点值结构
+    %% 验证顶点值结构 - 新模式只有 node 和 edges
     NodeAVertex = pregel:get_graph_vertex(PregelGraph, node_a),
     NodeAValue = pregel_vertex:value(NodeAVertex),
     ?assert(maps:is_key(node, NodeAValue)),
     ?assert(maps:is_key(edges, NodeAValue)),
-    ?assert(maps:is_key(result, NodeAValue)),
-    ?assertEqual(undefined, maps:get(result, NodeAValue)),
 
     %% 验证边信息已嵌入顶点值
     NodeAEdges = maps:get(edges, NodeAValue),

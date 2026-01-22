@@ -107,7 +107,8 @@ partition_graph(Graph, NumWorkers) ->
 %% @doc 将图分区到多个 Worker（使用指定策略）
 %% 返回: #{WorkerId => Graph}
 %%
-%% 全局状态模式：顶点不再包含 value，只复制 id 和 edges
+%% 全局状态模式：顶点 value 包含 node 和 routing edges
+%% 同时保留顶点的 halted 状态
 -spec partition_graph(pregel_graph:graph(), pos_integer(), strategy()) ->
     #{non_neg_integer() => pregel_graph:graph()}.
 partition_graph(Graph, NumWorkers, Strategy) ->
@@ -115,14 +116,32 @@ partition_graph(Graph, NumWorkers, Strategy) ->
     Vertices = pregel_graph:vertices(Graph),
     PartitionedVertices = partition(Vertices, NumWorkers, Strategy),
 
-    %% 2. 为每个分区创建子图
+    %% 2. 为每个分区创建子图（保留 vertex value 和 halted 状态）
     maps:map(
         fun(_WorkerId, WorkerVertices) ->
             lists:foldl(
                 fun(V, G) ->
                     Id = pregel_vertex:id(V),
-                    Edges = pregel_vertex:edges(V),
-                    pregel_graph:add_vertex(G, Id, Edges)
+                    Value = pregel_vertex:value(V),
+                    IsHalted = pregel_vertex:is_halted(V),
+                    G1 = case Value of
+                        undefined ->
+                            %% 无 value 时，使用 pregel edges（向后兼容）
+                            Edges = pregel_vertex:edges(V),
+                            pregel_graph:add_vertex(G, Id, Edges);
+                        _ ->
+                            %% 有 value 时，保留 value（包含 node 和 routing edges）
+                            pregel_graph:add_vertex(G, Id, Value)
+                    end,
+                    %% 保留 halted 状态
+                    case IsHalted of
+                        true ->
+                            Vertex = pregel_graph:get(G1, Id),
+                            HaltedVertex = pregel_vertex:halt(Vertex),
+                            pregel_graph:update(G1, Id, HaltedVertex);
+                        false ->
+                            G1
+                    end
                 end,
                 pregel_graph:new(),
                 WorkerVertices

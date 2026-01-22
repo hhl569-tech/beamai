@@ -3,13 +3,14 @@
 %%%
 %%% 顶点是图计算的基本单元，每个顶点包含:
 %%% - id: 唯一标识符
-%%% - edges: 出边列表
+%%% - edges: 出边列表（图拓扑结构）
+%%% - value: 顶点值（可选，用于存储计算函数和路由规则）
 %%% - halted: 是否已投票停止
 %%%
 %%% 全局状态模式说明：
-%%% 顶点不再包含 value 字段。在全局状态模式下，所有状态数据
-%%% 由 Master 持有的 global_state 管理，顶点只是纯计算单元，
-%%% 负责表示图的拓扑结构（id + edges）和活跃状态（halted）。
+%%% 运行时状态数据由 Master 持有的 global_state 管理。
+%%% 顶点的 value 字段可用于存储静态的计算逻辑和路由规则，
+%%% 如 #{node => graph_node(), edges => [graph_edge()]}。
 %%%
 %%% 设计模式: 不可变数据结构 + 函数式操作
 %%% @end
@@ -17,10 +18,10 @@
 -module(pregel_vertex).
 
 %% 构造函数
--export([new/1, new/2]).
+-export([new/1, new/2, new/3]).
 
 %% 读取操作
--export([id/1, edges/1, neighbors/1, out_degree/1]).
+-export([id/1, edges/1, value/1, neighbors/1, out_degree/1]).
 -export([is_halted/1, is_active/1]).
 
 %% 修改操作
@@ -44,10 +45,12 @@
     weight := number()
 }.
 
-%% 顶点类型（全局状态模式：不含 value）
+%% 顶点类型
+%% value 字段可选，用于存储静态计算逻辑（如 graph node 和 routing edges）
 -type vertex() :: #{
     id := vertex_id(),
     edges := [edge()],
+    value => term(),           %% 可选的顶点值
     halted := boolean()
 }.
 
@@ -55,15 +58,22 @@
 %% 构造函数
 %%====================================================================
 
-%% @doc 创建顶点（仅ID，无边）
+%% @doc 创建顶点（仅ID，无边，无值）
 -spec new(vertex_id()) -> vertex().
 new(Id) ->
     new(Id, []).
 
-%% @doc 创建顶点（ID + 边）
+%% @doc 创建顶点（ID + 边，无值）
 -spec new(vertex_id(), [edge()]) -> vertex().
 new(Id, Edges) ->
     #{id => Id, edges => Edges, halted => false}.
+
+%% @doc 创建顶点（ID + 边 + 值）
+%% Value 可以是任何项，通常用于存储计算逻辑如：
+%% #{node => graph_node(), edges => [graph_edge()]}
+-spec new(vertex_id(), [edge()], term()) -> vertex().
+new(Id, Edges, Value) ->
+    #{id => Id, edges => Edges, value => Value, halted => false}.
 
 %%====================================================================
 %% 读取操作
@@ -76,6 +86,12 @@ id(#{id := Id}) -> Id.
 %% @doc 获取所有出边
 -spec edges(vertex()) -> [edge()].
 edges(#{edges := E}) -> E.
+
+%% @doc 获取顶点值
+%% 返回存储的值，如果没有值则返回 undefined
+-spec value(vertex()) -> term().
+value(#{value := V}) -> V;
+value(_) -> undefined.
 
 %% @doc 获取所有邻居ID
 -spec neighbors(vertex()) -> [vertex_id()].

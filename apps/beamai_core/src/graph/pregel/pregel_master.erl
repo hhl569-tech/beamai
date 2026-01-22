@@ -110,6 +110,7 @@
 }.
 
 %% Master 内部状态 (无 inbox 版本)
+%% 注：节点计算逻辑和路由规则已存储在 vertex value 中，无需通过 config 传递
 -record(state, {
     graph            :: graph(),                    %% 原始图
     compute_fn       :: compute_fn(),               %% 计算函数
@@ -127,8 +128,8 @@
     pending_activations :: [vertex_id()] | undefined,  %% 延迟提交的 activations
     %% 超步结果（用于 get_checkpoint_data 和重试）
     last_results     :: pregel_barrier:superstep_results() | undefined,
-    %% 计算配置（传递给 workers 的 config）
-    config           :: map(),                      %% 计算配置（包含 nodes 定义等）
+    %% 累积失败（跨超步追踪）
+    cumulative_failures :: [{vertex_id(), term()}],
     %% 状态标志
     initialized      :: boolean(),                  %% 是否已初始化 workers
     initial_returned :: boolean(),                  %% 是否已返回 initial checkpoint
@@ -215,7 +216,7 @@ init({Graph, ComputeFn, Opts}) ->
         pending_deltas = PendingDeltas,
         pending_activations = PendingActivations,
         last_results = undefined,
-        config = maps:get(config, Opts, #{}),  %% 存储计算配置
+        cumulative_failures = [],
         initialized = false,
         initial_returned = false,
         halted = false
@@ -312,15 +313,21 @@ handle_call(get_result, _From, #state{
     workers = Workers,
     graph = OriginalGraph,
     global_state = GlobalState,
+    cumulative_failures = CumulativeFailures,
     halted = true
 } = State) ->
     FinalGraph = collect_final_graph(Workers, OriginalGraph),
+    %% 使用累积的失败信息（跨超步追踪）
+    FailedCount = length(CumulativeFailures),
     Result = #{
         status => get_done_reason(State),
         global_state => GlobalState,
         graph => FinalGraph,
         supersteps => Superstep + 1,
-        stats => #{num_workers => maps:size(Workers)}
+        stats => #{num_workers => maps:size(Workers)},
+        %% 添加累积失败信息
+        failed_count => FailedCount,
+        failed_vertices => CumulativeFailures
     },
     {reply, Result, State};
 
@@ -347,13 +354,14 @@ terminate(_Reason, #state{workers = Workers}) ->
 %%====================================================================
 
 %% @private 启动所有 Worker 进程
+%%
+%% 节点计算逻辑和路由规则已存储在 vertex value 中，无需通过 config 传递
 -spec start_workers(#state{}) -> #state{}.
 start_workers(#state{
     graph = Graph,
     compute_fn = ComputeFn,
     num_workers = NumWorkers,
     global_state = GlobalState,
-    config = Config,
     restore_from = RestoreOpts
 } = State) ->
     %% 分区图
@@ -363,9 +371,9 @@ start_workers(#state{
     %% 获取恢复的顶点状态
     RestoredVertices = get_restore_vertices(RestoreOpts),
 
-    %% 启动 Worker（传入全局状态和计算配置）
+    %% 启动 Worker（传入全局状态）
     Workers = start_worker_processes(Partitions, ComputeFn, NumWorkers, NumVertices,
-                                      RestoredVertices, GlobalState, Config),
+                                      RestoredVertices, GlobalState),
 
     %% 广播 Worker PID 映射
     broadcast_worker_pids(Workers),
@@ -376,19 +384,20 @@ start_workers(#state{
     }.
 
 %% @private 启动各 Worker 进程
+%%
+%% vertex value 已包含 node（计算函数）和 edges（路由规则）
 -spec start_worker_processes(#{non_neg_integer() => graph()},
                               compute_fn(),
                               pos_integer(),
                               non_neg_integer(),
                               #{vertex_id() => vertex()},
-                              graph_state:state(),
-                              map()) ->
+                              graph_state:state()) ->
     #{non_neg_integer() => pid()}.
 start_worker_processes(Partitions, ComputeFn, NumWorkers, NumVertices,
-                       RestoredVertices, GlobalState, Config) ->
+                       RestoredVertices, GlobalState) ->
     maps:fold(
         fun(WorkerId, WorkerGraph, Acc) ->
-            %% 获取分区顶点
+            %% 获取分区顶点（vertex value 包含 node 和 edges）
             PartitionVertices = vertices_to_map(pregel_graph:vertices(WorkerGraph)),
             %% 合并恢复的顶点（恢复的顶点覆盖原顶点）
             Vertices = merge_restored_vertices(PartitionVertices, RestoredVertices),
@@ -399,8 +408,7 @@ start_worker_processes(Partitions, ComputeFn, NumWorkers, NumVertices,
                 compute_fn => ComputeFn,
                 num_workers => NumWorkers,
                 num_vertices => NumVertices,
-                global_state => GlobalState,
-                config => Config  %% 传递计算配置给 Worker
+                global_state => GlobalState
             },
             {ok, Pid} = pregel_worker:start_link(WorkerId, Opts),
             Acc#{WorkerId => Pid}
@@ -526,6 +534,7 @@ complete_superstep(#state{
     max_supersteps = MaxSupersteps,
     global_state = GlobalState,
     field_reducers = FieldReducers,
+    cumulative_failures = CumulativeFailures,
     step_caller = Caller
 } = State) ->
     %% 1. 汇总结果
@@ -538,10 +547,16 @@ complete_superstep(#state{
     AllActivations = maps:get(activations, AggregatedResults, []),
     TotalActivations = length(AllActivations),
 
-    %% 3. 检查是否有失败/中断
+    %% 3. 检查是否有失败/中断，并累积失败信息
+    FailedVertices = maps:get(failed_vertices, AggregatedResults, []),
     FailedCount = maps:get(failed_count, AggregatedResults, 0),
     InterruptedCount = maps:get(interrupted_count, AggregatedResults, 0),
     HasError = FailedCount > 0 orelse InterruptedCount > 0,
+    %% 累积失败（去重）
+    NewCumulativeFailures = case FailedVertices of
+        [] -> CumulativeFailures;
+        _ -> lists:usort(FailedVertices ++ CumulativeFailures)
+    end,
 
     %% 4. 根据是否有错误决定处理方式
     {NewGlobalState, NewPendingDeltas, NewPendingActivations} = case HasError of
@@ -578,6 +593,7 @@ complete_superstep(#state{
         pending_deltas = NewPendingDeltas,
         pending_activations = NewPendingActivations,
         last_results = UpdatedResults,
+        cumulative_failures = NewCumulativeFailures,
         step_caller = undefined,
         superstep = if IsDone -> Superstep; true -> Superstep + 1 end,
         halted = IsDone

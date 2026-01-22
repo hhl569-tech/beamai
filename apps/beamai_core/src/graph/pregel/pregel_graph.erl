@@ -107,10 +107,22 @@ from_edges(Edges, ExtraIds) ->
 add_vertex(Graph, Id) ->
     add_vertex(Graph, Id, []).
 
-%% @doc 添加顶点（带边）
--spec add_vertex(graph(), vertex_id(), [edge()]) -> graph().
-add_vertex(#{vertices := Vertices} = Graph, Id, Edges) ->
-    Vertex = pregel_vertex:new(Id, Edges),
+%% @doc 添加顶点（带边或值）
+%%
+%% 第三个参数可以是:
+%% - [edge()]: 边列表（向后兼容）
+%% - term(): 顶点值（如 #{node => graph_node(), edges => [graph_edge()]}）
+%%
+%% 如果第三个参数是列表，则作为图拓扑边处理
+%% 如果第三个参数是其他类型（通常是 map），则作为顶点值存储
+-spec add_vertex(graph(), vertex_id(), [edge()] | term()) -> graph().
+add_vertex(#{vertices := Vertices} = Graph, Id, EdgesOrValue) when is_list(EdgesOrValue) ->
+    %% 列表参数视为边（向后兼容）
+    Vertex = pregel_vertex:new(Id, EdgesOrValue),
+    Graph#{vertices => Vertices#{Id => Vertex}};
+add_vertex(#{vertices := Vertices} = Graph, Id, Value) ->
+    %% 非列表参数视为顶点值
+    Vertex = pregel_vertex:new(Id, [], Value),
     Graph#{vertices => Vertices#{Id => Vertex}}.
 
 %% @doc 获取顶点

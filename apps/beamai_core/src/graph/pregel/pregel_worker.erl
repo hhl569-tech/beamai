@@ -55,18 +55,18 @@
     compute_fn := fun((context()) -> compute_result()),
     num_workers := pos_integer(),
     num_vertices => non_neg_integer(),
-    global_state => graph_state:state(),      %% 初始全局状态
-    config => map()                            %% 计算配置
+    global_state => graph_state:state()       %% 初始全局状态
 }.
 
 %% 计算上下文（传递给计算函数）
 %% 无 inbox 版本：不再传递 messages，节点从 global_state 获取所有数据
+%% vertex_value 包含节点的计算函数和路由规则
 -type context() :: #{
     vertex_id := vertex_id(),
+    vertex_value := map(),              %% #{node => ..., edges => ...}
     global_state := graph_state:state(),
     superstep := non_neg_integer(),
-    num_vertices := non_neg_integer(),
-    config := map()
+    num_vertices := non_neg_integer()
 }.
 
 %% 计算结果状态
@@ -105,13 +105,12 @@
 -record(state, {
     worker_id     :: non_neg_integer(),         % Worker ID
     master        :: pid(),                      % Master 进程
-    vertices      :: #{vertex_id() => vertex()}, % 本地顶点（只有拓扑，无 value）
+    vertices      :: #{vertex_id() => vertex()}, % 本地顶点（含 value: #{node, edges}）
     compute_fn    :: fun((context()) -> compute_result()),  % 计算函数
     superstep     :: non_neg_integer(),         % 当前超步
     num_workers   :: pos_integer(),             % Worker 总数
     num_vertices  :: non_neg_integer(),         % 全图顶点总数
-    global_state  :: graph_state:state(),       % 全局状态（从 Master 广播）
-    config        :: map()                       % 计算配置
+    global_state  :: graph_state:state()        % 全局状态（从 Master 广播）
 }).
 
 %%====================================================================
@@ -181,8 +180,7 @@ init(Opts) ->
         superstep = 0,
         num_workers = NumWorkers,
         num_vertices = maps:get(num_vertices, Opts, maps:size(Vertices)),
-        global_state = maps:get(global_state, Opts, graph_state:new()),
-        config = maps:get(config, Opts, #{})
+        global_state = maps:get(global_state, Opts, graph_state:new())
     },
     {ok, State}.
 
@@ -232,16 +230,14 @@ execute_superstep(Activations, #state{
     compute_fn = ComputeFn,
     superstep = Superstep,
     num_vertices = NumVertices,
-    global_state = GlobalState,
-    config = Config
+    global_state = GlobalState
 } = State) ->
     %% 1. 筛选需要计算的顶点（被激活的 + 本身活跃的）
     ActiveVertices = filter_active_vertices(Vertices, Activations),
 
-    %% 2. 执行所有顶点计算
+    %% 2. 执行所有顶点计算（vertex value 包含 node 和 edges）
     {Deltas, NewActivations, FailedVertices, InterruptedVertices} = compute_vertices(
-        ActiveVertices, ComputeFn, Superstep, NumVertices,
-        #{global_state => GlobalState, config => Config}
+        ActiveVertices, ComputeFn, Superstep, NumVertices, GlobalState
     ),
 
     %% 3. 更新顶点状态（halt 计算完成的顶点）
@@ -270,19 +266,21 @@ filter_active_vertices(Vertices, Activations) ->
 %% @doc 执行所有顶点计算
 %%
 %% 无 inbox 版本：计算函数不再接收 messages 参数
+%% vertex value 包含 node（计算函数）和 edges（路由规则）
 -spec compute_vertices(
     ActiveVertices :: #{vertex_id() => vertex()},
     ComputeFn :: fun((context()) -> compute_result()),
     Superstep :: non_neg_integer(),
     NumVertices :: non_neg_integer(),
-    Extra :: #{global_state := graph_state:state(), config := map()}
+    GlobalState :: graph_state:state()
 ) -> compute_acc().
-compute_vertices(ActiveVertices, ComputeFn, Superstep, NumVertices, Extra) ->
-    #{global_state := GlobalState, config := Config} = Extra,
+compute_vertices(ActiveVertices, ComputeFn, Superstep, NumVertices, GlobalState) ->
     InitAcc = {[], [], [], []},  %% {Deltas, Activations, Failed, Interrupted}
     maps:fold(
-        fun(Id, _Vertex, Acc) ->
-            Context = make_context(Id, GlobalState, Superstep, NumVertices, Config),
+        fun(Id, Vertex, Acc) ->
+            %% 从 vertex 获取 value（包含 node 和 edges）
+            VertexValue = pregel_vertex:value(Vertex),
+            Context = make_context(Id, VertexValue, GlobalState, Superstep, NumVertices),
             Result = ComputeFn(Context),
             process_compute_result(Id, Result, Acc)
         end,
@@ -315,16 +313,16 @@ process_compute_result(Id, #{status := {interrupt, Reason}} = Result,
     {NewDeltaAcc, ActAcc, FailedAcc, [{Id, Reason} | InterruptedAcc]}.
 
 %% @private 创建计算上下文
-%% 无 inbox 版本：不传递 messages
--spec make_context(vertex_id(), graph_state:state(),
-                   non_neg_integer(), non_neg_integer(), map()) -> context().
-make_context(VertexId, GlobalState, Superstep, NumVertices, Config) ->
+%% vertex_value 包含 node（计算函数）和 edges（路由规则）
+-spec make_context(vertex_id(), map(), graph_state:state(),
+                   non_neg_integer(), non_neg_integer()) -> context().
+make_context(VertexId, VertexValue, GlobalState, Superstep, NumVertices) ->
     #{
         vertex_id => VertexId,
+        vertex_value => VertexValue,
         global_state => GlobalState,
         superstep => Superstep,
-        num_vertices => NumVertices,
-        config => Config
+        num_vertices => NumVertices
     }.
 
 %% @private 更新顶点状态
@@ -408,8 +406,7 @@ do_retry_vertices(VertexIds, #state{
     compute_fn = ComputeFn,
     superstep = Superstep,
     num_vertices = NumVertices,
-    global_state = GlobalState,
-    config = Config
+    global_state = GlobalState
 } = State) ->
     %% 1. 筛选本 Worker 拥有的顶点
     LocalVertexIds = [Id || Id <- VertexIds, maps:is_key(Id, Vertices)],
@@ -417,10 +414,9 @@ do_retry_vertices(VertexIds, #state{
     %% 2. 构建要重试的顶点映射
     RetryVertices = maps:with(LocalVertexIds, Vertices),
 
-    %% 3. 执行顶点计算
+    %% 3. 执行顶点计算（vertex value 已包含 node 和 edges）
     {Deltas, Activations, FailedVertices, InterruptedVertices} = compute_vertices(
-        RetryVertices, ComputeFn, Superstep, NumVertices,
-        #{global_state => GlobalState, config => Config}
+        RetryVertices, ComputeFn, Superstep, NumVertices, GlobalState
     ),
 
     %% 4. 构建结果

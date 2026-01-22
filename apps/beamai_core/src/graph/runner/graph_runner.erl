@@ -82,8 +82,7 @@
     run_id => binary(),                      %% 外部传入的执行 ID
     %% 全局状态选项
     global_state => state(),                 %% 初始全局状态
-    field_reducers => pregel_master:field_reducers(),  %% 字段级 Reducer 配置
-    config => map()                          %% 传递给计算函数的配置
+    field_reducers => pregel_master:field_reducers()   %% 字段级 Reducer 配置
 }.
 
 -export_type([checkpoint_data/0, checkpoint_callback/0, checkpoint_callback_result/0, restore_options/0]).
@@ -161,25 +160,22 @@ needs_checkpoint_mode(Options) ->
     maps:is_key(on_checkpoint, Options) orelse maps:is_key(restore_from, Options).
 
 %% @private 简单执行模式（无 checkpoint）
+%%
+%% 节点计算逻辑和路由规则已存储在 vertex value 中，无需通过 config 传递
 -spec run_simple(graph(), state(), run_options()) -> run_result().
 run_simple(Graph, InitialState, Options) ->
-    #{pregel_graph := PregelGraph, config := Config, nodes := Nodes, edges := EdgeMap} = Graph,
+    #{pregel_graph := PregelGraph, config := Config} = Graph,
 
     %% 准备执行选项
     MaxIterations = maps:get(max_iterations, Config, 100),
     GlobalState = maps:get(global_state, Options, InitialState),
     FieldReducers = maps:get(field_reducers, Options, #{}),
-    UserConfig = maps:get(config, Options, #{}),
-
-    %% 构建 compute config，包含节点配置
-    ComputeConfig = build_compute_config(Nodes, EdgeMap, UserConfig),
 
     PregelOpts = #{
         max_supersteps => maps:get(max_supersteps, Options, MaxIterations),
         num_workers => maps:get(workers, Options, 1),
         global_state => GlobalState,
-        field_reducers => FieldReducers,
-        config => ComputeConfig
+        field_reducers => FieldReducers
     },
 
     %% 使用全局计算函数执行
@@ -191,9 +187,11 @@ run_simple(Graph, InitialState, Options) ->
     handle_pregel_result(PregelResult, InitialState, Options).
 
 %% @private Checkpoint 执行模式（使用步进式 API）
+%%
+%% 节点计算逻辑和路由规则已存储在 vertex value 中，无需通过 config 传递
 -spec run_with_checkpoint(graph(), state(), run_options()) -> run_result().
 run_with_checkpoint(Graph, InitialState, Options) ->
-    #{pregel_graph := PregelGraph, config := Config, nodes := Nodes, edges := EdgeMap} = Graph,
+    #{pregel_graph := PregelGraph, config := Config} = Graph,
 
     %% 确保 run_id 存在（整个执行过程中保持不变）
     OptionsWithRunId = ensure_run_id(Options),
@@ -206,17 +204,12 @@ run_with_checkpoint(Graph, InitialState, Options) ->
     %% 准备执行选项
     MaxIterations = maps:get(max_iterations, Config, 100),
     FieldReducers = maps:get(field_reducers, OptionsWithRunId, #{}),
-    UserConfig = maps:get(config, OptionsWithRunId, #{}),
-
-    %% 构建 compute config，包含节点配置
-    ComputeConfig = build_compute_config(Nodes, EdgeMap, UserConfig),
 
     PregelOpts0 = #{
         max_supersteps => maps:get(max_supersteps, OptionsWithRunId, MaxIterations),
         num_workers => maps:get(workers, OptionsWithRunId, 1),
         global_state => ActualGlobalState,
-        field_reducers => FieldReducers,
-        config => ComputeConfig
+        field_reducers => FieldReducers
     },
     %% 如果有恢复选项，添加到 PregelOpts
     PregelOpts = case PregelRestoreOpts of
@@ -533,31 +526,6 @@ stream_next(Graph, Context) ->
         {done, Result} ->
             {done, Result}
     end.
-
-%%====================================================================
-%% 内部: 配置构建
-%%====================================================================
-
-%% @private 构建 compute config
-%%
-%% 将 graph_builder 的 nodes 和 edges 转换为 graph_compute 期望的格式:
-%% #{nodes => #{node_id => #{node => graph_node(), edges => [graph_edge()]}}}
--spec build_compute_config(#{atom() => graph_node:graph_node()},
-                           #{atom() => [graph_edge:edge()]},
-                           map()) -> map().
-build_compute_config(Nodes, EdgeMap, UserConfig) ->
-    NodesConfig = maps:fold(
-        fun(NodeId, Node, Acc) ->
-            NodeEdges = maps:get(NodeId, EdgeMap, []),
-            Acc#{NodeId => #{
-                node => Node,
-                edges => NodeEdges
-            }}
-        end,
-        #{},
-        Nodes
-    ),
-    UserConfig#{nodes => NodesConfig}.
 
 %%====================================================================
 %% 内部: 上下文管理

@@ -81,18 +81,28 @@ execute_node(Ctx) ->
 %% @doc 从 Pregel 结果中提取最终状态
 %%
 %% 全局状态模式：直接返回 global_state
+%% 如果有失败的顶点，返回错误
 -spec from_pregel_result(pregel:result()) -> {ok, graph_state:state()} | {error, term()}.
 from_pregel_result(Result) ->
-    case pregel:get_result_status(Result) of
-        completed ->
+    %% 首先检查是否有失败的顶点
+    FailedCount = maps:get(failed_count, Result, 0),
+    case FailedCount > 0 of
+        true ->
             GlobalState = pregel:get_result_global_state(Result),
-            {ok, GlobalState};
-        max_supersteps ->
-            GlobalState = pregel:get_result_global_state(Result),
-            {error, {partial_result, GlobalState, max_iterations_exceeded}};
-        {error, Reason} ->
-            GlobalState = pregel:get_result_global_state(Result),
-            {error, {partial_result, GlobalState, Reason}}
+            FailedVertices = maps:get(failed_vertices, Result, []),
+            {error, {partial_result, GlobalState, {node_failures, FailedVertices}}};
+        false ->
+            case pregel:get_result_status(Result) of
+                completed ->
+                    GlobalState = pregel:get_result_global_state(Result),
+                    {ok, GlobalState};
+                max_supersteps ->
+                    GlobalState = pregel:get_result_global_state(Result),
+                    {error, {partial_result, GlobalState, max_iterations_exceeded}};
+                {error, Reason} ->
+                    GlobalState = pregel:get_result_global_state(Result),
+                    {error, {partial_result, GlobalState, Reason}}
+            end
     end.
 
 %%====================================================================
@@ -104,13 +114,12 @@ from_pregel_result(Result) ->
 %% 无 inbox 版本：节点被激活时执行
 %% - 超步 0 时自动激活
 %% - 后续超步由 Master 通过 activations 激活
+%% vertex_value 直接包含 node 和 edges
 -spec handle_start_node(pregel_worker:context(), graph_state:state()) ->
     pregel_worker:compute_result().
 handle_start_node(Ctx, GlobalState) ->
-    #{config := Config} = Ctx,
-    %% 被激活即执行节点
-    NodeConfig = get_node_config(?START_NODE, Config),
-    execute_and_route(Ctx, GlobalState, NodeConfig).
+    #{vertex_value := VertexValue} = Ctx,
+    execute_and_route(Ctx, GlobalState, VertexValue).
 
 %% @private 处理终止节点
 %%
@@ -125,24 +134,26 @@ handle_end_node(_Ctx) ->
 %%
 %% 无 inbox 版本：节点被激活时执行
 %% - resume 数据现在通过 global_state 传递
+%% vertex_value 直接包含 node 和 edges
 -spec handle_regular_node(pregel_worker:context(), graph_state:state()) ->
     pregel_worker:compute_result().
 handle_regular_node(Ctx, GlobalState) ->
-    #{vertex_id := VertexId, config := Config} = Ctx,
-    NodeConfig = get_node_config(VertexId, Config),
-    execute_and_route(Ctx, GlobalState, NodeConfig).
+    #{vertex_value := VertexValue} = Ctx,
+    execute_and_route(Ctx, GlobalState, VertexValue).
 
 %%====================================================================
 %% 节点执行
 %%====================================================================
 
 %% @private 执行节点并路由到下一节点
+%%
+%% VertexValue 结构：#{node => graph_node(), edges => [graph_edge()]}
 -spec execute_and_route(pregel_worker:context(), graph_state:state(), map()) ->
     pregel_worker:compute_result().
-execute_and_route(Ctx, GlobalState, NodeConfig) ->
+execute_and_route(Ctx, GlobalState, VertexValue) ->
     #{vertex_id := VertexId} = Ctx,
-    Node = maps:get(node, NodeConfig, undefined),
-    Edges = maps:get(edges, NodeConfig, []),
+    Node = maps:get(node, VertexValue, undefined),
+    Edges = maps:get(edges, VertexValue, []),
 
     case Node of
         undefined ->
@@ -223,22 +234,3 @@ build_activations(Edges, State) ->
         Edges
     ).
 
-%%====================================================================
-%% 配置访问
-%%====================================================================
-
-%% @private 从 config 中获取节点配置
-%%
-%% Config 结构：
-%% #{
-%%     nodes => #{
-%%         node_id => #{
-%%             node => graph_node:graph_node(),
-%%             edges => [graph_edge:edge()]
-%%         }
-%%     }
-%% }
--spec get_node_config(atom(), map()) -> map().
-get_node_config(NodeId, Config) ->
-    Nodes = maps:get(nodes, Config, #{}),
-    maps:get(NodeId, Nodes, #{}).

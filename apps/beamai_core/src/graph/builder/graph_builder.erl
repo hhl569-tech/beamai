@@ -170,21 +170,41 @@ build_graph(#{nodes := Nodes, edges := Edges, entry := Entry, config := Config})
 
 %% @doc 构建 Pregel 图
 %%
-%% 全局状态模式：顶点只包含 id 和拓扑边，不含 value
-%% 节点配置通过 config 传递给 graph_compute
+%% 全局状态模式：顶点包含计算函数和路由规则
+%% vertex_value = #{node => graph_node(), edges => [graph_edge()]}
+%%
+%% 图执行模式：除 __start__ 外，所有顶点初始为 halted 状态
+%% 这确保执行从 __start__ 开始，通过边激活后续顶点
 -spec build_pregel_graph(#{node_id() => graph_node:graph_node()},
                          #{node_id() => [graph_edge:edge()]}) -> pregel:graph().
-build_pregel_graph(Nodes, _EdgeMap) ->
+build_pregel_graph(Nodes, EdgeMap) ->
     EmptyGraph = pregel:new_graph(),
-    maps:fold(
-        fun(NodeId, _Node, AccGraph) ->
-            %% 创建纯拓扑顶点，无 value
-            %% 实际路由由 graph_compute 通过 config 中的 graph_edge 完成
-            pregel:add_vertex(AccGraph, NodeId, [])
+    Graph = maps:fold(
+        fun(NodeId, Node, AccGraph) ->
+            %% 将节点计算函数和路由规则存入 vertex value
+            NodeEdges = maps:get(NodeId, EdgeMap, []),
+            VertexValue = #{
+                node => Node,
+                edges => NodeEdges
+            },
+            pregel:add_vertex(AccGraph, NodeId, VertexValue)
         end,
         EmptyGraph,
         Nodes
-    ).
+    ),
+    %% 将除 __start__ 外的所有顶点设为 halted
+    %% 这确保图执行从 __start__ 开始流动
+    halt_non_start_vertices(Graph).
+
+%% @private 将除 __start__ 外的所有顶点设为 halted
+-spec halt_non_start_vertices(pregel:graph()) -> pregel:graph().
+halt_non_start_vertices(Graph) ->
+    pregel_graph:map(Graph, fun(Vertex) ->
+        case pregel_vertex:id(Vertex) of
+            '__start__' -> Vertex;  %% __start__ 保持 active
+            _ -> pregel_vertex:halt(Vertex)  %% 其他顶点 halted
+        end
+    end).
 
 %%====================================================================
 %% 验证

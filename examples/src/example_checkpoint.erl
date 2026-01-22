@@ -455,7 +455,7 @@ print_checkpoint_data(Cp, Meta) ->
         Content = maps:get(content, Msg, maps:get(<<"content">>, Msg, <<>>)),
         %% 截断过长的内容
         DisplayContent = truncate_content(Content, 80),
-        io:format("  [~p] ~ts~n", [Role, DisplayContent])
+        io:format("  [~p] ~ts~n", [Role, Content])
     end, Messages),
 
     %% 打印 scratchpad（如果有）
