@@ -70,18 +70,23 @@ Tools = beamai_tool_registry:from_config(#{
     providers => [beamai_tool_provider_builtin]  %% 可添加内置工具
 }),
 
-%% 创建 Agent
-{ok, Agent} = beamai_agent:start_link(<<"my_agent">>, #{
+%% 创建 Agent 状态（纯函数 API）
+{ok, State} = beamai_agent:new(#{
     system_prompt => <<"你是一个有帮助的助手。"/utf8>>,
     tools => Tools,
     llm => LLM
-}).
+}),
 
 %% 运行 Agent
-{ok, Result} = beamai_agent:run(Agent, <<"搜索 Erlang 教程"/utf8>>).
+{ok, Result, _NewState} = beamai_agent:run(State, <<"搜索 Erlang 教程"/utf8>>),
 
 %% 查看结果
 Response = maps:get(final_response, Result).
+
+%% 多轮对话示例
+{ok, State0} = beamai_agent:new(#{llm => LLM, system_prompt => <<"你是助手"/utf8>>}),
+{ok, _, State1} = beamai_agent:run(State0, <<"你好"/utf8>>),
+{ok, _, State2} = beamai_agent:run(State1, <<"继续上面的话题"/utf8>>).
 ```
 
 ### 3. Pipeline 模式协调器（顺序协调）
@@ -298,7 +303,10 @@ ok = beamai_agent:restore_from_checkpoint(Agent, CheckpointId).
 监听 Agent 执行事件，支持 18 种回调类型：
 
 ```erlang
-{ok, Agent} = beamai_agent:start_link(<<"my_agent">>, #{
+%% 在创建 Agent 时配置回调
+{ok, State} = beamai_agent:new(#{
+    llm => LLM,
+    system_prompt => <<"你是助手"/utf8>>,
     callbacks => #{
         %% LLM 回调
         on_llm_start => fun(Prompts, Meta) ->
@@ -319,15 +327,10 @@ ok = beamai_agent:restore_from_checkpoint(Agent, CheckpointId).
             io:format("Agent 完成~n")
         end
     }
-}).
+}),
 
-%% 动态设置回调
-ok = beamai_agent:set_callbacks(Agent, #{
-    on_llm_start => fun(_Prompts, _Meta) -> ok end
-}).
-
-%% 发送自定义事件
-beamai_agent:emit_custom_event(Agent, my_event, #{value => 42}).
+%% 运行 Agent，回调会在执行过程中自动触发
+{ok, Result, _NewState} = beamai_agent:run(State, <<"你好"/utf8>>).
 ```
 
 详见 [doc/CALLBACKS.md](doc/CALLBACKS.md)
@@ -348,13 +351,13 @@ LLM = llm_client:create(anthropic, #{
 }),
 
 %% 配置可在多个 Agent 间复用
-{ok, Agent1} = beamai_agent:start_link(<<"agent1">>, #{
+{ok, State1} = beamai_agent:new(#{
     llm => LLM,
     tools => Tools1,
     system_prompt => <<"你是研究助手。"/utf8>>
 }),
 
-{ok, Agent2} = beamai_agent:start_link(<<"agent2">>, #{
+{ok, State2} = beamai_agent:new(#{
     llm => LLM,
     tools => Tools2,
     system_prompt => <<"你是写作助手。"/utf8>>

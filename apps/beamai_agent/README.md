@@ -65,44 +65,29 @@ beamai_coordinator:delegate_parallel(CoordinatorPid, [WorkerName], Task) -> {ok,
 
 ## API 文档
 
-### beamai_agent
+### beamai_agent（纯函数 API）
 
 ```erlang
-%% 启动 Agent
-beamai_agent:start_link(AgentId, Config) -> {ok, Pid} | {error, Reason}.
+%% 核心 API
+beamai_agent:new(Config) -> {ok, State} | {error, Reason}.
+beamai_agent:run(State, Message) -> {ok, Result, NewState} | {error, Reason}.
+beamai_agent:run(State, Message, Opts) -> {ok, Result, NewState} | {error, Reason}.
+beamai_agent:restore_from_memory(Config, Memory) -> {ok, State} | {error, Reason}.
 
-%% 停止 Agent
-beamai_agent:stop(Pid) -> ok.
+%% 状态查询
+beamai_agent:get_messages(State) -> [Message].
+beamai_agent:get_full_messages(State) -> [Message].
+beamai_agent:get_scratchpad(State) -> [Step].
+beamai_agent:get_context(State) -> Context.
+beamai_agent:get_context(State, Key) -> Value | undefined.
+beamai_agent:get_context(State, Key, Default) -> Value.
 
-%% 发送消息
-beamai_agent:chat(Pid, Message) -> {ok, Response} | {error, Reason}.
-beamai_agent:chat(Pid, Message, Timeout) -> {ok, Response} | {error, Reason}.
-
-%% 检查点操作
-beamai_agent:save_checkpoint(Pid) -> {ok, CheckpointId} | {error, Reason}.
-beamai_agent:save_checkpoint(Pid, Metadata) -> {ok, CheckpointId} | {error, Reason}.
-beamai_agent:load_checkpoint(Pid, CheckpointId) -> {ok, Checkpoint} | {error, Reason}.
-beamai_agent:load_latest_checkpoint(Pid) -> {ok, Checkpoint} | {error, Reason}.
-beamai_agent:list_checkpoints(Pid) -> {ok, [Checkpoint]} | {error, Reason}.
-beamai_agent:restore_from_checkpoint(Pid, CheckpointId) -> ok | {error, Reason}.
-
-%% 获取状态
-beamai_agent:get_state(Pid) -> {ok, State}.
-beamai_agent:get_messages(Pid) -> {ok, Messages}.
-
-%% Context API（用户自定义上下文，参与对话）
-beamai_agent:get_context(Pid) -> Context.
-beamai_agent:get_context(Pid, Key) -> Value | undefined.
-beamai_agent:get_context(Pid, Key, Default) -> Value.
-beamai_agent:set_context(Pid, Context) -> ok.
-beamai_agent:put_context(Pid, Key, Value) -> ok.
-
-%% Meta API（进程级元数据，不参与对话）
-beamai_agent:get_meta(Pid) -> Meta.
-beamai_agent:get_meta(Pid, Key) -> Value | undefined.
-beamai_agent:get_meta(Pid, Key, Default) -> Value.
-beamai_agent:set_meta(Pid, Meta) -> ok.
-beamai_agent:put_meta(Pid, Key, Value) -> ok.
+%% 状态修改
+beamai_agent:set_context(State, Context) -> NewState.
+beamai_agent:update_context(State, Updates) -> NewState.
+beamai_agent:put_context(State, Key, Value) -> NewState.
+beamai_agent:clear_messages(State) -> NewState.
+beamai_agent:clear_scratchpad(State) -> NewState.
 ```
 
 ### 配置结构
@@ -252,15 +237,12 @@ Config = #{
     llm => LLM
 },
 
-%% 启动 Agent
-{ok, Agent} = beamai_agent:start_link(<<"my-agent">>, Config),
+%% 创建 Agent 状态
+{ok, State0} = beamai_agent:new(Config),
 
-%% 对话
-{ok, Response1} = beamai_agent:chat(Agent, <<"Hello!">>),
-{ok, Response2} = beamai_agent:chat(Agent, <<"What can you do?">>),
-
-%% 停止
-beamai_agent:stop(Agent).
+%% 多轮对话
+{ok, _Result1, State1} = beamai_agent:run(State0, <<"Hello!">>),
+{ok, _Result2, _State2} = beamai_agent:run(State1, <<"What can you do?">>).
 ```
 
 ### 使用工具

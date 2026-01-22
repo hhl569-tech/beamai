@@ -70,18 +70,23 @@ Tools = beamai_tool_registry:from_config(#{
     providers => [beamai_tool_provider_builtin]  %% Can add built-in tools
 }),
 
-%% Create Agent
-{ok, Agent} = beamai_agent:start_link(<<"my_agent">>, #{
+%% Create Agent state (pure function API)
+{ok, State} = beamai_agent:new(#{
     system_prompt => <<"You are a helpful assistant."/utf8>>,
     tools => Tools,
     llm => LLM
-}).
+}),
 
 %% Run Agent
-{ok, Result} = beamai_agent:run(Agent, <<"Search for Erlang tutorials"/utf8>>).
+{ok, Result, _NewState} = beamai_agent:run(State, <<"Search for Erlang tutorials"/utf8>>),
 
 %% View result
 Response = maps:get(final_response, Result).
+
+%% Multi-turn conversation example
+{ok, State0} = beamai_agent:new(#{llm => LLM, system_prompt => <<"You are an assistant"/utf8>>}),
+{ok, _, State1} = beamai_agent:run(State0, <<"Hello"/utf8>>),
+{ok, _, State2} = beamai_agent:run(State1, <<"Continue the topic above"/utf8>>).
 ```
 
 ### 3. Pipeline Pattern Coordinator (Sequential Coordination)
@@ -298,7 +303,10 @@ ok = beamai_agent:restore_from_checkpoint(Agent, CheckpointId).
 Listen to Agent execution events, supporting 18 callback types:
 
 ```erlang
-{ok, Agent} = beamai_agent:start_link(<<"my_agent">>, #{
+%% Configure callbacks when creating Agent
+{ok, State} = beamai_agent:new(#{
+    llm => LLM,
+    system_prompt => <<"You are an assistant"/utf8>>,
     callbacks => #{
         %% LLM callbacks
         on_llm_start => fun(Prompts, Meta) ->
@@ -319,15 +327,10 @@ Listen to Agent execution events, supporting 18 callback types:
             io:format("Agent completed~n")
         end
     }
-}).
+}),
 
-%% Dynamically set callbacks
-ok = beamai_agent:set_callbacks(Agent, #{
-    on_llm_start => fun(_Prompts, _Meta) -> ok end
-}).
-
-%% Send custom event
-beamai_agent:emit_custom_event(Agent, my_event, #{value => 42}).
+%% Run Agent, callbacks will be triggered automatically during execution
+{ok, Result, _NewState} = beamai_agent:run(State, <<"Hello"/utf8>>).
 ```
 
 See [doc/CALLBACKS_EN.md](doc/CALLBACKS_EN.md) for details
@@ -348,13 +351,13 @@ LLM = llm_client:create(anthropic, #{
 }),
 
 %% Configuration can be reused across multiple Agents
-{ok, Agent1} = beamai_agent:start_link(<<"agent1">>, #{
+{ok, State1} = beamai_agent:new(#{
     llm => LLM,
     tools => Tools1,
     system_prompt => <<"You are a research assistant."/utf8>>
 }),
 
-{ok, Agent2} = beamai_agent:start_link(<<"agent2">>, #{
+{ok, State2} = beamai_agent:new(#{
     llm => LLM,
     tools => Tools2,
     system_prompt => <<"You are a writing assistant."/utf8>>
