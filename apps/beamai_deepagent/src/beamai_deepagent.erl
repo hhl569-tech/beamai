@@ -55,11 +55,11 @@
 %% 状态查询
 -export([get_plan/1, get_trace/1]).
 
-%% Checkpoint API
--export([save_checkpoint/1, save_checkpoint/2]).
--export([load_checkpoint/2, load_latest_checkpoint/1]).
--export([list_checkpoints/1, list_checkpoints/2]).
--export([restore_from_checkpoint/2]).
+%% Checkpoint API 已移除
+%% Checkpoint 现在通过 on_checkpoint 回调自动保存
+%% 用户可通过 beamai_memory API 直接访问 checkpoints
+
+%% 状态导出/导入（用于外部持久化）
 -export([export_state/1, import_state/2]).
 
 %% 测试辅助（导出供测试使用）
@@ -209,12 +209,9 @@ run_internal(Config, Message, Opts) ->
     %% 4. 恢复检查点（如果配置）
     RestoredState = beamai_deepagent_checkpoint:maybe_restore(Config, StateWithStorage),
 
-    %% 5. 添加 auto_checkpoint 标志到状态
-    FinalState = maybe_add_auto_checkpoint(RestoredState, Config),
-
-    %% 6. 执行图
-    RunOpts = build_run_options(Config, Opts),
-    execute_graph_with_checkpoint(Graph, FinalState, RunOpts, Config).
+    %% 5. 执行图（checkpoint 通过回调自动保存）
+    RunOpts = build_run_options(Config, Storage, Opts),
+    execute_graph(Graph, RestoredState, RunOpts).
 
 %% @doc 流式运行 Agent
 %%
@@ -353,13 +350,25 @@ default_config() ->
 %% @private 构建运行选项
 %%
 %% 合并配置和用户选项，设置图执行参数
--spec build_run_options(config(), map()) -> map().
-build_run_options(Config, Opts) ->
+%% 如果配置了 storage，自动创建 on_checkpoint 回调
+-spec build_run_options(config(), beamai_memory:memory() | undefined, map()) -> map().
+build_run_options(Config, undefined, Opts) ->
+    %% 无存储，不创建 checkpoint 回调
     #{
         engine => maps:get(engine, Opts, pregel),
         trace => maps:get(trace, Opts, true),
         max_iterations => maps:get(max_iterations, Config, 50),
         timeout => maps:get(timeout, Opts, 300000)
+    };
+build_run_options(Config, Memory, Opts) ->
+    %% 有存储，创建 checkpoint 回调
+    OnCheckpoint = beamai_deepagent_checkpoint_callback:create_callback(Config, Memory),
+    #{
+        engine => maps:get(engine, Opts, pregel),
+        trace => maps:get(trace, Opts, true),
+        max_iterations => maps:get(max_iterations, Config, 50),
+        timeout => maps:get(timeout, Opts, 300000),
+        on_checkpoint => OnCheckpoint
     }.
 
 %%====================================================================
@@ -608,68 +617,8 @@ store_response(RequestId, Response) ->
     ok.
 
 %%====================================================================
-%% Checkpoint API
+%% 状态导出/导入 API
 %%====================================================================
-
-%% @doc 保存当前状态为检查点
-%%
-%% 从 run_result 中提取 final_state 并保存为检查点。
--spec save_checkpoint(run_result(), map()) -> {ok, binary()} | {error, term()}.
-save_checkpoint(Result, Meta) ->
-    State = maps:get(final_state, Result),
-    beamai_deepagent_checkpoint:save(Meta, State).
-
-%% @doc 保存当前状态为检查点（简化版）
-%%
-%% 从 run_result 中提取 final_state 并保存为检查点，无需元数据。
--spec save_checkpoint(run_result()) -> {ok, binary()} | {error, term()}.
-save_checkpoint(Result) ->
-    save_checkpoint(Result, #{}).
-
-%% @doc 加载指定检查点
-%%
-%% 从存储中加载指定的检查点数据。
--spec load_checkpoint(run_result(), binary()) ->
-    {ok, beamai_deepagent_checkpoint:checkpoint_data()} | {error, term()}.
-load_checkpoint(Result, CpId) ->
-    State = maps:get(final_state, Result),
-    beamai_deepagent_checkpoint:load(CpId, State).
-
-%% @doc 加载最新检查点
-%%
-%% 从存储中加载最新的检查点数据。
--spec load_latest_checkpoint(run_result()) ->
-    {ok, beamai_deepagent_checkpoint:checkpoint_data()} | {error, term()}.
-load_latest_checkpoint(Result) ->
-    State = maps:get(final_state, Result),
-    beamai_deepagent_checkpoint:load_latest(State).
-
-%% @doc 列出所有检查点
-%%
-%% 列出存储中的所有检查点。
--spec list_checkpoints(run_result()) -> {ok, [map()]} | {error, term()}.
-list_checkpoints(Result) ->
-    list_checkpoints(Result, #{}).
-
-%% @doc 列出检查点（带过滤选项）
-%%
-%% 列出存储中的检查点，支持过滤选项。
--spec list_checkpoints(run_result(), map()) -> {ok, [map()]} | {error, term()}.
-list_checkpoints(Result, Opts) ->
-    State = maps:get(final_state, Result),
-    beamai_deepagent_checkpoint:list(Opts, State).
-
-%% @doc 从检查点恢复状态并继续执行
-%%
-%% 从指定的检查点恢复状态，并使用新的消息继续执行。
--spec restore_from_checkpoint(binary(), binary()) ->
-    {ok, run_result()} | {error, term()}.
-restore_from_checkpoint(CpId, Message) ->
-    Config = #{
-        restore_checkpoint => CpId,
-        enable_storage => true
-    },
-    run(Config, Message).
 
 %% @doc 导出状态（用于外部持久化）
 %%
@@ -711,36 +660,16 @@ import_state(ExportedData, Message) ->
     run(Config, Message).
 
 %%====================================================================
-%% 私有函数 - Checkpoint 支持
+%% 私有函数 - 状态辅助
 %%====================================================================
 
 %% @private 添加存储到状态
--spec maybe_add_storage(graph_state:state(), {module(), pid()} | undefined) ->
+-spec maybe_add_storage(graph_state:state(), beamai_memory:memory() | undefined) ->
     graph_state:state().
 maybe_add_storage(State, undefined) ->
     State;
 maybe_add_storage(State, Storage) ->
     graph_state:set(State, storage, Storage).
-
-%% @private 添加自动检查点标志到状态
--spec maybe_add_auto_checkpoint(graph_state:state(), config()) -> graph_state:state().
-maybe_add_auto_checkpoint(State, Config) ->
-    AutoCheckpoint = maps:get(auto_checkpoint, Config, false),
-    graph_state:set(State, auto_checkpoint, AutoCheckpoint).
-
-%% @private 执行图并支持自动检查点
--spec execute_graph_with_checkpoint(graph:graph(), graph_state:state(), map(), config()) ->
-    {ok, run_result()} | {error, term()}.
-execute_graph_with_checkpoint(Graph, InitialState, RunOpts, _Config) ->
-    case execute_graph(Graph, InitialState, RunOpts) of
-        {ok, Result} ->
-            %% 自动保存 checkpoint（如果启用）
-            FinalState = maps:get(final_state, Result),
-            _State = beamai_deepagent_checkpoint:maybe_auto_save(#{}, FinalState),
-            {ok, Result};
-        {error, Reason} ->
-            {error, Reason}
-    end.
 
 %%====================================================================
 %% 私有函数 - LLM 配置验证

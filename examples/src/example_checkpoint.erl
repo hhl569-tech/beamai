@@ -1,15 +1,28 @@
 %%%-------------------------------------------------------------------
-%%% @doc Agent Checkpoint 使用示例
+%%% @doc Agent Checkpoint 使用示例（新 API）
 %%%
-%%% 演示如何使用 beamai_agent 的 checkpoint 功能：
-%%% 1. 启用存储和自动保存
-%%% 2. 手动保存 checkpoint
-%%% 3. 从 checkpoint 恢复
-%%% 4. 列出和管理 checkpoints
+%%% 演示如何使用新的 checkpoint 架构：
+%%% 1. thread_id 在 Memory 中管理（自动生成或手动指定）
+%%% 2. Checkpoint 通过 on_checkpoint 回调自动保存
+%%% 3. 通过 beamai_memory API 直接访问 checkpoints
+%%%
+%%% == API 变更说明 ==
+%%%
+%%% 旧 API（已移除）：
+%%% - beamai_agent:save_checkpoint/1,2
+%%% - beamai_agent:load_checkpoint/2
+%%% - beamai_agent:list_checkpoints/1,2
+%%% - beamai_agent:restore_from_checkpoint/2
+%%%
+%%% 新 API：
+%%% - beamai_memory:get_thread_id/1 - 获取 Memory 的 thread_id
+%%% - beamai_memory:list_checkpoints/2 - 列出 checkpoints
+%%% - beamai_memory:load_checkpoint/2 - 加载 checkpoint
+%%% - beamai_memory:load_latest_checkpoint/2 - 加载最新 checkpoint
 %%%
 %%% 使用方法:
 %%% ```
-%%% %% 方式 1: 使用环境变量配置 API Key（推荐使用智谱 GLM-4.7）
+%%% %% 方式 1: 使用环境变量配置 API Key
 %%% %% 设置环境变量: export ZHIPU_API_KEY=your-api-key
 %%% example_checkpoint:run().
 %%%
@@ -26,7 +39,8 @@
 %%%-------------------------------------------------------------------
 -module(example_checkpoint).
 
--export([run/0, run/1,example_list_all_checkpoints/1]).
+-export([run/0, run/1]).
+-export([example_list_all_checkpoints/1]).
 
 %%====================================================================
 %% 示例入口
@@ -40,7 +54,7 @@ run() ->
             run(LLMConfig);
         {error, Reason} ->
             io:format("错误: ~p~n", [Reason]),
-            io:format("请设置环境变量 ZHIPU_API_KEY（推荐），~n"),
+            io:format("请设置环境变量 ZHIPU_API_KEY，~n"),
             io:format("或者使用 run(LLMConfig) 直接传入配置。~n"),
             {error, Reason}
     end.
@@ -48,16 +62,16 @@ run() ->
 %% @doc 运行所有示例（使用指定的 LLM 配置）
 -spec run(map()) -> ok.
 run(LLMConfig) ->
-    io:format("=== Agent Checkpoint 功能示例 ===~n~n"),
+    io:format("=== Agent Checkpoint 功能示例（新 API）===~n~n"),
 
-    %% 示例 1：启用自动 checkpoint
+    %% 示例 1：自动 checkpoint（通过回调）
     example_auto_checkpoint(LLMConfig),
 
-    %% 示例 2：手动保存 checkpoint
-    example_manual_checkpoint(LLMConfig),
+    %% 示例 2：通过 Memory 访问 checkpoints
+    example_access_checkpoints(LLMConfig),
 
-    %% 示例 3：从 checkpoint 恢复
-    example_restore_checkpoint(LLMConfig),
+    %% 示例 3：自定义 thread_id
+    example_custom_thread_id(LLMConfig),
 
     %% 示例 4：列出所有 checkpoints 详情
     example_list_all_checkpoints(LLMConfig),
@@ -66,30 +80,35 @@ run(LLMConfig) ->
     ok.
 
 %%====================================================================
-%% 示例 1：启用自动 checkpoint
+%% 示例 1：自动 checkpoint（通过回调）
 %%====================================================================
 
 example_auto_checkpoint(LLMConfig) ->
-    io:format("~n--- 示例 1：启用自动 Checkpoint ---~n"),
+    io:format("~n--- 示例 1：自动 Checkpoint（通过回调）---~n"),
+    io:format("Checkpoint 现在在图执行时自动保存，无需手动调用。~n~n"),
 
     %% 1. 创建存储后端（ETS 内存存储）
     StoreName = checkpoint_example_store_1,
     {ok, _} = beamai_store_ets:start_link(StoreName, #{max_items => 1000}),
 
-    %% 2. 创建 Memory 实例
+    %% 2. 创建 Memory 实例（thread_id 自动生成）
     {ok, Memory} = beamai_memory:new(#{
         context_store => {beamai_store_ets, StoreName}
     }),
 
-    %% 3. 创建启用存储的 Agent
+    %% 获取自动生成的 thread_id
+    ThreadId = beamai_memory:get_thread_id(Memory),
+    io:format("自动生成的 thread_id: ~s~n", [ThreadId]),
+
+    %% 3. 创建 Agent（传入 Memory 启用自动 checkpoint）
     {ok, Agent} = beamai_agent:start_link(<<"checkpoint_auto_test">>, #{
         system_prompt => <<"你是一个有帮助的助手。请简洁回答。"/utf8>>,
         llm => LLMConfig,
-        storage => Memory  %% 传入 Memory 实例启用 checkpoint
+        storage => Memory  %% 传入 Memory 实例启用自动 checkpoint
     }),
 
-    %% 第一次运行（会自动保存 checkpoint）
-    io:format("运行第 1 个任务...~n"),
+    %% 第一次运行（checkpoint 自动保存）
+    io:format("~n运行第 1 个任务...~n"),
     case beamai_agent:run(Agent, <<"请用一句话介绍 Erlang"/utf8>>) of
         {ok, Result1} ->
             io:format("完成，response: ~ts~n", [maps:get(final_response, Result1, <<>>)]);
@@ -97,7 +116,7 @@ example_auto_checkpoint(LLMConfig) ->
             io:format("错误: ~p~n", [Reason1])
     end,
 
-    %% 第二次运行（会自动保存新的 checkpoint）
+    %% 第二次运行（checkpoint 自动保存）
     io:format("~n运行第 2 个任务...~n"),
     case beamai_agent:run(Agent, <<"Erlang 的并发模型是什么？"/utf8>>) of
         {ok, Result2} ->
@@ -106,12 +125,13 @@ example_auto_checkpoint(LLMConfig) ->
             io:format("错误: ~p~n", [Reason2])
     end,
 
-    %% 列出所有 checkpoints
-    io:format("~n列出所有 checkpoints:~n"),
-    case beamai_agent:list_checkpoints(Agent) of
+    %% 通过 Memory 直接列出 checkpoints
+    io:format("~n通过 Memory 列出所有 checkpoints:~n"),
+    case beamai_memory:list_checkpoints(Memory, #{thread_id => ThreadId}) of
         {ok, Checkpoints} ->
-            lists:foreach(fun(Cp) ->
-                CpId = maps:get(id, Cp, <<"unknown">>),
+            io:format("共 ~p 个 checkpoints~n", [length(Checkpoints)]),
+            lists:foreach(fun({Cp, _Meta, _Parent}) ->
+                CpId = get_checkpoint_field(Cp, id),
                 io:format("  - ~s~n", [CpId])
             end, Checkpoints);
         {error, ListError} ->
@@ -123,11 +143,11 @@ example_auto_checkpoint(LLMConfig) ->
     beamai_store_ets:stop(StoreName).
 
 %%====================================================================
-%% 示例 2：手动保存 checkpoint
+%% 示例 2：通过 Memory 访问 checkpoints
 %%====================================================================
 
-example_manual_checkpoint(LLMConfig) ->
-    io:format("~n--- 示例 2：手动保存 Checkpoint ---~n"),
+example_access_checkpoints(LLMConfig) ->
+    io:format("~n--- 示例 2：通过 Memory 访问 Checkpoints ---~n"),
 
     %% 1. 创建存储后端
     StoreName = checkpoint_example_store_2,
@@ -137,33 +157,43 @@ example_manual_checkpoint(LLMConfig) ->
     {ok, Memory} = beamai_memory:new(#{
         context_store => {beamai_store_ets, StoreName}
     }),
+    ThreadId = beamai_memory:get_thread_id(Memory),
 
     %% 3. 创建 Agent
-    {ok, Agent} = beamai_agent:start_link(<<"checkpoint_manual_test">>, #{
+    {ok, Agent} = beamai_agent:start_link(<<"checkpoint_access_test">>, #{
         system_prompt => <<"你是一个有帮助的助手。"/utf8>>,
         llm => LLMConfig,
         storage => Memory
     }),
 
-    %% 运行任务
-    io:format("运行任务...~n"),
-    case beamai_agent:run(Agent, <<"什么是函数式编程？"/utf8>>) of
-        {ok, Result} ->
-            io:format("完成，response: ~ts~n", [maps:get(final_response, Result, <<>>)]),
+    %% 进行多轮对话
+    io:format("进行多轮对话...~n"),
+    _ = beamai_agent:run(Agent, <<"你好，我是 Alice"/utf8>>),
+    _ = beamai_agent:run(Agent, <<"什么是 OTP？"/utf8>>),
+    _ = beamai_agent:run(Agent, <<"GenServer 是什么？"/utf8>>),
 
-            %% 手动保存 checkpoint（带元数据）
-            io:format("~n手动保存 checkpoint...~n"),
-            case beamai_agent:save_checkpoint(Agent, #{
-                tag => <<"fp_intro">>,
-                description => <<"函数式编程介绍完成"/utf8>>
-            }) of
-                {ok, CpId} ->
-                    io:format("Checkpoint 已保存: ~s~n", [CpId]);
-                {error, SaveError} ->
-                    io:format("保存失败: ~p~n", [SaveError])
-            end;
-        {error, Reason} ->
-            io:format("错误: ~p~n", [Reason])
+    %% 通过 Memory 访问 checkpoints
+    io:format("~n通过 Memory 访问 checkpoints:~n"),
+
+    %% 列出所有 checkpoints
+    case beamai_memory:list_checkpoints(Memory, #{thread_id => ThreadId, limit => 10}) of
+        {ok, Checkpoints} ->
+            io:format("共 ~p 个 checkpoints:~n", [length(Checkpoints)]),
+            lists:foreach(fun({Cp, Meta, _Parent}) ->
+                print_checkpoint_info(Cp, Meta)
+            end, Checkpoints);
+        {error, ListError} ->
+            io:format("列出失败: ~p~n", [ListError])
+    end,
+
+    %% 加载最新 checkpoint
+    io:format("~n加载最新 checkpoint:~n"),
+    case beamai_memory:load_latest_checkpoint(Memory, #{thread_id => ThreadId}) of
+        {ok, LatestData} ->
+            Messages = maps:get(messages, LatestData, []),
+            io:format("  消息数量: ~p~n", [length(Messages)]);
+        {error, LoadError} ->
+            io:format("加载失败: ~p~n", [LoadError])
     end,
 
     %% 清理
@@ -171,78 +201,52 @@ example_manual_checkpoint(LLMConfig) ->
     beamai_store_ets:stop(StoreName).
 
 %%====================================================================
-%% 示例 3：从 checkpoint 恢复
+%% 示例 3：自定义 thread_id
 %%====================================================================
 
-example_restore_checkpoint(LLMConfig) ->
-    io:format("~n--- 示例 3：从 Checkpoint 恢复 ---~n"),
+example_custom_thread_id(LLMConfig) ->
+    io:format("~n--- 示例 3：自定义 thread_id ---~n"),
 
     %% 1. 创建存储后端
     StoreName = checkpoint_example_store_3,
     {ok, _} = beamai_store_ets:start_link(StoreName, #{max_items => 1000}),
 
-    %% 2. 创建 Memory 实例
+    %% 2. 创建 Memory 实例（指定自定义 thread_id）
+    CustomThreadId = <<"my_custom_session_123">>,
     {ok, Memory} = beamai_memory:new(#{
-        context_store => {beamai_store_ets, StoreName}
+        context_store => {beamai_store_ets, StoreName},
+        thread_id => CustomThreadId  %% 自定义 thread_id
     }),
 
+    %% 验证 thread_id
+    ThreadId = beamai_memory:get_thread_id(Memory),
+    io:format("自定义 thread_id: ~s~n", [ThreadId]),
+    io:format("thread_id 匹配: ~p~n", [ThreadId =:= CustomThreadId]),
+
     %% 3. 创建 Agent
-    {ok, Agent} = beamai_agent:start_link(<<"checkpoint_restore_test">>, #{
+    {ok, Agent} = beamai_agent:start_link(<<"checkpoint_custom_thread_test">>, #{
         system_prompt => <<"你是一个有帮助的助手。记住用户告诉你的信息。"/utf8>>,
         llm => LLMConfig,
         storage => Memory
     }),
 
-    %% 第一次运行：告诉 Agent 一些信息
-    io:format("第 1 次运行（设置上下文）...~n"),
-    case beamai_agent:run(Agent, <<"我的名字是 Alice，我喜欢编程。"/utf8>>) of
-        {ok, _Result1} ->
-            io:format("完成~n");
-        {error, Reason1} ->
-            io:format("错误: ~p~n", [Reason1])
+    %% 运行任务
+    io:format("~n运行任务...~n"),
+    case beamai_agent:run(Agent, <<"我的名字是 Bob，我喜欢 Erlang。"/utf8>>) of
+        {ok, Result} ->
+            io:format("完成，response: ~ts~n", [maps:get(final_response, Result, <<>>)]);
+        {error, Reason} ->
+            io:format("错误: ~p~n", [Reason])
     end,
 
-    %% 保存 checkpoint
-    io:format("~n保存 checkpoint...~n"),
-    CpId = case beamai_agent:save_checkpoint(Agent, #{tag => <<"context_set">>}) of
-        {ok, Id} ->
-            io:format("Checkpoint 已保存: ~s~n", [Id]),
-            Id;
-        {error, SaveError} ->
-            io:format("保存失败: ~p~n", [SaveError]),
-            undefined
-    end,
-
-    %% 第二次运行：新的对话（不相关）
-    io:format("~n第 2 次运行（新话题）...~n"),
-    case beamai_agent:run(Agent, <<"今天天气怎么样？"/utf8>>) of
-        {ok, Result2} ->
-            io:format("完成，response: ~ts~n", [maps:get(final_response, Result2, <<>>)]);
-        {error, Reason2} ->
-            io:format("错误: ~p~n", [Reason2])
-    end,
-
-    %% 从 checkpoint 恢复
-    case CpId of
-        undefined ->
-            io:format("~n跳过恢复（无有效 checkpoint）~n");
-        _ ->
-            io:format("~n从 checkpoint 恢复...~n"),
-            case beamai_agent:restore_from_checkpoint(Agent, CpId) of
-                ok ->
-                    io:format("恢复成功~n"),
-
-                    %% 验证上下文是否恢复
-                    io:format("~n验证上下文...~n"),
-                    case beamai_agent:run(Agent, <<"我的名字是什么？"/utf8>>) of
-                        {ok, Result3} ->
-                            io:format("回答: ~ts~n", [maps:get(final_response, Result3, <<>>)]);
-                        {error, Reason3} ->
-                            io:format("错误: ~p~n", [Reason3])
-                    end;
-                {error, RestoreError} ->
-                    io:format("恢复失败: ~p~n", [RestoreError])
-            end
+    %% 使用自定义 thread_id 访问 checkpoints
+    io:format("~n使用自定义 thread_id 访问 checkpoints:~n"),
+    case beamai_memory:list_checkpoints(Memory, #{thread_id => CustomThreadId}) of
+        {ok, Checkpoints} ->
+            io:format("thread_id '~s' 下共 ~p 个 checkpoints~n",
+                      [CustomThreadId, length(Checkpoints)]);
+        {error, ListError} ->
+            io:format("列出失败: ~p~n", [ListError])
     end,
 
     %% 清理
@@ -253,150 +257,250 @@ example_restore_checkpoint(LLMConfig) ->
 %% 示例 4：列出所有 checkpoints 详情
 %%====================================================================
 
+%% @doc 列出 Agent 保存在内存中的所有 checkpoints
+%%
+%% 这个示例展示如何：
+%% 1. 运行 Agent 多次，让其自动保存多个 checkpoints
+%% 2. 通过 beamai_memory API 列出所有 checkpoints
+%% 3. 查看每个 checkpoint 的详细信息（消息、元数据等）
+%% 4. 加载特定 checkpoint 的完整数据
+-spec example_list_all_checkpoints(map()) -> ok.
 example_list_all_checkpoints(LLMConfig) ->
     io:format("~n--- 示例 4：列出所有 Checkpoints 详情 ---~n"),
+    io:format("演示如何列出并查看 Agent 保存的所有 checkpoints~n~n"),
 
     %% 1. 创建存储后端
     StoreName = checkpoint_example_store_4,
     {ok, _} = beamai_store_ets:start_link(StoreName, #{max_items => 1000}),
 
-    %% 2. 创建 Memory 实例
+    %% 2. 创建 Memory 实例（使用自定义 thread_id 便于识别）
     {ok, Memory} = beamai_memory:new(#{
-        context_store => {beamai_store_ets, StoreName}
+        context_store => {beamai_store_ets, StoreName},
+        thread_id => <<"list_checkpoints_demo">>
     }),
+    ThreadId = beamai_memory:get_thread_id(Memory),
+    io:format("thread_id: ~s~n", [ThreadId]),
 
     %% 3. 创建 Agent
-    {ok, Agent} = beamai_agent:start_link(<<"checkpoint_list_test">>, #{
+    {ok, Agent} = beamai_agent:start_link(<<"checkpoint_list_demo">>, #{
         system_prompt => <<"你是一个有帮助的助手。"/utf8>>,
         llm => LLMConfig,
         storage => Memory
     }),
 
-    %% 进行多轮对话并保存多个 checkpoints
-    io:format("进行多轮对话...~n"),
+    %% 4. 进行多轮对话（每次运行都会自动保存 checkpoints）
+    io:format("~n进行多轮对话以生成 checkpoints...~n"),
 
-    %% 第 1 轮
-    _ = beamai_agent:run(Agent, <<"你好，我是测试用户"/utf8>>),
-    {ok, CpId1} = beamai_agent:save_checkpoint(Agent, #{
-        tag => <<"greeting">>,
-        step => 1
-    }),
-    io:format("  保存 checkpoint 1: ~s~n", [CpId1]),
+    io:format("  第 1 轮对话...~n"),
+    _ = beamai_agent:run(Agent, <<"你好，请记住我叫 Alice"/utf8>>),
 
-    %% 第 2 轮
-    _ = beamai_agent:run(Agent, <<"什么是 OTP？"/utf8>>),
-    {ok, CpId2} = beamai_agent:save_checkpoint(Agent, #{
-        tag => <<"otp_question">>,
-        step => 2
-    }),
-    io:format("  保存 checkpoint 2: ~s~n", [CpId2]),
+    io:format("  第 2 轮对话...~n"),
+    _ = beamai_agent:run(Agent, <<"Erlang 是什么？"/utf8>>),
 
-    %% 第 3 轮
-    _ = beamai_agent:run(Agent, <<"GenServer 是什么？"/utf8>>),
-    {ok, CpId3} = beamai_agent:save_checkpoint(Agent, #{
-        tag => <<"genserver_question">>,
-        step => 3
-    }),
-    io:format("  保存 checkpoint 3: ~s~n", [CpId3]),
+    io:format("  第 3 轮对话...~n"),
+    _ = beamai_agent:run(Agent, <<"OTP 有什么作用？"/utf8>>),
 
-    %% 列出所有 checkpoints
-    io:format("~n列出所有 checkpoints:~n"),
-    io:format("~s~n", [string:copies("=", 70)]),
+    %% 5. 列出所有 checkpoints
+    io:format("~n" ++ string:copies("=", 60) ++ "~n"),
+    io:format("列出所有 checkpoints:~n"),
+    io:format(string:copies("=", 60) ++ "~n"),
 
-    case beamai_agent:list_checkpoints(Agent) of
+    case beamai_memory:list_checkpoints(Memory, #{thread_id => ThreadId}) of
         {ok, Checkpoints} ->
-            lists:foreach(fun(Cp) ->
-                print_checkpoint_details(Cp)
-            end, Checkpoints),
-            io:format("~n共 ~p 个 checkpoints~n", [length(Checkpoints)]);
+            io:format("~n共找到 ~p 个 checkpoints~n~n", [length(Checkpoints)]),
+
+            %% 遍历并打印每个 checkpoint 的详情
+            lists:foldl(fun({Cp, Meta, _Parent}, Index) ->
+                print_checkpoint_details(Index, Cp, Meta),
+                Index + 1
+            end, 1, Checkpoints),
+
+            %% 6. 演示加载特定 checkpoint 的完整数据
+            case Checkpoints of
+                [{FirstCp, _, _} | _] ->
+                    FirstCpId = get_checkpoint_field(FirstCp, id),
+                    io:format("~n" ++ string:copies("-", 60) ++ "~n"),
+                    io:format("加载第一个 checkpoint (~s) 的完整数据:~n", [FirstCpId]),
+                    io:format(string:copies("-", 60) ++ "~n"),
+                    case beamai_memory:load_checkpoint(Memory, #{
+                        thread_id => ThreadId,
+                        checkpoint_id => FirstCpId
+                    }) of
+                        {ok, CpData} ->
+                            print_checkpoint_data(CpData);
+                        {error, LoadErr} ->
+                            io:format("加载失败: ~p~n", [LoadErr])
+                    end;
+                [] ->
+                    io:format("没有 checkpoint 可加载~n")
+            end;
+
+        {error, not_found} ->
+            io:format("没有找到任何 checkpoints~n");
+
         {error, ListError} ->
             io:format("列出失败: ~p~n", [ListError])
     end,
 
-    %% 加载特定 checkpoint 查看详情
-    io:format("~n加载 checkpoint 2 的完整数据:~n"),
-    case beamai_agent:load_checkpoint(Agent, CpId2) of
-        {ok, CpData} ->
-            print_checkpoint_data(CpData);
-        {error, LoadError} ->
-            io:format("加载失败: ~p~n", [LoadError])
-    end,
-
     %% 清理
     beamai_agent:stop(Agent),
-    beamai_store_ets:stop(StoreName).
+    beamai_store_ets:stop(StoreName),
+    ok.
 
 %%====================================================================
 %% 辅助函数
 %%====================================================================
 
-%% @private 打印 checkpoint 摘要信息
-print_checkpoint_details(Cp) ->
-    Id = maps:get(id, Cp, <<"unknown">>),
-    Data = maps:get(data, Cp, #{}),
-    Metadata = maps:get(metadata, Cp, #{}),
+%% 注意：不使用 record 定义，而是通过 map 访问 checkpoint 数据
+%% checkpoint 元组格式: {Checkpoint, Metadata, ParentConfig}
+%% Checkpoint 是一个 record，但我们通过 element/2 访问字段
 
-    %% 从 data 中提取消息数量
-    Messages = maps:get(messages, Data, []),
+%% @private 获取 checkpoint 字段
+%% checkpoint record 字段顺序: {checkpoint, id, thread_id, parent_id, values, timestamp}
+get_checkpoint_field(Cp, id) -> element(2, Cp);
+get_checkpoint_field(Cp, thread_id) -> element(3, Cp);
+get_checkpoint_field(Cp, parent_id) -> element(4, Cp);
+get_checkpoint_field(Cp, values) -> element(5, Cp);
+get_checkpoint_field(Cp, timestamp) -> element(6, Cp).
+
+%% @private 获取 metadata 字段
+%% checkpoint_metadata record 字段顺序:
+%% {checkpoint_metadata, checkpoint_type, step, active_vertices, completed_vertices,
+%%  run_id, agent_id, agent_name, iteration, metadata}
+get_metadata_field(Meta, checkpoint_type) -> element(2, Meta);
+get_metadata_field(Meta, step) -> element(3, Meta);
+get_metadata_field(Meta, active_vertices) -> element(4, Meta);
+get_metadata_field(Meta, completed_vertices) -> element(5, Meta);
+get_metadata_field(Meta, run_id) -> element(6, Meta);
+get_metadata_field(Meta, agent_id) -> element(7, Meta);
+get_metadata_field(Meta, agent_name) -> element(8, Meta);
+get_metadata_field(Meta, iteration) -> element(9, Meta);
+get_metadata_field(Meta, metadata) -> element(10, Meta).
+
+%% @private 打印 checkpoint 简要信息
+print_checkpoint_info(Cp, Meta) ->
+    CpId = get_checkpoint_field(Cp, id),
+    Timestamp = get_checkpoint_field(Cp, timestamp),
+    CheckpointType = get_metadata_field(Meta, checkpoint_type),
+    Iteration = get_metadata_field(Meta, iteration),
+
+    io:format("  Checkpoint: ~s~n", [CpId]),
+    io:format("    Type: ~p~n", [CheckpointType]),
+    io:format("    Iteration: ~p~n", [Iteration]),
+    io:format("    Timestamp: ~p~n", [Timestamp]).
+
+%% @private 打印 checkpoint 详细信息（用于示例 4）
+print_checkpoint_details(Index, Cp, Meta) ->
+    CpId = get_checkpoint_field(Cp, id),
+    Timestamp = get_checkpoint_field(Cp, timestamp),
+    Values = get_checkpoint_field(Cp, values),
+    CheckpointType = get_metadata_field(Meta, checkpoint_type),
+    Iteration = get_metadata_field(Meta, iteration),
+    Superstep = get_metadata_field(Meta, step),
+
+    %% 计算消息数量
+    Messages = maps:get(messages, Values, maps:get(<<"messages">>, Values, [])),
     MsgCount = length(Messages),
 
-    %% 从 metadata 中提取信息
-    %% 用户自定义元数据在 metadata.metadata 中
-    UserMeta = maps:get(metadata, Metadata, #{}),
-    Tag = maps:get(tag, UserMeta, maps:get(<<"tag">>, UserMeta, <<"-">>)),
-    UserStep = maps:get(step, UserMeta, maps:get(<<"step">>, UserMeta, <<"-">>)),
-
-    %% 系统元数据
-    Iteration = maps:get(iteration, Metadata, 0),
-    CheckpointType = maps:get(checkpoint_type, Metadata, undefined),
-
-    io:format("~nCheckpoint: ~s~n", [Id]),
-    io:format("  Type: ~p~n", [CheckpointType]),
-    io:format("  Iteration: ~p~n", [Iteration]),
-    io:format("  Tag: ~p~n", [Tag]),
-    io:format("  User Step: ~p~n", [UserStep]),
-    io:format("  Messages: ~p 条~n", [MsgCount]).
+    io:format("[~p] Checkpoint: ~s~n", [Index, CpId]),
+    io:format("    ID: ~s~n", [CpId]),
+    io:format("    类型: ~p~n", [CheckpointType]),
+    io:format("    迭代: ~p~n", [Iteration]),
+    io:format("    超步: ~p~n", [Superstep]),
+    io:format("    消息数: ~p~n", [MsgCount]),
+    io:format("    时间戳: ~p (~s)~n", [Timestamp, format_timestamp(Timestamp)]),
+    io:format("~n").
 
 %% @private 打印 checkpoint 完整数据
 print_checkpoint_data(CpData) ->
-    io:format("~s~n", [string:copies("-", 50)]),
+    %% 打印执行上下文信息
+    io:format("~n执行上下文:~n"),
+    CheckpointType = get_data_value(CpData, checkpoint_type, undefined),
+    RunId = get_data_value(CpData, run_id, undefined),
+    Iteration = get_data_value(CpData, iteration, 0),
+    Superstep = get_data_value(CpData, superstep, 0),
+    ActiveVertices = get_data_value(CpData, active_vertices, []),
+    CompletedVertices = get_data_value(CpData, completed_vertices, []),
+
+    io:format("  checkpoint_type: ~p~n", [CheckpointType]),
+    io:format("  run_id: ~s~n", [format_run_id(RunId)]),
+    io:format("  iteration: ~p~n", [Iteration]),
+    io:format("  superstep: ~p~n", [Superstep]),
+    io:format("  active_vertices: ~p~n", [ActiveVertices]),
+    io:format("  completed_vertices: ~p~n", [CompletedVertices]),
 
     %% 打印消息历史
-    Messages = maps:get(messages, CpData, []),
-    io:format("消息历史 (~p 条):~n", [length(Messages)]),
+    Messages = get_data_value(CpData, messages, []),
+    io:format("~n消息历史 (~p 条):~n", [length(Messages)]),
     lists:foreach(fun(Msg) ->
-        Role = maps:get(role, Msg, unknown),
-        Content = maps:get(content, Msg, <<>>),
+        Role = maps:get(role, Msg, maps:get(<<"role">>, Msg, unknown)),
+        Content = maps:get(content, Msg, maps:get(<<"content">>, Msg, <<>>)),
         %% 截断过长的内容
-        DisplayContent = case byte_size(Content) > 100 of
-            true -> <<(binary:part(Content, 0, 100))/binary, "..."/utf8>>;
-            false -> Content
-        end,
+        DisplayContent = truncate_content(Content, 80),
         io:format("  [~p] ~ts~n", [Role, DisplayContent])
     end, Messages),
 
-    %% 打印上下文
-    Context = maps:get(context, CpData, #{}),
+    %% 打印 scratchpad（如果有）
+    Scratchpad = get_data_value(CpData, scratchpad, []),
+    case Scratchpad of
+        [] -> ok;
+        _ ->
+            io:format("~nScratchpad (~p 条):~n", [length(Scratchpad)]),
+            lists:foreach(fun(Item) ->
+                io:format("  ~p~n", [Item])
+            end, lists:sublist(Scratchpad, 3))  %% 只显示前 3 条
+    end,
+
+    %% 打印 context（如果有）
+    Context = get_data_value(CpData, context, #{}),
     case maps:size(Context) > 0 of
         true ->
-            io:format("~n上下文:~n"),
+            io:format("~nContext:~n"),
             maps:foreach(fun(K, V) ->
-                io:format("  ~p: ~p~n", [K, V])
+                io:format("  ~p: ~p~n", [K, truncate_value(V)])
             end, Context);
         false ->
             ok
     end,
 
-    %% 打印 metadata
-    Metadata = maps:get(metadata, CpData, #{}),
-    case maps:size(Metadata) > 0 of
-        true ->
-            io:format("~n元数据:~n"),
-            maps:foreach(fun(K, V) ->
-                io:format("  ~p: ~p~n", [K, V])
-            end, Metadata);
-        false ->
-            ok
-    end,
+    io:format("~n").
 
-    io:format("~s~n", [string:copies("-", 50)]).
+%% @private 从数据中获取值，支持原子和二进制键
+get_data_value(Data, Key, Default) when is_atom(Key) ->
+    BinKey = atom_to_binary(Key, utf8),
+    case maps:get(BinKey, Data, undefined) of
+        undefined -> maps:get(Key, Data, Default);
+        Value -> Value
+    end.
+
+%% @private 格式化 run_id
+format_run_id(undefined) -> "N/A";
+format_run_id(RunId) when is_binary(RunId) -> RunId;
+format_run_id(RunId) -> io_lib:format("~p", [RunId]).
+
+%% @private 截断内容
+truncate_content(Content, MaxLen) when is_binary(Content) ->
+    case byte_size(Content) > MaxLen of
+        true -> <<(binary:part(Content, 0, MaxLen))/binary, "..."/utf8>>;
+        false -> Content
+    end;
+truncate_content(Content, _MaxLen) ->
+    Content.
+
+%% @private 截断值（用于打印）
+truncate_value(V) when is_binary(V), byte_size(V) > 50 ->
+    <<(binary:part(V, 0, 50))/binary, "...">>;
+truncate_value(V) ->
+    V.
+
+%% @private 格式化时间戳
+format_timestamp(Timestamp) when is_integer(Timestamp) ->
+    %% 转换毫秒时间戳为可读格式
+    Seconds = Timestamp div 1000,
+    {{Y, M, D}, {H, Min, S}} = calendar:gregorian_seconds_to_datetime(
+        Seconds + calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}})
+    ),
+    io_lib:format("~4..0B-~2..0B-~2..0B ~2..0B:~2..0B:~2..0B",
+                  [Y, M, D, H, Min, S]);
+format_timestamp(_) ->
+    "unknown".

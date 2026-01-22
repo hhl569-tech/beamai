@@ -103,7 +103,8 @@
     checkpoint_to_state/1,
     state_to_checkpoint/2,
     get_context_store/1,
-    get_persistent_store/1
+    get_persistent_store/1,
+    get_thread_id/1
 ]).
 
 %%====================================================================
@@ -113,7 +114,8 @@
 %% 双 Store 架构
 -type memory() :: #{
     context_store := beamai_store:store(),
-    persistent_store := beamai_store:store() | undefined
+    persistent_store := beamai_store:store() | undefined,
+    thread_id := binary()
 }.
 
 %% 从 beamai_checkpointer 导入类型别名
@@ -146,14 +148,18 @@
 %% Opts:
 %% - context_store: Store 引用（必需），格式 {Module, Ref}
 %% - persistent_store: Store 引用（可选），格式 {Module, Ref}
+%% - thread_id: 线程 ID（可选），如果未指定则自动生成 UUID
 %%
 %% Store 必须事先通过对应后端的 start_link 创建：
 %% ```
 %% {ok, _} = beamai_store_ets:start_link(my_store, #{}),
 %% {ok, Mem} = beamai_memory:new(#{
-%%     context_store => {beamai_store_ets, my_store}
+%%     context_store => {beamai_store_ets, my_store},
+%%     thread_id => <<"my_session">>  %% 可选
 %% }).
 %% '''
+%%
+%% thread_id 创建后不可更改（不可变性）。
 -spec new(map()) -> {ok, memory()} | {error, term()}.
 new(Opts) ->
     case maps:get(context_store, Opts, undefined) of
@@ -161,9 +167,17 @@ new(Opts) ->
             {error, context_store_required};
         {Module, Ref} = ContextStore when is_atom(Module), (is_pid(Ref) orelse is_atom(Ref)) ->
             PersistentStore = maps:get(persistent_store, Opts, undefined),
+            %% 如果未指定 thread_id，自动生成 UUID
+            ThreadId = case maps:get(thread_id, Opts, undefined) of
+                undefined -> generate_thread_id();
+                Id when is_binary(Id) -> Id;
+                Id when is_list(Id) -> list_to_binary(Id);
+                _ -> generate_thread_id()
+            end,
             {ok, #{
                 context_store => ContextStore,
-                persistent_store => PersistentStore
+                persistent_store => PersistentStore,
+                thread_id => ThreadId
             }};
         Invalid ->
             {error, {invalid_context_store, Invalid}}
@@ -183,7 +197,7 @@ save_checkpoint(Memory, Config, State) ->
 %% @doc 保存检查点（带元数据）
 -spec save_checkpoint(memory(), config(), map(), map()) -> ok | {error, term()}.
 save_checkpoint(#{context_store := Store}, Config, State, MetadataMap) ->
-    ThreadId = get_thread_id(Config),
+    ThreadId = get_thread_id_from_config(Config),
     ParentCpId = maps:get(checkpoint_id, Config, undefined),
 
     %% 构建检查点
@@ -252,7 +266,7 @@ load_checkpoint(Memory, Config) ->
 -spec load_checkpoint_tuple(memory(), config()) ->
     {ok, checkpoint_tuple()} | {error, not_found | term()}.
 load_checkpoint_tuple(#{context_store := Store}, Config) ->
-    ThreadId = get_thread_id(Config),
+    ThreadId = get_thread_id_from_config(Config),
     CheckpointId = maps:get(checkpoint_id, Config, undefined),
 
     case CheckpointId of
@@ -290,7 +304,7 @@ list_checkpoints(#{context_store := Store}, Config) ->
 %% @doc 删除检查点
 -spec delete_checkpoint(memory(), config()) -> ok | {error, term()}.
 delete_checkpoint(#{context_store := Store}, Config) ->
-    ThreadId = get_thread_id(Config),
+    ThreadId = get_thread_id_from_config(Config),
     CheckpointId = maps:get(checkpoint_id, Config, undefined),
 
     case CheckpointId of
@@ -355,7 +369,7 @@ branch(Memory, Config, BranchOpts, MetadataMap) ->
 -spec get_lineage(memory(), config()) ->
     {ok, [checkpoint_tuple()]} | {error, term()}.
 get_lineage(#{context_store := Store}, Config) ->
-    ThreadId = get_thread_id(Config),
+    ThreadId = get_thread_id_from_config(Config),
     CheckpointId = maps:get(checkpoint_id, Config, undefined),
 
     case CheckpointId of
@@ -624,7 +638,7 @@ checkpoint_to_state(#checkpoint{values = Values}) ->
 %% @doc 将图状态转换为检查点
 -spec state_to_checkpoint(config(), map()) -> checkpoint().
 state_to_checkpoint(Config, State) when is_map(State) ->
-    ThreadId = get_thread_id(Config),
+    ThreadId = get_thread_id_from_config(Config),
     ParentCpId = maps:get(checkpoint_id, Config, undefined),
 
     #checkpoint{
@@ -644,6 +658,14 @@ get_context_store(#{context_store := Store}) ->
 -spec get_persistent_store(memory()) -> beamai_store:store() | undefined.
 get_persistent_store(#{persistent_store := Store}) ->
     Store.
+
+%% @doc 获取 Memory 的 thread_id
+%%
+%% thread_id 在 Memory 创建时设置（或自动生成），之后不可更改。
+%% 使用此函数获取 Memory 实例的 thread_id 用于 checkpoint 操作。
+-spec get_thread_id(memory()) -> binary().
+get_thread_id(#{thread_id := ThreadId}) ->
+    ThreadId.
 
 %%====================================================================
 %% 内部函数 - 命名空间
@@ -897,9 +919,9 @@ get_long_term_store(#{persistent_store := undefined, context_store := ContextSto
 get_long_term_store(#{persistent_store := PersistentStore}) ->
     PersistentStore.
 
-%% @private 获取 thread_id
--spec get_thread_id(config()) -> thread_id().
-get_thread_id(Config) when is_map(Config) ->
+%% @private 从 Config 获取 thread_id
+-spec get_thread_id_from_config(config()) -> thread_id().
+get_thread_id_from_config(Config) when is_map(Config) ->
     maps:get(thread_id, Config, maps:get(<<"thread_id">>, Config, undefined)).
 
 %% @private 生成检查点 ID
@@ -908,6 +930,15 @@ generate_checkpoint_id() ->
     Ts = erlang:system_time(microsecond),
     Rand = rand:uniform(16#FFFF),
     list_to_binary(io_lib:format("cp_~16.16.0b_~4.16.0b", [Ts, Rand])).
+
+%% @private 生成线程 ID（UUID 格式）
+%%
+%% thread_id 创建后不可更改（不可变性）。
+-spec generate_thread_id() -> thread_id().
+generate_thread_id() ->
+    Ts = erlang:system_time(microsecond),
+    Rand = rand:uniform(16#FFFFFFFF),
+    list_to_binary(io_lib:format("thread_~16.16.0b_~8.16.0b", [Ts, Rand])).
 
 %% @private 生成分支线程 ID
 -spec generate_branch_thread_id(thread_id()) -> thread_id().

@@ -57,11 +57,9 @@
 -export([get_meta/1, get_meta/2, get_meta/3]).
 -export([set_meta/2, put_meta/3]).
 
-%% Checkpoint API
--export([save_checkpoint/1, save_checkpoint/2]).
--export([load_checkpoint/2, load_latest_checkpoint/1]).
--export([list_checkpoints/1, list_checkpoints/2]).
--export([restore_from_checkpoint/2]).
+%% Checkpoint API 已移除
+%% Checkpoint 现在通过 on_checkpoint 回调自动保存
+%% 用户可通过 beamai_memory API 直接访问 checkpoints
 
 %% Interrupt control API
 -export([resume/2, abort/1]).
@@ -215,45 +213,6 @@ set_meta(Pid, Meta) when is_map(Meta) ->
 -spec put_meta(pid(), atom() | binary(), term()) -> ok.
 put_meta(Pid, Key, Value) ->
     gen_server:call(Pid, {meta, put, Key, Value}).
-
-%%====================================================================
-%% Checkpoint API
-%%====================================================================
-
-%% @doc Save checkpoint
--spec save_checkpoint(pid()) -> {ok, binary()} | {error, term()}.
-save_checkpoint(Pid) ->
-    save_checkpoint(Pid, #{}).
-
-%% @doc Save checkpoint with metadata
--spec save_checkpoint(pid(), map()) -> {ok, binary()} | {error, term()}.
-save_checkpoint(Pid, Meta) ->
-    gen_server:call(Pid, {checkpoint, save, Meta}).
-
-%% @doc Load checkpoint
--spec load_checkpoint(pid(), binary()) -> {ok, map()} | {error, term()}.
-load_checkpoint(Pid, CheckpointId) ->
-    gen_server:call(Pid, {checkpoint, load, CheckpointId}).
-
-%% @doc Load latest checkpoint
--spec load_latest_checkpoint(pid()) -> {ok, map()} | {error, term()}.
-load_latest_checkpoint(Pid) ->
-    gen_server:call(Pid, {checkpoint, load_latest}).
-
-%% @doc List checkpoints
--spec list_checkpoints(pid()) -> {ok, [map()]} | {error, term()}.
-list_checkpoints(Pid) ->
-    list_checkpoints(Pid, #{}).
-
-%% @doc List checkpoints with options
--spec list_checkpoints(pid(), map()) -> {ok, [map()]} | {error, term()}.
-list_checkpoints(Pid, Opts) ->
-    gen_server:call(Pid, {checkpoint, list, Opts}).
-
-%% @doc Restore from checkpoint
--spec restore_from_checkpoint(pid(), binary()) -> ok | {error, term()}.
-restore_from_checkpoint(Pid, CheckpointId) ->
-    gen_server:call(Pid, {checkpoint, restore, CheckpointId}).
 
 %%====================================================================
 %% Interrupt Control API
@@ -471,23 +430,9 @@ handle_call({meta, put, Key, Value}, _From, #state{config = #agent_config{meta =
     NewConfig = Config#agent_config{meta = maps:put(Key, Value, Meta)},
     {reply, ok, State#state{config = NewConfig}};
 
-handle_call({checkpoint, save, Meta}, _From, State) ->
-    {reply, beamai_agent_checkpoint:save(Meta, State), State};
-
-handle_call({checkpoint, load, CpId}, _From, State) ->
-    {reply, beamai_agent_checkpoint:load(CpId, State), State};
-
-handle_call({checkpoint, load_latest}, _From, State) ->
-    {reply, beamai_agent_checkpoint:load_latest(State), State};
-
-handle_call({checkpoint, list, Opts}, _From, State) ->
-    {reply, beamai_agent_checkpoint:list(Opts, State), State};
-
-handle_call({checkpoint, restore, CpId}, _From, State) ->
-    case beamai_agent_checkpoint:restore(CpId, State) of
-        {ok, NewState} -> {reply, ok, NewState};
-        {error, Reason} -> {reply, {error, Reason}, State}
-    end;
+%% Checkpoint handle_call 已移除
+%% Checkpoint 现在通过 on_checkpoint 回调自动保存
+%% 用户可通过 beamai_memory API 直接访问 checkpoints
 
 handle_call({interrupt, resume, Action}, _From, #state{pending_action = Pending} = State)
   when Pending =/= undefined ->
@@ -556,6 +501,8 @@ terminate(_Reason, _State) ->
 %%====================================================================
 
 %% @private Handle run request
+%%
+%% Checkpoint 保存现在通过 on_checkpoint 回调自动进行（在图执行层）
 -spec handle_run(binary(), map(), #state{}) ->
     {reply, {ok, map()} | {error, term()}, #state{}}.
 handle_run(Msg, Opts, #state{config = #agent_config{callbacks = Callbacks}} = State) ->
@@ -567,8 +514,8 @@ handle_run(Msg, Opts, #state{config = #agent_config{callbacks = Callbacks}} = St
         {ok, Result, NewState} ->
             beamai_agent_callbacks:invoke(on_chain_end, [Result, Metadata],
                                           NewState#state.config#agent_config.callbacks),
-            FinalState = beamai_agent_checkpoint:maybe_auto_save(Result, NewState),
-            {reply, {ok, Result}, FinalState};
+            %% Checkpoint 已通过 on_checkpoint 回调自动保存
+            {reply, {ok, Result}, NewState};
         {error, Reason, NewState} ->
             beamai_agent_callbacks:invoke(on_chain_error, [Reason, Metadata],
                                           NewState#state.config#agent_config.callbacks),

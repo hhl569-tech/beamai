@@ -94,8 +94,8 @@ execute(Msg, Opts, #state{config = #agent_config{graph = Graph, system_prompt = 
         callback_meta => CallbackMeta
     }),
 
-    %% 构建执行选项（run_id 由图层自动生成）
-    RunOptions = build_run_options(Opts),
+    %% 构建执行选项（run_id 由图层自动生成，on_checkpoint 由 Agent 提供）
+    RunOptions = build_run_options(State, Opts),
 
     %% 执行图（Pregel 引擎）
     handle_graph_result(graph:run(Graph, InitState, RunOptions), State).
@@ -134,12 +134,20 @@ rebuild_graph(#state{config = #agent_config{tools = Tools, system_prompt = Promp
 %%
 %% 提取 checkpoint 相关选项，并设置 Agent 特定的字段 Reducer。
 %% run_id 由图执行层（pregel）自动生成。
--spec build_run_options(map()) -> map().
-build_run_options(Opts) ->
-    %% 提取 checkpoint 相关选项，run_id 由图层自动管理
-    BaseOpts = maps:with([on_checkpoint, restore_from], Opts),
-    %% 添加 Agent 特定的字段 Reducer
-    BaseOpts#{field_reducers => agent_field_reducers()}.
+%% 如果配置了 storage，自动创建 on_checkpoint 回调。
+-spec build_run_options(#state{}, map()) -> map().
+build_run_options(#state{config = #agent_config{storage = undefined}} = _State, Opts) ->
+    %% 无存储，不创建 checkpoint 回调
+    BaseOpts = maps:with([restore_from], Opts),
+    BaseOpts#{field_reducers => agent_field_reducers()};
+build_run_options(#state{config = #agent_config{storage = Memory}} = State, Opts) ->
+    %% 有存储，创建 checkpoint 回调
+    OnCheckpoint = beamai_agent_checkpoint_callback:create_callback(State, Memory),
+    BaseOpts = maps:with([restore_from], Opts),
+    BaseOpts#{
+        field_reducers => agent_field_reducers(),
+        on_checkpoint => OnCheckpoint
+    }.
 
 %% @private Agent 特定的字段 Reducer 配置
 %%
