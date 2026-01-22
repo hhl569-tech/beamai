@@ -34,7 +34,7 @@ export ZHIPU_API_KEY=your_key_here
 rebar3 shell
 ```
 
-### 2. Simple Agent
+### 2. Simple Agent (Basic Usage)
 
 ```erlang
 %% Create LLM configuration (must use llm_client:create/2)
@@ -44,131 +44,150 @@ LLM = llm_client:create(anthropic, #{
     base_url => <<"https://open.bigmodel.cn/api/anthropic">>
 }),
 
-%% Define tools
+%% Create Agent state (pure function API)
+{ok, State} = beamai_agent:new(#{
+    system_prompt => <<"You are a helpful assistant."/utf8>>,
+    llm => LLM
+}),
+
+%% Run Agent
+{ok, Result, _NewState} = beamai_agent:run(State, <<"Hello!"/utf8>>),
+
+%% View result
+Response = maps:get(final_response, Result).
+```
+
+### 3. Simple Agent (Multi-turn Conversation)
+
+```erlang
+%% Multi-turn conversation through state passing
+{ok, State0} = beamai_agent:new(#{
+    llm => LLM,
+    system_prompt => <<"You are a memory assistant."/utf8>>
+}),
+{ok, _, State1} = beamai_agent:run(State0, <<"My name is John"/utf8>>),
+{ok, Result, _State2} = beamai_agent:run(State1, <<"What's my name?"/utf8>>).
+%% Agent will remember user's name is John
+```
+
+### 4. Simple Agent (With Tools)
+
+```erlang
+%% Define tool
 SearchTool = #{
     name => <<"search">>,
     description => <<"Search for information"/utf8>>,
     parameters => #{
         type => object,
         properties => #{
-            <<"query">> => #{
-                type => string,
-                description => <<"Search keywords"/utf8>>
-            }
+            <<"query">> => #{type => string, description => <<"Search keywords"/utf8>>}
         },
         required => [<<"query">>]
     },
     handler => fun(#{<<"query">> := Query}) ->
-        %% Your search logic
         {ok, <<"Search result: ", Query/binary>>}
     end
 },
 
-%% Build tool list using Registry (recommended)
+%% Build tool list using Registry
 Tools = beamai_tool_registry:from_config(#{
     tools => [SearchTool],
-    providers => [beamai_tool_provider_builtin]  %% Can add built-in tools
+    providers => [beamai_tool_provider_builtin]
 }),
 
-%% Create Agent state (pure function API)
+%% Create Agent with tools
 {ok, State} = beamai_agent:new(#{
-    system_prompt => <<"You are a helpful assistant."/utf8>>,
+    system_prompt => <<"You are a search assistant."/utf8>>,
     tools => Tools,
     llm => LLM
 }),
 
-%% Run Agent
-{ok, Result, _NewState} = beamai_agent:run(State, <<"Search for Erlang tutorials"/utf8>>),
-
-%% View result
-Response = maps:get(final_response, Result).
-
-%% Multi-turn conversation example
-{ok, State0} = beamai_agent:new(#{llm => LLM, system_prompt => <<"You are an assistant"/utf8>>}),
-{ok, _, State1} = beamai_agent:run(State0, <<"Hello"/utf8>>),
-{ok, _, State2} = beamai_agent:run(State1, <<"Continue the topic above"/utf8>>).
+{ok, Result, _} = beamai_agent:run(State, <<"Search for Erlang tutorials"/utf8>>).
 ```
 
-### 3. Pipeline Pattern Coordinator (Sequential Coordination)
+### 5. Simple Agent (With Memory Persistence)
 
 ```erlang
-%% Create LLM configuration
-LLM = llm_client:create(anthropic, #{
-    model => <<"glm-4.7">>,
-    api_key => list_to_binary(os:getenv("ZHIPU_API_KEY")),
-    base_url => <<"https://open.bigmodel.cn/api/anthropic">>
+%% Create storage backend
+{ok, _} = beamai_store_ets:start_link(my_store, #{}),
+{ok, Memory} = beamai_memory:new(#{context_store => {beamai_store_ets, my_store}}),
+
+%% Create Agent with Memory (checkpoint auto-saved)
+{ok, State0} = beamai_agent:new(#{
+    llm => LLM,
+    system_prompt => <<"You are a persistent assistant."/utf8>>,
+    storage => Memory
 }),
 
-%% Create research team (Researcher → Writer → Reviewer)
-{ok, Team} = beamai_coordinator:start_pipeline(<<"content_team">>, #{
-    agents => [
-        #{
-            name => <<"researcher">>,
-            system_prompt => <<"You are a researcher responsible for gathering materials."/utf8>>
-        },
-        #{
-            name => <<"writer">>,
-            system_prompt => <<"You are a writer responsible for writing articles."/utf8>>
-        },
-        #{
-            name => <<"reviewer">>,
-            system_prompt => <<"You are a reviewer responsible for quality checking."/utf8>>
-        }
-    ],
-    llm => LLM
-}).
+%% Conversation (checkpoint auto-saved)
+{ok, _, State1} = beamai_agent:run(State0, <<"Remember: the password is 12345"/utf8>>),
+{ok, _, _State2} = beamai_agent:run(State1, <<"OK"/utf8>>),
 
-%% Delegate task to the first worker, passing through in sequence
-{ok, Result} = beamai_coordinator:delegate(Team, <<"researcher">>,
-    <<"Research and write a 100-word introduction about Erlang's concurrency model."/utf8>>).
+%% Later restore session
+{ok, RestoredState} = beamai_agent:restore_from_memory(#{llm => LLM}, Memory),
+{ok, Result, _} = beamai_agent:run(RestoredState, <<"What's the password?"/utf8>>).
+%% Agent will remember the password is 12345
 ```
 
-### 4. Orchestrator Pattern Coordinator (Orchestration Coordination)
+### 6. Pipeline Coordinator (Sequential Coordination)
 
 ```erlang
-%% Create development team (orchestrator can delegate, route, and call multiple workers in parallel)
-{ok, Team} = beamai_coordinator:start_orchestrator(<<"dev_team">>, #{
+%% Create research team (Researcher → Writer → Reviewer)
+{ok, Coord} = beamai_coordinator:new_pipeline(#{
     agents => [
-        #{
-            name => <<"frontend">>,
-            system_prompt => <<"You are a frontend development expert."/utf8>>
-        },
-        #{
-            name => <<"backend">>,
-            system_prompt => <<"You are a backend development expert."/utf8>>
-        }
+        #{name => <<"researcher">>, system_prompt => <<"You are a researcher."/utf8>>},
+        #{name => <<"writer">>, system_prompt => <<"You are a writer."/utf8>>},
+        #{name => <<"reviewer">>, system_prompt => <<"You are a reviewer."/utf8>>}
     ],
-    llm => LLM  %% Reuse the same LLM configuration
-}).
+    llm => LLM
+}),
 
-%% Delegate task to multiple workers in parallel
-{ok, Results} = beamai_coordinator:delegate_parallel(Team,
-    [<<"frontend">>, <<"backend">>],
-    <<"Introduce RESTful API design from different perspectives."/utf8>>).
-%% Results = #{<<"frontend">> => {ok, "..."}, <<"backend">> => {ok, "..."}}
+%% Run task (coordinator auto-passes between workers)
+{ok, Result, _NewCoord} = beamai_coordinator:run(Coord,
+    <<"Research and write a 100-word intro about Erlang's concurrency model."/utf8>>).
 ```
 
-### 5. Deep Agent (Planning + Reflection)
+### 7. Orchestrator Coordinator (Orchestration Coordination)
+
+```erlang
+%% Create expert team
+{ok, Coord} = beamai_coordinator:new_orchestrator(#{
+    agents => [
+        #{name => <<"tech_expert">>, system_prompt => <<"You are a tech expert."/utf8>>},
+        #{name => <<"business_expert">>, system_prompt => <<"You are a business expert."/utf8>>}
+    ],
+    llm => LLM
+}),
+
+%% Option 1: Run task (coordinator intelligently assigns)
+{ok, Result, _NewCoord} = beamai_coordinator:run(Coord,
+    <<"Analyze AI impact from tech and business perspectives."/utf8>>),
+
+%% Option 2: Parallel delegation to multiple workers
+{ok, Results} = beamai_coordinator:delegate_parallel(Coord,
+    [<<"tech_expert">>, <<"business_expert">>],
+    <<"Analyze AI impact"/utf8>>).
+%% Results = #{<<"tech_expert">> => {ok, "..."}, <<"business_expert">> => {ok, "..."}}
+```
+
+### 8. Deep Agent (Planning + Reflection)
 
 ```erlang
 %% Create Deep Agent configuration
-Config = beamai_deepagent:new(#{
+{ok, Config} = beamai_deepagent:new(#{
     max_depth => 3,
     planning_enabled => true,
     reflection_enabled => true,
     system_prompt => <<"You are a research expert."/utf8>>,
-    tools => [...],
-    llm => LLM  %% Reuse the same LLM configuration
-}).
+    llm => LLM
+}),
 
 %% Run complex task
 {ok, Result} = beamai_deepagent:run(Config,
-    <<"Analyze this codebase's architecture and provide optimization suggestions."/utf8>>).
+    <<"Analyze this codebase's architecture and provide optimization suggestions."/utf8>>),
 
-%% View execution plan
-Plan = beamai_deepagent:get_plan(Result).
-
-%% View execution trace
+%% View execution plan and trace
+Plan = beamai_deepagent:get_plan(Result),
 Trace = beamai_deepagent:get_trace(Result).
 ```
 
@@ -271,8 +290,8 @@ Graph = #{
 Scratchpad records the execution process of each step:
 
 ```erlang
-%% Get Scratchpad
-{ok, Steps} = beamai_agent:get_scratchpad(Agent).
+%% Get Scratchpad (from state)
+Steps = beamai_agent:get_scratchpad(State).
 
 %% Each step contains:
 %% - step_id: Step ID
@@ -281,21 +300,26 @@ Scratchpad records the execution process of each step:
 %% - timestamp: Timestamp
 ```
 
-### 3. Checkpoint (State Persistence)
+### 3. Memory Persistence
 
-Save and restore Agent state:
+Use beamai_memory for session persistence:
 
 ```erlang
-%% Save checkpoint
-{ok, CheckpointId} = beamai_agent:save_checkpoint(Agent, #{
-    metadata => #{tag => <<"v1">>}
-}).
+%% Create Memory
+{ok, _} = beamai_store_ets:start_link(my_store, #{}),
+{ok, Memory} = beamai_memory:new(#{context_store => {beamai_store_ets, my_store}}),
 
-%% List all checkpoints
-{ok, Checkpoints} = beamai_agent:list_checkpoints(Agent).
+%% Create Agent with storage (checkpoint auto-saved)
+{ok, State} = beamai_agent:new(#{
+    llm => LLM,
+    storage => Memory
+}),
 
-%% Restore from checkpoint
-ok = beamai_agent:restore_from_checkpoint(Agent, CheckpointId).
+%% Checkpoint auto-saved after conversation
+{ok, _, NewState} = beamai_agent:run(State, <<"Hello"/utf8>>),
+
+%% Restore session from Memory
+{ok, RestoredState} = beamai_agent:restore_from_memory(#{llm => LLM}, Memory).
 ```
 
 ### 4. Callbacks (Callback System)

@@ -34,7 +34,7 @@ export ZHIPU_API_KEY=your_key_here
 rebar3 shell
 ```
 
-### 2. Simple Agent
+### 2. Simple Agent（基本用法）
 
 ```erlang
 %% 创建 LLM 配置（必须使用 llm_client:create/2）
@@ -44,6 +44,35 @@ LLM = llm_client:create(anthropic, #{
     base_url => <<"https://open.bigmodel.cn/api/anthropic">>
 }),
 
+%% 创建 Agent 状态（纯函数 API）
+{ok, State} = beamai_agent:new(#{
+    system_prompt => <<"你是一个有帮助的助手。"/utf8>>,
+    llm => LLM
+}),
+
+%% 运行 Agent
+{ok, Result, _NewState} = beamai_agent:run(State, <<"你好！"/utf8>>),
+
+%% 查看结果
+Response = maps:get(final_response, Result).
+```
+
+### 3. Simple Agent（多轮对话）
+
+```erlang
+%% 多轮对话通过状态传递实现
+{ok, State0} = beamai_agent:new(#{
+    llm => LLM,
+    system_prompt => <<"你是一个记忆助手。"/utf8>>
+}),
+{ok, _, State1} = beamai_agent:run(State0, <<"我叫张三"/utf8>>),
+{ok, Result, _State2} = beamai_agent:run(State1, <<"我叫什么名字？"/utf8>>).
+%% Result 中 Agent 会记得用户叫张三
+```
+
+### 4. Simple Agent（带工具）
+
+```erlang
 %% 定义工具
 SearchTool = #{
     name => <<"search">>,
@@ -51,124 +80,114 @@ SearchTool = #{
     parameters => #{
         type => object,
         properties => #{
-            <<"query">> => #{
-                type => string,
-                description => <<"搜索关键词"/utf8>>
-            }
+            <<"query">> => #{type => string, description => <<"搜索关键词"/utf8>>}
         },
         required => [<<"query">>]
     },
     handler => fun(#{<<"query">> := Query}) ->
-        %% 你的搜索逻辑
         {ok, <<"搜索结果: ", Query/binary>>}
     end
 },
 
-%% 使用 Registry 构建工具列表（推荐）
+%% 使用 Registry 构建工具列表
 Tools = beamai_tool_registry:from_config(#{
     tools => [SearchTool],
-    providers => [beamai_tool_provider_builtin]  %% 可添加内置工具
+    providers => [beamai_tool_provider_builtin]
 }),
 
-%% 创建 Agent 状态（纯函数 API）
+%% 创建带工具的 Agent
 {ok, State} = beamai_agent:new(#{
-    system_prompt => <<"你是一个有帮助的助手。"/utf8>>,
+    system_prompt => <<"你是搜索助手。"/utf8>>,
     tools => Tools,
     llm => LLM
 }),
 
-%% 运行 Agent
-{ok, Result, _NewState} = beamai_agent:run(State, <<"搜索 Erlang 教程"/utf8>>),
-
-%% 查看结果
-Response = maps:get(final_response, Result).
-
-%% 多轮对话示例
-{ok, State0} = beamai_agent:new(#{llm => LLM, system_prompt => <<"你是助手"/utf8>>}),
-{ok, _, State1} = beamai_agent:run(State0, <<"你好"/utf8>>),
-{ok, _, State2} = beamai_agent:run(State1, <<"继续上面的话题"/utf8>>).
+{ok, Result, _} = beamai_agent:run(State, <<"搜索 Erlang 教程"/utf8>>).
 ```
 
-### 3. Pipeline 模式协调器（顺序协调）
+### 5. Simple Agent（带 Memory 持久化）
 
 ```erlang
-%% 创建 LLM 配置
-LLM = llm_client:create(anthropic, #{
-    model => <<"glm-4.7">>,
-    api_key => list_to_binary(os:getenv("ZHIPU_API_KEY")),
-    base_url => <<"https://open.bigmodel.cn/api/anthropic">>
+%% 创建存储后端
+{ok, _} = beamai_store_ets:start_link(my_store, #{}),
+{ok, Memory} = beamai_memory:new(#{context_store => {beamai_store_ets, my_store}}),
+
+%% 创建带 Memory 的 Agent（checkpoint 自动保存）
+{ok, State0} = beamai_agent:new(#{
+    llm => LLM,
+    system_prompt => <<"你是持久化助手。"/utf8>>,
+    storage => Memory
 }),
 
+%% 对话（checkpoint 自动保存）
+{ok, _, State1} = beamai_agent:run(State0, <<"记住：密码是 12345"/utf8>>),
+{ok, _, _State2} = beamai_agent:run(State1, <<"好的"/utf8>>),
+
+%% 稍后恢复会话
+{ok, RestoredState} = beamai_agent:restore_from_memory(#{llm => LLM}, Memory),
+{ok, Result, _} = beamai_agent:run(RestoredState, <<"密码是多少？"/utf8>>).
+%% Agent 会记得密码是 12345
+```
+
+### 6. Pipeline 协调器（顺序协调）
+
+```erlang
 %% 创建研究团队（研究员 → 写作者 → 审核员）
-{ok, Team} = beamai_coordinator:start_pipeline(<<"content_team">>, #{
+{ok, Coord} = beamai_coordinator:new_pipeline(#{
     agents => [
-        #{
-            name => <<"researcher">>,
-            system_prompt => <<"你是研究员，负责收集资料。"/utf8>>
-        },
-        #{
-            name => <<"writer">>,
-            system_prompt => <<"你是写作者，负责撰写文章。"/utf8>>
-        },
-        #{
-            name => <<"reviewer">>,
-            system_prompt => <<"你是审核员，负责质量检查。"/utf8>>
-        }
+        #{name => <<"researcher">>, system_prompt => <<"你是研究员，负责收集资料。"/utf8>>},
+        #{name => <<"writer">>, system_prompt => <<"你是写作者，负责撰写文章。"/utf8>>},
+        #{name => <<"reviewer">>, system_prompt => <<"你是审核员，负责质量检查。"/utf8>>}
     ],
     llm => LLM
-}).
+}),
 
-%% 委托任务给第一个 worker，依次传递
-{ok, Result} = beamai_coordinator:delegate(Team, <<"researcher">>,
+%% 运行任务（协调器自动在 workers 间传递）
+{ok, Result, _NewCoord} = beamai_coordinator:run(Coord,
     <<"研究并撰写一篇关于 Erlang 并发模型的 100 字介绍。"/utf8>>).
 ```
 
-### 4. Orchestrator 模式协调器（编排协调）
+### 7. Orchestrator 协调器（编排协调）
 
 ```erlang
-%% 创建开发团队（编排器可以委托、路由、并行调用多个 workers）
-{ok, Team} = beamai_coordinator:start_orchestrator(<<"dev_team">>, #{
+%% 创建专家团队
+{ok, Coord} = beamai_coordinator:new_orchestrator(#{
     agents => [
-        #{
-            name => <<"frontend">>,
-            system_prompt => <<"你是前端开发专家。"/utf8>>
-        },
-        #{
-            name => <<"backend">>,
-            system_prompt => <<"你是后端开发专家。"/utf8>>
-        }
+        #{name => <<"tech_expert">>, system_prompt => <<"你是技术专家。"/utf8>>},
+        #{name => <<"business_expert">>, system_prompt => <<"你是商业专家。"/utf8>>}
     ],
-    llm => LLM  %% 复用同一 LLM 配置
-}).
+    llm => LLM
+}),
 
-%% 并行委托任务给多个 workers
-{ok, Results} = beamai_coordinator:delegate_parallel(Team,
-    [<<"frontend">>, <<"backend">>],
-    <<"从不同角度介绍 RESTful API 的设计。"/utf8>>).
-%% Results = #{<<"frontend">> => {ok, "..."}, <<"backend">> => {ok, "..."}}
+%% 方式一：运行任务（协调器智能分配）
+{ok, Result, _NewCoord} = beamai_coordinator:run(Coord,
+    <<"从技术和商业角度分析 AI 的影响。"/utf8>>),
+
+%% 方式二：并行委托给多个 workers
+{ok, Results} = beamai_coordinator:delegate_parallel(Coord,
+    [<<"tech_expert">>, <<"business_expert">>],
+    <<"分析 AI 的影响"/utf8>>).
+%% Results = #{<<"tech_expert">> => {ok, "..."}, <<"business_expert">> => {ok, "..."}}
 ```
 
-### 5. Deep Agent（规划 + 反思）
+### 8. Deep Agent（规划 + 反思）
 
 ```erlang
 %% 创建 Deep Agent 配置
-Config = beamai_deepagent:new(#{
+{ok, Config} = beamai_deepagent:new(#{
     max_depth => 3,
     planning_enabled => true,
     reflection_enabled => true,
     system_prompt => <<"你是一个研究专家。"/utf8>>,
-    tools => [...],
-    llm => LLM  %% 复用同一 LLM 配置
-}).
+    llm => LLM
+}),
 
 %% 运行复杂任务
 {ok, Result} = beamai_deepagent:run(Config,
-    <<"分析这个代码库的架构并给出优化建议。"/utf8>>).
+    <<"分析这个代码库的架构并给出优化建议。"/utf8>>),
 
-%% 查看执行计划
-Plan = beamai_deepagent:get_plan(Result).
-
-%% 查看执行轨迹
+%% 查看执行计划和轨迹
+Plan = beamai_deepagent:get_plan(Result),
 Trace = beamai_deepagent:get_trace(Result).
 ```
 
@@ -271,8 +290,8 @@ Graph = #{
 Scratchpad 记录每一步的执行过程：
 
 ```erlang
-%% 获取 Scratchpad
-{ok, Steps} = beamai_agent:get_scratchpad(Agent).
+%% 获取 Scratchpad（从状态中获取）
+Steps = beamai_agent:get_scratchpad(State).
 
 %% 每一步包含：
 %% - step_id: 步骤 ID
@@ -281,21 +300,26 @@ Scratchpad 记录每一步的执行过程：
 %% - timestamp: 时间戳
 ```
 
-### 3. Checkpoint（状态持久化）
+### 3. Memory 持久化
 
-保存和恢复 Agent 状态：
+使用 beamai_memory 实现会话持久化：
 
 ```erlang
-%% 保存检查点
-{ok, CheckpointId} = beamai_agent:save_checkpoint(Agent, #{
-    metadata => #{tag => <<"v1">>}
-}).
+%% 创建 Memory
+{ok, _} = beamai_store_ets:start_link(my_store, #{}),
+{ok, Memory} = beamai_memory:new(#{context_store => {beamai_store_ets, my_store}}),
 
-%% 列出所有检查点
-{ok, Checkpoints} = beamai_agent:list_checkpoints(Agent).
+%% 创建带 storage 的 Agent（checkpoint 自动保存）
+{ok, State} = beamai_agent:new(#{
+    llm => LLM,
+    storage => Memory
+}),
 
-%% 从检查点恢复
-ok = beamai_agent:restore_from_checkpoint(Agent, CheckpointId).
+%% 对话后 checkpoint 自动保存
+{ok, _, NewState} = beamai_agent:run(State, <<"你好"/utf8>>),
+
+%% 从 Memory 恢复会话
+{ok, RestoredState} = beamai_agent:restore_from_memory(#{llm => LLM}, Memory).
 ```
 
 ### 4. Callbacks（回调系统）
