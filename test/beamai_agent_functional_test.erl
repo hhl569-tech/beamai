@@ -1,8 +1,7 @@
 %%%-------------------------------------------------------------------
 %%% @doc beamai_agent 纯函数 API 测试
 %%%
-%%% 测试 run_once/2, run_with_state/3, create_state/1,2,
-%%% export_state/1, import_state/2 等纯函数 API。
+%%% 测试 new/1, run/2,3, export_state/1, import_state/2 等纯函数 API。
 %%% @end
 %%%-------------------------------------------------------------------
 -module(beamai_agent_functional_test).
@@ -41,46 +40,54 @@ get_messages(#state{messages = Messages}) -> Messages.
 get_scratchpad(#state{scratchpad = Scratchpad}) -> Scratchpad.
 
 %%====================================================================
-%% create_state 测试
+%% new/1 测试
 %%====================================================================
 
-create_state_test_() ->
+new_test_() ->
     {setup,
      fun setup/0,
      fun cleanup/1,
      fun(_) ->
          [
-          {"create_state/1 creates state with auto-generated id",
+          {"new/1 creates state with auto-generated id",
            fun() ->
                Config = #{
                    system_prompt => <<"You are helpful">>,
                    llm => llm_client:create(mock, #{})
                },
-               {ok, State} = beamai_agent:create_state(Config),
+               {ok, State} = beamai_agent:new(Config),
                ?assert(is_binary(get_agent_id(State))),
                ?assertEqual(<<"You are helpful">>, get_system_prompt(State))
            end},
 
-          {"create_state/2 creates state with specified id",
+          {"new/1 creates state with specified id",
            fun() ->
                Config = #{
+                   id => <<"my-agent-id">>,
                    system_prompt => <<"Test agent">>,
                    llm => llm_client:create(mock, #{})
                },
-               {ok, State} = beamai_agent:create_state(<<"my-agent-id">>, Config),
+               {ok, State} = beamai_agent:new(Config),
                ?assertEqual(<<"my-agent-id">>, get_agent_id(State))
            end},
 
-          {"create_state disables storage in pure function mode",
+          {"new/1 allows storage configuration",
            fun() ->
+               %% 创建 Memory 实例（使用 mock store）
+               {ok, _} = beamai_store_ets:start_link(test_store_new, #{}),
+               {ok, Memory} = beamai_memory:new(#{
+                   context_store => {beamai_store_ets, test_store_new},
+                   thread_id => <<"test_thread_new">>
+               }),
+
                Config = #{
                    system_prompt => <<"Test">>,
                    llm => llm_client:create(mock, #{}),
-                   enable_storage => true  %% 用户尝试启用
+                   storage => Memory
                },
-               {ok, State} = beamai_agent:create_state(Config),
-               %% storage 应该是 undefined（被强制禁用）
-               ?assertEqual(undefined, get_storage(State))
+               {ok, State} = beamai_agent:new(Config),
+               %% storage 应该已配置
+               ?assertNotEqual(undefined, get_storage(State))
            end}
          ]
      end}.
@@ -102,7 +109,7 @@ export_import_test_() ->
                    llm => llm_client:create(mock, #{model => <<"test">>}),
                    max_iterations => 5
                },
-               {ok, State} = beamai_agent:create_state(<<"export-test">>, Config),
+               {ok, State} = beamai_agent:new(Config),
                Exported = beamai_agent:export_state(State),
 
                ?assert(is_map(Exported)),
@@ -120,13 +127,13 @@ export_import_test_() ->
                    system_prompt => <<"Original prompt">>,
                    llm => llm_client:create(mock, #{})
                },
-               {ok, OrigState} = beamai_agent:create_state(<<"import-test">>, Config),
+               {ok, OrigState} = beamai_agent:new(Config),
 
                %% 导出（只包含对话数据）
                Exported = beamai_agent:export_state(OrigState),
 
                %% 导入时需要传入配置
-               {ok, RestoredState} = beamai_agent:import_state_pure(Exported, Config),
+               {ok, RestoredState} = beamai_agent:import_state(Exported, Config),
 
                %% import_state 会生成新的 ID，但保留对话数据
                ?assert(is_binary(get_agent_id(RestoredState))),
@@ -158,7 +165,7 @@ export_import_test_() ->
                    system_prompt => <<"Test">>,
                    llm => llm_client:create(mock, #{})
                },
-               {ok, State} = beamai_agent:import_state_pure(ExportedData, Config),
+               {ok, State} = beamai_agent:import_state(ExportedData, Config),
 
                %% 验证 messages 恢复
                Messages = get_messages(State),
@@ -179,7 +186,7 @@ export_import_test_() ->
                },
 
                %% 使用配置创建状态
-               {ok, State} = beamai_agent:import_state_pure(ExportedData, #{
+               {ok, State} = beamai_agent:import_state(ExportedData, #{
                    system_prompt => <<"New prompt">>,
                    llm => llm_client:create(mock, #{})
                }),
@@ -197,13 +204,13 @@ export_import_test_() ->
                        #{name => <<"test_tool">>, description => <<"A test tool">>}
                    ]
                },
-               {ok, State1} = beamai_agent:create_state(<<"roundtrip">>, Config),
+               {ok, State1} = beamai_agent:new(Config),
 
                %% 导出 -> 序列化 -> 反序列化 -> 导入
                Exported = beamai_agent:export_state(State1),
                Binary = term_to_binary(Exported),
                Restored = binary_to_term(Binary),
-               {ok, State2} = beamai_agent:import_state_pure(Restored, Config),
+               {ok, State2} = beamai_agent:import_state(Restored, Config),
 
                %% 验证对话数据保持一致
                ?assertEqual(get_messages(State1), get_messages(State2)),
@@ -224,7 +231,7 @@ concurrency_test_() ->
      fun cleanup/1,
      fun(_) ->
          [
-          {"create_state is safe for concurrent calls",
+          {"new/1 is safe for concurrent calls",
            fun() ->
                Config = #{
                    system_prompt => <<"Concurrent test">>,
@@ -234,7 +241,7 @@ concurrency_test_() ->
                %% 并发创建 10 个状态
                Parent = self(),
                Pids = [spawn(fun() ->
-                   Result = beamai_agent:create_state(Config),
+                   Result = beamai_agent:new(Config),
                    Parent ! {self(), Result}
                end) || _ <- lists:seq(1, 10)],
 
@@ -267,7 +274,7 @@ immutability_test_() ->
                    system_prompt => <<"Immutable test">>,
                    llm => llm_client:create(mock, #{})
                },
-               {ok, State} = beamai_agent:create_state(Config),
+               {ok, State} = beamai_agent:new(Config),
 
                %% 导出前记录 ID
                OriginalId = get_agent_id(State),
@@ -278,6 +285,80 @@ immutability_test_() ->
 
                %% 原始状态不变
                ?assertEqual(OriginalId, get_agent_id(State))
+           end}
+         ]
+     end}.
+
+%%====================================================================
+%% 辅助 API 测试
+%%====================================================================
+
+helper_api_test_() ->
+    {setup,
+     fun setup/0,
+     fun cleanup/1,
+     fun(_) ->
+         [
+          {"get_context/set_context works correctly",
+           fun() ->
+               Config = #{
+                   llm => llm_client:create(mock, #{}),
+                   context => #{key1 => <<"value1">>}
+               },
+               {ok, State0} = beamai_agent:new(Config),
+
+               %% 获取上下文
+               ?assertEqual(#{key1 => <<"value1">>}, beamai_agent:get_context(State0)),
+               ?assertEqual(<<"value1">>, beamai_agent:get_context(State0, key1)),
+               ?assertEqual(undefined, beamai_agent:get_context(State0, key2)),
+               ?assertEqual(<<"default">>, beamai_agent:get_context(State0, key2, <<"default">>)),
+
+               %% 设置上下文
+               State1 = beamai_agent:set_context(State0, #{key2 => <<"value2">>}),
+               ?assertEqual(#{key2 => <<"value2">>}, beamai_agent:get_context(State1))
+           end},
+
+          {"update_context merges context",
+           fun() ->
+               Config = #{
+                   llm => llm_client:create(mock, #{}),
+                   context => #{key1 => <<"value1">>}
+               },
+               {ok, State0} = beamai_agent:new(Config),
+
+               %% 更新上下文
+               State1 = beamai_agent:update_context(State0, #{key2 => <<"value2">>}),
+               ?assertEqual(<<"value1">>, beamai_agent:get_context(State1, key1)),
+               ?assertEqual(<<"value2">>, beamai_agent:get_context(State1, key2))
+           end},
+
+          {"put_context sets single value",
+           fun() ->
+               Config = #{
+                   llm => llm_client:create(mock, #{})
+               },
+               {ok, State0} = beamai_agent:new(Config),
+
+               %% 设置单个值
+               State1 = beamai_agent:put_context(State0, key1, <<"value1">>),
+               ?assertEqual(<<"value1">>, beamai_agent:get_context(State1, key1))
+           end},
+
+          {"clear_messages works correctly",
+           fun() ->
+               ExportedData = #{
+                   messages => [#{role => user, content => <<"test">>}],
+                   full_messages => [#{role => user, content => <<"test">>}],
+                   scratchpad => [],
+                   context => #{}
+               },
+               Config = #{llm => llm_client:create(mock, #{})},
+               {ok, State0} = beamai_agent:import_state(ExportedData, Config),
+
+               ?assertEqual(1, length(beamai_agent:get_messages(State0))),
+
+               State1 = beamai_agent:clear_messages(State0),
+               ?assertEqual([], beamai_agent:get_messages(State1))
            end}
          ]
      end}.

@@ -2,19 +2,21 @@
 %%% @doc 简单 Agent 示例
 %%%
 %%% 演示如何创建和使用带有自定义工具的基础 Agent。
+%%% 使用纯函数 API。
 %%%
 %%% 使用方法:
 %%% ```
 %%% %% 方式 1: 使用环境变量配置 API Key（推荐使用智谱 GLM-4.7）
 %%% %% 设置环境变量: export ZHIPU_API_KEY=your-api-key
-%%% simple_agent_example:run().
+%%% example_agent_simple:run().
 %%%
 %%% %% 方式 2: 直接传入 LLM 配置
-%%% LLMConfig = #{provider => anthropic,
-%%%               api_key => <<"your-api-key">>,
-%%%               base_url => <<"https://open.bigmodel.cn/api/anthropic">>,
-%%%               model => <<"glm-4.7">>},
-%%% simple_agent_example:run(LLMConfig).
+%%% LLMConfig = llm_client:create(anthropic, #{
+%%%     model => <<"glm-4.7">>,
+%%%     api_key => <<"your-api-key">>,
+%%%     base_url => <<"https://open.bigmodel.cn/api/anthropic">>
+%%% }),
+%%% example_agent_simple:run(LLMConfig).
 %%% ```
 %%%
 %%% @end
@@ -45,13 +47,16 @@ run() ->
 %% @doc 运行所有示例（使用指定的 LLM 配置）
 -spec run(map()) -> ok.
 run(LLMConfig) ->
-    io:format("=== 简单 Agent 示例 ===~n~n"),
+    io:format("=== 简单 Agent 示例（纯函数模式）===~n~n"),
 
     io:format("1. 计算器 Agent~n"),
     calculator_example(LLMConfig),
 
     io:format("~n2. 天气 Agent~n"),
     weather_example(LLMConfig),
+
+    io:format("~n3. 多轮对话示例~n"),
+    multi_turn_example(LLMConfig),
 
     io:format("~n示例运行完成!~n"),
     ok.
@@ -62,44 +67,57 @@ run(LLMConfig) ->
 
 %% @doc 计算器 Agent 示例
 calculator_example(LLMConfig) ->
-    {ok, Agent} = create_calculator_agent(LLMConfig),
+    {ok, State} = create_calculator_agent(LLMConfig),
 
-    %% 运行计算（传入 LLM 配置）
-    RunOpts = #{llm => LLMConfig},
-    case beamai_agent:run(Agent, <<"请计算 25 * 4 + 100 的结果"/utf8>>, RunOpts) of
-        {ok, Result} ->
+    %% 运行计算
+    case beamai_agent:run(State, <<"请计算 25 * 4 + 100 的结果"/utf8>>) of
+        {ok, Result, _NewState} ->
             Response = maps:get(final_response, Result, <<"无响应"/utf8>>),
             io:format("结果: ~ts~n", [Response]);
-        {error, Reason} ->
+        {error, Reason, _NewState} ->
             io:format("错误: ~p~n", [Reason])
-    end,
-
-    %% 清理
-    beamai_agent:stop(Agent).
+    end.
 
 %% @doc 天气 Agent 示例
 weather_example(LLMConfig) ->
-    {ok, Agent} = create_weather_agent(LLMConfig),
+    {ok, State} = create_weather_agent(LLMConfig),
 
     %% 查询天气
-    RunOpts = #{llm => LLMConfig},
-    case beamai_agent:run(Agent, <<"东京现在的天气怎么样?"/utf8>>, RunOpts) of
-        {ok, Result} ->
+    case beamai_agent:run(State, <<"东京现在的天气怎么样?"/utf8>>) of
+        {ok, Result, _NewState} ->
             Response = maps:get(final_response, Result, <<"无响应"/utf8>>),
             io:format("结果: ~ts~n", [Response]);
-        {error, Reason} ->
+        {error, Reason, _NewState} ->
             io:format("错误: ~p~n", [Reason])
-    end,
+    end.
 
-    %% 清理
-    beamai_agent:stop(Agent).
+%% @doc 多轮对话示例
+multi_turn_example(LLMConfig) ->
+    {ok, State0} = beamai_agent:new(#{
+        llm => LLMConfig,
+        system_prompt => <<"你是一个记忆助手。记住用户告诉你的信息。"/utf8>>
+    }),
+
+    io:format("第一轮: 告诉 Agent 一个数字~n"),
+    {ok, _, State1} = beamai_agent:run(State0, <<"请记住数字 42"/utf8>>),
+    io:format("消息数量: ~p~n", [length(beamai_agent:get_messages(State1))]),
+
+    io:format("第二轮: 询问之前的数字~n"),
+    case beamai_agent:run(State1, <<"我刚才说的数字是多少?"/utf8>>) of
+        {ok, Result, State2} ->
+            Response = maps:get(final_response, Result, <<"无响应"/utf8>>),
+            io:format("结果: ~ts~n", [Response]),
+            io:format("最终消息数量: ~p~n", [length(beamai_agent:get_messages(State2))]);
+        {error, Reason, _} ->
+            io:format("错误: ~p~n", [Reason])
+    end.
 
 %%====================================================================
 %% Agent 创建函数
 %%====================================================================
 
 %% @doc 创建计算器 Agent（使用环境变量配置）
--spec create_calculator_agent() -> {ok, pid()} | {error, term()}.
+-spec create_calculator_agent() -> {ok, beamai_agent:state()} | {error, term()}.
 create_calculator_agent() ->
     case example_utils:get_llm_config() of
         {ok, LLMConfig} -> create_calculator_agent(LLMConfig);
@@ -107,10 +125,8 @@ create_calculator_agent() ->
     end.
 
 %% @doc 创建计算器 Agent（使用指定的 LLM 配置）
--spec create_calculator_agent(map()) -> {ok, pid()} | {error, term()}.
+-spec create_calculator_agent(map()) -> {ok, beamai_agent:state()} | {error, term()}.
 create_calculator_agent(LLMConfig) ->
-    AgentId = <<"calc_agent_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
-
     Tools = [
         #{
             name => <<"add">>,
@@ -186,16 +202,15 @@ create_calculator_agent(LLMConfig) ->
     ],
 
     Opts = #{
-        name => <<"计算器助手"/utf8>>,
         system_prompt => <<"你是一个有用的计算器助手。使用提供的数学工具来执行计算。"/utf8>>,
         tools => Tools,
         llm => LLMConfig
     },
 
-    beamai_agent:start_link(AgentId, Opts).
+    beamai_agent:new(Opts).
 
 %% @doc 创建天气 Agent（使用环境变量配置）
--spec create_weather_agent() -> {ok, pid()} | {error, term()}.
+-spec create_weather_agent() -> {ok, beamai_agent:state()} | {error, term()}.
 create_weather_agent() ->
     case example_utils:get_llm_config() of
         {ok, LLMConfig} -> create_weather_agent(LLMConfig);
@@ -203,10 +218,8 @@ create_weather_agent() ->
     end.
 
 %% @doc 创建天气 Agent（使用指定的 LLM 配置，模拟数据）
--spec create_weather_agent(map()) -> {ok, pid()} | {error, term()}.
+-spec create_weather_agent(map()) -> {ok, beamai_agent:state()} | {error, term()}.
 create_weather_agent(LLMConfig) ->
-    AgentId = <<"weather_agent_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
-
     %% 模拟天气数据
     WeatherData = #{
         <<"Tokyo">> => #{temp => 22, condition => <<"多云"/utf8>>, humidity => 65},
@@ -276,12 +289,9 @@ create_weather_agent(LLMConfig) ->
     ],
 
     Opts = #{
-        name => <<"天气助手"/utf8>>,
         system_prompt => <<"你是一个有用的天气助手。使用天气工具来提供当前天气和预报信息。"/utf8>>,
         tools => Tools,
         llm => LLMConfig
     },
 
-    beamai_agent:start_link(AgentId, Opts).
-
-%% Note: LLM 配置函数已移至 example_utils 模块
+    beamai_agent:new(Opts).
