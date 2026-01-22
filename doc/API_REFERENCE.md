@@ -250,18 +250,6 @@ beamai_coordinator:delegate_parallel(CoordinatorPid, WorkerNames, Task).
 %% 返回: {ok, #{WorkerName => {ok, Result} | {error, Reason}}}
 ```
 
-### 状态导出/导入
-
-```erlang
-%% 导出协调器完整状态
--spec export_coordinator(pid()) -> {ok, map()} | {error, term()}.
-beamai_coordinator:export_coordinator(CoordinatorPid).
-
-%% 导入协调器状态（创建新协调器）
--spec import_coordinator(binary(), map()) -> {ok, pid()} | {error, term()}.
-beamai_coordinator:import_coordinator(NewId, ExportedData).
-```
-
 ### 使用示例
 
 ```erlang

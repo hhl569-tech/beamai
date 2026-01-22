@@ -16,7 +16,7 @@ A simple ReAct Agent implementation with support for tool calling, Middleware, c
 ## Module Overview
 
 ### Core Modules
-- **beamai_agent** - Main module, gen_server implementation
+- **beamai_agent** - Main module, stateless function implementation
 - **beamai_agent_init** - Initialization logic
 - **beamai_agent_runner** - Executor
 - **beamai_agent_callbacks** - Callback handling
@@ -59,10 +59,6 @@ beamai_coordinator:get_worker(CoordinatorPid, WorkerName) -> {ok, WorkerPid} | {
 %% Delegate tasks (parameter is Pid)
 beamai_coordinator:delegate(CoordinatorPid, WorkerName, Task) -> {ok, Result} | {error, Reason}.
 beamai_coordinator:delegate_parallel(CoordinatorPid, [WorkerName], Task) -> {ok, #{Name => Result}}.
-
-%% State export/import
-beamai_coordinator:export_coordinator(CoordinatorPid) -> {ok, ExportedData} | {error, Reason}.
-beamai_coordinator:import_coordinator(Id, ExportedData) -> {ok, Pid} | {error, Reason}.
 ```
 
 **Note:** Starting from v2.1, the `beamai_coordinator` API parameters changed from using `Id` to using `CoordinatorPid`. Coordinator metadata is stored in the Agent's `meta` field, rather than in a shared ETS table.

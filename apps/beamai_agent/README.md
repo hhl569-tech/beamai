@@ -16,7 +16,7 @@
 ## 模块概览
 
 ### 核心模块
-- **beamai_agent** - 主模块，gen_server 实现
+- **beamai_agent** - 主模块，无状态函数实现
 - **beamai_agent_init** - 初始化逻辑
 - **beamai_agent_runner** - 执行器
 - **beamai_agent_callbacks** - 回调处理
@@ -59,10 +59,6 @@ beamai_coordinator:get_worker(CoordinatorPid, WorkerName) -> {ok, WorkerPid} | {
 %% 委托任务（参数是 Pid）
 beamai_coordinator:delegate(CoordinatorPid, WorkerName, Task) -> {ok, Result} | {error, Reason}.
 beamai_coordinator:delegate_parallel(CoordinatorPid, [WorkerName], Task) -> {ok, #{Name => Result}}.
-
-%% 状态导出/导入
-beamai_coordinator:export_coordinator(CoordinatorPid) -> {ok, ExportedData} | {error, Reason}.
-beamai_coordinator:import_coordinator(Id, ExportedData) -> {ok, Pid} | {error, Reason}.
 ```
 
 **注意：** 从 v2.1 开始，`beamai_coordinator` 的 API 参数从使用 `Id` 改为使用 `CoordinatorPid`。协调器元数据存储在 Agent 的 `meta` 字段中，而非共享的 ETS 表。

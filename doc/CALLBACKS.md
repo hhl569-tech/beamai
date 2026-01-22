@@ -290,22 +290,6 @@ beamai_agent:emit_custom_event(Agent, my_event, #{value => 42}, #{
 }).
 ```
 
-### 向后兼容
-
-支持旧的 `on_complete` 和 `on_error` 选项：
-
-```erlang
-%% 旧的配置方式（仍然支持）
-{ok, Agent} = beamai_agent:start_link(<<"agent">>, #{
-    on_complete => fun(Result) -> io:format("完成: ~p~n", [Result]) end,
-    on_error => fun(Error) -> io:format("错误: ~p~n", [Error]) end
-}).
-
-%% 内部自动转换为：
-%% on_complete -> on_agent_finish
-%% on_error -> on_chain_error
-```
-
 ---
 
 ## 回调元数据

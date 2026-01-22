@@ -250,18 +250,6 @@ beamai_coordinator:delegate_parallel(CoordinatorPid, WorkerNames, Task).
 %% Returns: {ok, #{WorkerName => {ok, Result} | {error, Reason}}}
 ```
 
-### State Export/Import
-
-```erlang
-%% Export coordinator complete state
--spec export_coordinator(pid()) -> {ok, map()} | {error, term()}.
-beamai_coordinator:export_coordinator(CoordinatorPid).
-
-%% Import coordinator state (creates new coordinator)
--spec import_coordinator(binary(), map()) -> {ok, pid()} | {error, term()}.
-beamai_coordinator:import_coordinator(NewId, ExportedData).
-```
-
 ### Usage Examples
 
 ```erlang

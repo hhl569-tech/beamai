@@ -290,22 +290,6 @@ beamai_agent:emit_custom_event(Agent, my_event, #{value => 42}, #{
 }).
 ```
 
-### Backward Compatibility
-
-Supports legacy `on_complete` and `on_error` options:
-
-```erlang
-%% Old configuration style (still supported)
-{ok, Agent} = beamai_agent:start_link(<<"agent">>, #{
-    on_complete => fun(Result) -> io:format("Complete: ~p~n", [Result]) end,
-    on_error => fun(Error) -> io:format("Error: ~p~n", [Error]) end
-}).
-
-%% Internally automatically converted to:
-%% on_complete -> on_agent_finish
-%% on_error -> on_chain_error
-```
-
 ---
 
 ## Callback Metadata
