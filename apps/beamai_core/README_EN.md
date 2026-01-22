@@ -35,6 +35,7 @@ Graph computation engine based on LangGraph concepts:
 - **graph_edge** - Edge definitions
 - **graph_runner** - Graph executor
 - **graph_state** - State management
+- **graph_state_reducer** - State merge strategies
 - **graph_send** - Message sending
 
 ### Pregel Computation Model
@@ -100,6 +101,40 @@ graph_builder:set_finish_point(Builder, NodeName) -> builder().
 
 %% Compile graph
 graph_builder:compile(Builder) -> {ok, graph()} | {error, term()}.
+```
+
+### graph_state_reducer
+
+Field-level reducers for merging node-returned deltas into global state.
+
+```erlang
+%% Apply single delta
+graph_state_reducer:apply_delta(State, Delta, FieldReducers) -> NewState.
+
+%% Apply multiple deltas
+graph_state_reducer:apply_deltas(State, [Delta], FieldReducers) -> NewState.
+
+%% Built-in Reducers
+graph_state_reducer:append_reducer(Old, New) -> Old ++ New.
+graph_state_reducer:merge_reducer(Old, New) -> maps:merge(Old, New).
+graph_state_reducer:increment_reducer(Old, Delta) -> Old + Delta.
+graph_state_reducer:last_write_win_reducer(Old, New) -> New.
+```
+
+**Reducer Types:**
+
+| Type | Format | Behavior |
+|------|--------|----------|
+| Normal Reducer | `fun(Old, New) -> Merged` | Same-key merge |
+| Transform Reducer | `{transform, TargetKey, ReducerFun}` | Read from source key, write to target key, source key not retained |
+
+**Transform Reducer Example:**
+
+```erlang
+FieldReducers = #{
+    %% counter_incr value accumulates to counter, counter_incr not retained
+    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
+}.
 ```
 
 ## Usage Examples

@@ -172,9 +172,40 @@ Config = #{
     max_iterations => integer(),         %% 最大迭代次数，默认 10
     storage => beamai_memory(),          %% 可选：存储实例
     callbacks => callback_map(),         %% 可选：回调函数
-    middleware => [middleware_spec()]    %% 可选：中间件
+    middleware => [middleware_spec()],   %% 可选：中间件
+    context => map(),                    %% 可选：用户上下文初始值
+    context_reducers => field_reducers() %% 可选：上下文字段 Reducer 配置
 }.
 ```
+
+### Context Reducers 配置
+
+Context Reducers 允许为用户上下文的字段配置自定义合并策略。
+
+```erlang
+%% Reducer 类型
+-type field_reducer() ::
+    fun((Old :: term(), New :: term()) -> Merged :: term())  %% 普通 reducer
+    | {transform, TargetKey :: binary(), ReducerFun :: function()}.  %% 转换型 reducer
+
+%% 配置示例
+context_reducers => #{
+    %% 普通 reducer：items 字段使用追加策略
+    <<"items">> => fun graph_state_reducer:append_reducer/2,
+
+    %% 转换型 reducer：counter_incr 累加到 counter，counter_incr 不保留
+    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
+}.
+```
+
+**内置 Reducer：**
+
+| Reducer | 行为 |
+|---------|------|
+| `append_reducer` | 列表追加 |
+| `merge_reducer` | Map 深度合并 |
+| `increment_reducer` | 数值累加 |
+| `last_write_win_reducer` | 新值覆盖旧值（默认） |
 
 ---
 
@@ -785,6 +816,46 @@ graph_state:new(Data).
 -spec set(state(), key(), value()) -> state().
 graph_state:get(State, Key).
 graph_state:set(State, Key, Value).
+
+%% 用户上下文操作
+-spec get_context(state()) -> map().
+-spec get_context(state(), key()) -> value() | undefined.
+-spec set_context(state(), map()) -> state().
+-spec update_context(state(), map()) -> state().
+graph_state:get_context(State).
+graph_state:get_context(State, Key).
+graph_state:set_context(State, Context).
+graph_state:update_context(State, Updates).
+```
+
+### Graph State Reducer
+
+字段级 Reducer，用于合并节点返回的 delta 到全局状态。
+
+```erlang
+%% 应用 delta
+-spec apply_delta(state(), delta(), field_reducers()) -> state().
+-spec apply_deltas(state(), [delta()], field_reducers()) -> state().
+graph_state_reducer:apply_delta(State, Delta, FieldReducers).
+graph_state_reducer:apply_deltas(State, Deltas, FieldReducers).
+
+%% 内置 Reducer
+graph_state_reducer:append_reducer(Old, New) -> list().
+graph_state_reducer:merge_reducer(Old, New) -> map().
+graph_state_reducer:increment_reducer(Old, Delta) -> number().
+graph_state_reducer:last_write_win_reducer(Old, New) -> term().
+```
+
+**Reducer 配置格式：**
+
+```erlang
+FieldReducers = #{
+    %% 普通 reducer
+    <<"messages">> => fun graph_state_reducer:append_reducer/2,
+
+    %% 转换型 reducer：从 counter_incr 累加到 counter
+    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
+}.
 ```
 
 ### Pregel 分布式计算

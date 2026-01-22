@@ -133,8 +133,84 @@ Config = #{
         on_llm_start => fun(Prompts, Meta) -> ok end,
         on_llm_end => fun(Response, Meta) -> ok end,
         on_tool_use => fun(ToolName, Args, Meta) -> ok end
+    },
+
+    %% 用户上下文初始值（可选）
+    context => #{
+        counter => 0,
+        items => []
+    },
+
+    %% 用户上下文字段 Reducer 配置（可选）
+    context_reducers => #{
+        %% 普通 reducer：同键合并
+        <<"items">> => fun graph_state_reducer:append_reducer/2,
+        %% 转换型 reducer：从 counter_incr 累加到 counter
+        <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
     }
 }.
+```
+
+## Context Reducers
+
+Context Reducers 允许为用户上下文的字段配置自定义合并策略，在并发更新时特别有用。
+
+### Reducer 类型
+
+支持两种 Reducer 格式：
+
+1. **普通 Reducer** - 同键合并
+```erlang
+%% 配置
+context_reducers => #{
+    <<"items">> => fun graph_state_reducer:append_reducer/2
+}
+
+%% 节点更新
+graph_state:update_context(State, #{items => [new_item]})
+%% 结果：items 列表会追加 new_item
+```
+
+2. **转换型 Reducer** - 从源键读取增量，应用到目标键，源键不保留
+```erlang
+%% 配置
+context_reducers => #{
+    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
+}
+
+%% 节点更新
+graph_state:update_context(State, #{counter_incr => 5})
+%% 结果：counter += 5，counter_incr 不会出现在最终状态
+```
+
+### 内置 Reducer
+
+| Reducer | 行为 | 适用场景 |
+|---------|------|----------|
+| `append_reducer` | 列表追加 | messages, items |
+| `merge_reducer` | Map 深度合并 | 嵌套对象 |
+| `increment_reducer` | 数值累加 | 计数器 |
+| `last_write_win_reducer` | 新值覆盖旧值 | 默认策略 |
+
+### 使用示例
+
+```erlang
+Config = #{
+    system_prompt => <<"You are a counter assistant.">>,
+    llm => LLM,
+    context => #{
+        counter => 0,
+        history => []
+    },
+    context_reducers => #{
+        %% 计数器增量：counter_incr 的值累加到 counter
+        <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2},
+        %% 历史记录：追加模式
+        <<"history">> => fun graph_state_reducer:append_reducer/2
+    }
+},
+
+{ok, State} = beamai_agent:new(Config).
 ```
 
 ## Middleware 系统

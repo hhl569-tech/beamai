@@ -172,9 +172,40 @@ Config = #{
     max_iterations => integer(),         %% Maximum iterations, default 10
     storage => beamai_memory(),          %% Optional: storage instance
     callbacks => callback_map(),         %% Optional: callback functions
-    middleware => [middleware_spec()]    %% Optional: middleware
+    middleware => [middleware_spec()],   %% Optional: middleware
+    context => map(),                    %% Optional: user context initial values
+    context_reducers => field_reducers() %% Optional: context field reducer configuration
 }.
 ```
+
+### Context Reducers Configuration
+
+Context Reducers allow configuring custom merge strategies for user context fields.
+
+```erlang
+%% Reducer types
+-type field_reducer() ::
+    fun((Old :: term(), New :: term()) -> Merged :: term())  %% Normal reducer
+    | {transform, TargetKey :: binary(), ReducerFun :: function()}.  %% Transform reducer
+
+%% Configuration example
+context_reducers => #{
+    %% Normal reducer: items field uses append strategy
+    <<"items">> => fun graph_state_reducer:append_reducer/2,
+
+    %% Transform reducer: counter_incr accumulates to counter, counter_incr not retained
+    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
+}.
+```
+
+**Built-in Reducers:**
+
+| Reducer | Behavior |
+|---------|----------|
+| `append_reducer` | List append |
+| `merge_reducer` | Deep map merge |
+| `increment_reducer` | Numeric accumulation |
+| `last_write_win_reducer` | New value overwrites old (default) |
 
 ---
 
@@ -785,6 +816,46 @@ graph_state:new(Data).
 -spec set(state(), key(), value()) -> state().
 graph_state:get(State, Key).
 graph_state:set(State, Key, Value).
+
+%% User context operations
+-spec get_context(state()) -> map().
+-spec get_context(state(), key()) -> value() | undefined.
+-spec set_context(state(), map()) -> state().
+-spec update_context(state(), map()) -> state().
+graph_state:get_context(State).
+graph_state:get_context(State, Key).
+graph_state:set_context(State, Context).
+graph_state:update_context(State, Updates).
+```
+
+### Graph State Reducer
+
+Field-level reducers for merging node-returned deltas into global state.
+
+```erlang
+%% Apply delta
+-spec apply_delta(state(), delta(), field_reducers()) -> state().
+-spec apply_deltas(state(), [delta()], field_reducers()) -> state().
+graph_state_reducer:apply_delta(State, Delta, FieldReducers).
+graph_state_reducer:apply_deltas(State, Deltas, FieldReducers).
+
+%% Built-in Reducers
+graph_state_reducer:append_reducer(Old, New) -> list().
+graph_state_reducer:merge_reducer(Old, New) -> map().
+graph_state_reducer:increment_reducer(Old, Delta) -> number().
+graph_state_reducer:last_write_win_reducer(Old, New) -> term().
+```
+
+**Reducer Configuration Format:**
+
+```erlang
+FieldReducers = #{
+    %% Normal reducer
+    <<"messages">> => fun graph_state_reducer:append_reducer/2,
+
+    %% Transform reducer: accumulate counter_incr to counter
+    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
+}.
 ```
 
 ### Pregel Distributed Computing

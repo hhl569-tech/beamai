@@ -35,6 +35,7 @@ Agent Framework 的核心模块，提供 Agent 行为定义、数据类型、图
 - **graph_edge** - 边定义
 - **graph_runner** - 图执行器
 - **graph_state** - 状态管理
+- **graph_state_reducer** - 状态合并策略
 - **graph_send** - 消息发送
 
 ### Pregel 计算模型
@@ -100,6 +101,40 @@ graph_builder:set_finish_point(Builder, NodeName) -> builder().
 
 %% 编译图
 graph_builder:compile(Builder) -> {ok, graph()} | {error, term()}.
+```
+
+### graph_state_reducer
+
+字段级 Reducer，用于合并节点返回的 delta 到全局状态。
+
+```erlang
+%% 应用单个 delta
+graph_state_reducer:apply_delta(State, Delta, FieldReducers) -> NewState.
+
+%% 应用多个 delta
+graph_state_reducer:apply_deltas(State, [Delta], FieldReducers) -> NewState.
+
+%% 内置 Reducer
+graph_state_reducer:append_reducer(Old, New) -> Old ++ New.
+graph_state_reducer:merge_reducer(Old, New) -> maps:merge(Old, New).
+graph_state_reducer:increment_reducer(Old, Delta) -> Old + Delta.
+graph_state_reducer:last_write_win_reducer(Old, New) -> New.
+```
+
+**Reducer 类型：**
+
+| 类型 | 格式 | 行为 |
+|------|------|------|
+| 普通 Reducer | `fun(Old, New) -> Merged` | 同键合并 |
+| 转换型 Reducer | `{transform, TargetKey, ReducerFun}` | 从源键读取，写入目标键，源键不保留 |
+
+**转换型 Reducer 示例：**
+
+```erlang
+FieldReducers = #{
+    %% counter_incr 的值会累加到 counter，counter_incr 不保留
+    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
+}.
 ```
 
 ## 使用示例

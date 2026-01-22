@@ -133,8 +133,84 @@ Config = #{
         on_llm_start => fun(Prompts, Meta) -> ok end,
         on_llm_end => fun(Response, Meta) -> ok end,
         on_tool_use => fun(ToolName, Args, Meta) -> ok end
+    },
+
+    %% User context initial values (optional)
+    context => #{
+        counter => 0,
+        items => []
+    },
+
+    %% User context field reducer configuration (optional)
+    context_reducers => #{
+        %% Normal reducer: same-key merge
+        <<"items">> => fun graph_state_reducer:append_reducer/2,
+        %% Transform reducer: accumulate counter_incr to counter
+        <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
     }
 }.
+```
+
+## Context Reducers
+
+Context Reducers allow configuring custom merge strategies for user context fields, particularly useful during concurrent updates.
+
+### Reducer Types
+
+Two reducer formats are supported:
+
+1. **Normal Reducer** - Same-key merge
+```erlang
+%% Configuration
+context_reducers => #{
+    <<"items">> => fun graph_state_reducer:append_reducer/2
+}
+
+%% Node update
+graph_state:update_context(State, #{items => [new_item]})
+%% Result: new_item is appended to items list
+```
+
+2. **Transform Reducer** - Read delta from source key, apply to target key, source key not retained
+```erlang
+%% Configuration
+context_reducers => #{
+    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
+}
+
+%% Node update
+graph_state:update_context(State, #{counter_incr => 5})
+%% Result: counter += 5, counter_incr does not appear in final state
+```
+
+### Built-in Reducers
+
+| Reducer | Behavior | Use Case |
+|---------|----------|----------|
+| `append_reducer` | List append | messages, items |
+| `merge_reducer` | Deep map merge | Nested objects |
+| `increment_reducer` | Numeric accumulation | Counters |
+| `last_write_win_reducer` | New value overwrites old | Default strategy |
+
+### Usage Example
+
+```erlang
+Config = #{
+    system_prompt => <<"You are a counter assistant.">>,
+    llm => LLM,
+    context => #{
+        counter => 0,
+        history => []
+    },
+    context_reducers => #{
+        %% Counter increment: counter_incr value accumulates to counter
+        <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2},
+        %% History: append mode
+        <<"history">> => fun graph_state_reducer:append_reducer/2
+    }
+},
+
+{ok, State} = beamai_agent:new(Config).
 ```
 
 ## Middleware System
