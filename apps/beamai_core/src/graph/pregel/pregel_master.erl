@@ -461,7 +461,8 @@ complete_superstep(#state{
     %% 5. 更新 AggregatedResults（用于 checkpoint 和重试）
     UpdatedResults = AggregatedResults#{
         message_count => TotalMessages,
-        outbox => ReducedOutbox  %% 使用 reduced 后的 outbox
+        outbox => ReducedOutbox,  %% 使用 reduced 后的 outbox
+        superstep => Superstep    %% 添加当前超步号
     },
 
     %% 6. 检查终止条件
@@ -536,9 +537,10 @@ execute_retry(VertexIds, #state{
     %% 6. 路由消息
     route_all_messages(ReducedRetryOutbox, Workers, NumWorkers),
 
-    %% 7. 更新消息计数
+    %% 7. 更新消息计数和超步号
     UpdatedResults = MergedResults#{
-        message_count => maps:get(message_count, MergedResults, 0) + length(ReducedRetryOutbox)
+        message_count => maps:get(message_count, MergedResults, 0) + length(ReducedRetryOutbox),
+        superstep => Superstep  %% 添加当前超步号
     },
 
     %% 8. 确定 checkpoint 类型并构建返回信息

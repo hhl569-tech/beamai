@@ -397,6 +397,8 @@ print_checkpoint_details(Index, Cp, Meta) ->
     CheckpointType = get_metadata_field(Meta, checkpoint_type),
     Iteration = get_metadata_field(Meta, iteration),
     Superstep = get_metadata_field(Meta, step),
+    ActiveVertices = get_metadata_field(Meta, active_vertices),
+    CompletedVertices = get_metadata_field(Meta, completed_vertices),
 
     %% 计算消息数量
     Messages = maps:get(messages, Values, maps:get(<<"messages">>, Values, [])),
@@ -408,6 +410,8 @@ print_checkpoint_details(Index, Cp, Meta) ->
     io:format("    迭代: ~p~n", [Iteration]),
     io:format("    超步: ~p~n", [Superstep]),
     io:format("    消息数: ~p~n", [MsgCount]),
+    io:format("    活跃节点: ~ts~n", [format_vertices(ActiveVertices)]),
+    io:format("    完成节点: ~ts~n", [format_vertices(CompletedVertices)]),
     io:format("    时间戳: ~p (~s)~n", [Timestamp, format_timestamp(Timestamp)]),
     io:format("~n").
 
@@ -504,3 +508,17 @@ format_timestamp(Timestamp) when is_integer(Timestamp) ->
                   [Y, M, D, H, Min, S]);
 format_timestamp(_) ->
     "unknown".
+
+%% @private 格式化节点列表
+format_vertices([]) ->
+    <<"(无)"/utf8>>;
+format_vertices(Vertices) when is_list(Vertices) ->
+    %% 将节点列表格式化为可读字符串
+    VertexNames = lists:map(fun
+        (V) when is_atom(V) -> atom_to_list(V);
+        (V) when is_binary(V) -> binary_to_list(V);
+        (V) -> io_lib:format("~p", [V])
+    end, Vertices),
+    unicode:characters_to_binary(string:join(VertexNames, ", "));
+format_vertices(Other) ->
+    unicode:characters_to_binary(io_lib:format("~p", [Other])).
