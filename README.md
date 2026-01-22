@@ -95,7 +95,7 @@ LLM = llm_client:create(anthropic, #{
 }),
 
 %% 创建研究团队（研究员 → 写作者 → 审核员）
-{ok, Team} = beamai_agent:start_pipeline(<<"content_team">>, #{
+{ok, Team} = beamai_coordinator:start_pipeline(<<"content_team">>, #{
     agents => [
         #{
             name => <<"researcher">>,
@@ -113,8 +113,8 @@ LLM = llm_client:create(anthropic, #{
     llm => LLM
 }).
 
-%% 运行任务
-{ok, Result} = beamai_agent:run(Team,
+%% 委托任务给第一个 worker，依次传递
+{ok, Result} = beamai_coordinator:delegate(Team, <<"researcher">>,
     <<"研究并撰写一篇关于 Erlang 并发模型的 100 字介绍。"/utf8>>).
 ```
 
@@ -122,7 +122,7 @@ LLM = llm_client:create(anthropic, #{
 
 ```erlang
 %% 创建开发团队（编排器可以委托、路由、并行调用多个 workers）
-{ok, Team} = beamai_agent:start_orchestrator(<<"dev_team">>, #{
+{ok, Team} = beamai_coordinator:start_orchestrator(<<"dev_team">>, #{
     agents => [
         #{
             name => <<"frontend">>,
@@ -136,9 +136,11 @@ LLM = llm_client:create(anthropic, #{
     llm => LLM  %% 复用同一 LLM 配置
 }).
 
-%% 运行任务
-{ok, Result} = beamai_agent:run(Team,
+%% 并行委托任务给多个 workers
+{ok, Results} = beamai_coordinator:delegate_parallel(Team,
+    [<<"frontend">>, <<"backend">>],
     <<"从不同角度介绍 RESTful API 的设计。"/utf8>>).
+%% Results = #{<<"frontend">> => {ok, "..."}, <<"backend">> => {ok, "..."}}
 ```
 
 ### 5. Deep Agent（规划 + 反思）

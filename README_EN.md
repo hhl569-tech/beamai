@@ -95,7 +95,7 @@ LLM = llm_client:create(anthropic, #{
 }),
 
 %% Create research team (Researcher → Writer → Reviewer)
-{ok, Team} = beamai_agent:start_pipeline(<<"content_team">>, #{
+{ok, Team} = beamai_coordinator:start_pipeline(<<"content_team">>, #{
     agents => [
         #{
             name => <<"researcher">>,
@@ -113,8 +113,8 @@ LLM = llm_client:create(anthropic, #{
     llm => LLM
 }).
 
-%% Run task
-{ok, Result} = beamai_agent:run(Team,
+%% Delegate task to the first worker, passing through in sequence
+{ok, Result} = beamai_coordinator:delegate(Team, <<"researcher">>,
     <<"Research and write a 100-word introduction about Erlang's concurrency model."/utf8>>).
 ```
 
@@ -122,7 +122,7 @@ LLM = llm_client:create(anthropic, #{
 
 ```erlang
 %% Create development team (orchestrator can delegate, route, and call multiple workers in parallel)
-{ok, Team} = beamai_agent:start_orchestrator(<<"dev_team">>, #{
+{ok, Team} = beamai_coordinator:start_orchestrator(<<"dev_team">>, #{
     agents => [
         #{
             name => <<"frontend">>,
@@ -136,9 +136,11 @@ LLM = llm_client:create(anthropic, #{
     llm => LLM  %% Reuse the same LLM configuration
 }).
 
-%% Run task
-{ok, Result} = beamai_agent:run(Team,
+%% Delegate task to multiple workers in parallel
+{ok, Results} = beamai_coordinator:delegate_parallel(Team,
+    [<<"frontend">>, <<"backend">>],
     <<"Introduce RESTful API design from different perspectives."/utf8>>).
+%% Results = #{<<"frontend">> => {ok, "..."}, <<"backend">> => {ok, "..."}}
 ```
 
 ### 5. Deep Agent (Planning + Reflection)
