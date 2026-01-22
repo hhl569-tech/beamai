@@ -166,11 +166,12 @@ builder_tests() ->
     B4 = graph_builder:set_entry(graph_builder:new(), nonexistent),
     {error, {entry_node_not_found, nonexistent}} = graph_builder:validate(B4),
 
-    %% 编译
+    %% 编译（简化后的图结构只包含 pregel_graph, entry, max_iterations）
     {ok, Graph} = graph_builder:compile(B3),
     ?assert(is_map(Graph)),
-    ?assert(maps:is_key(nodes, Graph)),
-    ?assert(maps:is_key(edges, Graph)),
+    ?assert(maps:is_key(pregel_graph, Graph)),
+    ?assert(maps:is_key(entry, Graph)),
+    ?assert(maps:is_key(max_iterations, Graph)),
 
     ok.
 
@@ -459,12 +460,12 @@ graph_compute_tests() ->
     %% 验证 Pregel 图结构正确
     ?assert(is_map(PregelGraph)),
 
-    %% 验证 __start__ 顶点存在并包含正确的 vertex value 结构
+    %% 验证 __start__ 顶点存在并包含扁平化结构
     StartVertex = pregel:get_graph_vertex(PregelGraph, '__start__'),
     ?assertNotEqual(undefined, StartVertex),
-    StartValue = pregel_vertex:value(StartVertex),
-    ?assert(maps:is_key(node, StartValue)),
-    ?assert(maps:is_key(edges, StartValue)),
+    %% 扁平化模式：直接访问 fun_, metadata, routing_edges
+    ?assert(pregel_vertex:fun_(StartVertex) =/= undefined),
+    ?assert(is_list(pregel_vertex:routing_edges(StartVertex))),
 
     %% 测试 from_pregel_result/1 - 通过完整执行流程验证
     Result = graph:run(Graph, InitialState),
@@ -491,12 +492,11 @@ pregel_graph_generation_tests() ->
     B6 = graph:set_entry(B5, node_a),
     {ok, Graph} = graph:compile(B6),
 
-    %% 验证 Graph 结构
+    %% 验证 Graph 简化结构（只包含 pregel_graph, entry, max_iterations）
     ?assert(maps:is_key(pregel_graph, Graph)),
-    ?assert(maps:is_key(nodes, Graph)),
-    ?assert(maps:is_key(edges, Graph)),
     ?assert(maps:is_key(entry, Graph)),
-    ?assert(maps:is_key(config, Graph)),
+    ?assert(maps:is_key(max_iterations, Graph)),
+    %% 不再包含 nodes, edges, config（已整合到 pregel_graph 的顶点中）
 
     #{pregel_graph := PregelGraph} = Graph,
 
@@ -508,20 +508,18 @@ pregel_graph_generation_tests() ->
     ?assert(lists:member(node_a, VertexIds)),
     ?assert(lists:member(node_b, VertexIds)),
 
-    %% 验证顶点值结构 - 新模式只有 node 和 edges
+    %% 验证扁平化顶点结构 - 直接包含 fun_, metadata, routing_edges
     NodeAVertex = pregel:get_graph_vertex(PregelGraph, node_a),
-    NodeAValue = pregel_vertex:value(NodeAVertex),
-    ?assert(maps:is_key(node, NodeAValue)),
-    ?assert(maps:is_key(edges, NodeAValue)),
+    ?assert(pregel_vertex:fun_(NodeAVertex) =/= undefined),
+    ?assert(is_map(pregel_vertex:metadata(NodeAVertex))),
 
-    %% 验证边信息已嵌入顶点值
-    NodeAEdges = maps:get(edges, NodeAValue),
+    %% 验证路由边已嵌入顶点
+    NodeAEdges = pregel_vertex:routing_edges(NodeAVertex),
     ?assert(length(NodeAEdges) > 0),
 
-    %% 验证 __start__ 顶点有到入口节点的边
+    %% 验证 __start__ 顶点有到入口节点的路由边
     StartVertex = pregel:get_graph_vertex(PregelGraph, '__start__'),
-    StartValue = pregel_vertex:value(StartVertex),
-    StartEdges = maps:get(edges, StartValue),
+    StartEdges = pregel_vertex:routing_edges(StartVertex),
     ?assert(length(StartEdges) > 0),
     [StartEdge | _] = StartEdges,
     ?assertEqual(node_a, graph_edge:target(StartEdge)),

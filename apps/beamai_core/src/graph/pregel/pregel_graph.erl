@@ -31,6 +31,7 @@
 
 %% === 顶点操作 ===
 -export([add_vertex/2, add_vertex/3]).
+-export([add_vertex_flat/5]).
 -export([get/2, has/2, remove/2, update/3]).
 -export([vertices/1, ids/1, size/1]).
 
@@ -136,6 +137,22 @@ add_vertex(#{vertices := Vertices} = Graph, Id, EdgesOrValue) when is_list(Edges
 add_vertex(#{vertices := Vertices} = Graph, Id, Value) ->
     %% 非列表参数 -> 顶点值
     Vertex = pregel_vertex:new(Id, [], Value),
+    Graph#{vertices => Vertices#{Id => Vertex}}.
+
+%% @doc 添加扁平化顶点（推荐用于 Graph 执行）
+%%
+%% 直接将计算函数、元数据和路由边存储在顶点上，无需嵌套 value 结构。
+%% 这是 Graph 执行的推荐方式，简化了属性访问。
+%%
+%% 参数:
+%% - Graph: 当前图
+%% - Id: 顶点ID（通常与节点ID相同）
+%% - Fun: 节点计算函数
+%% - Metadata: 节点元数据 map
+%% - RoutingEdges: 路由边列表（条件边）
+-spec add_vertex_flat(graph(), vertex_id(), term(), map(), list()) -> graph().
+add_vertex_flat(#{vertices := Vertices} = Graph, Id, Fun, Metadata, RoutingEdges) ->
+    Vertex = pregel_vertex:new_flat(Id, Fun, Metadata, RoutingEdges),
     Graph#{vertices => Vertices#{Id => Vertex}}.
 
 %% @doc 获取指定顶点

@@ -66,7 +66,7 @@
 %% 4. 进入 checkpoint 执行循环
 -spec run_with_checkpoint(map(), state(), state(), run_options()) -> run_result().
 run_with_checkpoint(Graph, _InitialState, ActualGlobalState, Options) ->
-    #{pregel_graph := PregelGraph, config := Config} = Graph,
+    #{pregel_graph := PregelGraph} = Graph,
 
     %% 确保 run_id 存在（整个执行过程中保持不变）
     OptionsWithRunId = ensure_run_id(Options),
@@ -76,8 +76,8 @@ run_with_checkpoint(Graph, _InitialState, ActualGlobalState, Options) ->
     {FinalGlobalState, PregelRestoreOpts, StartIteration} =
         prepare_restore_options(RestoreOpts, ActualGlobalState),
 
-    %% 准备 Pregel 执行选项
-    MaxIterations = maps:get(max_iterations, Config, 100),
+    %% 准备 Pregel 执行选项（max_iterations 直接从 Graph 获取）
+    MaxIterations = maps:get(max_iterations, Graph, 100),
     FieldReducers = maps:get(field_reducers, OptionsWithRunId, #{}),
 
     PregelOpts0 = #{

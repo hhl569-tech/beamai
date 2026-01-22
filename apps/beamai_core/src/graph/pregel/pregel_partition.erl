@@ -122,16 +122,28 @@ partition_graph(Graph, NumWorkers, Strategy) ->
             lists:foldl(
                 fun(V, G) ->
                     Id = pregel_vertex:id(V),
-                    Value = pregel_vertex:value(V),
                     IsHalted = pregel_vertex:is_halted(V),
-                    G1 = case Value of
-                        undefined ->
-                            %% 无 value 时，使用 pregel edges（向后兼容）
-                            Edges = pregel_vertex:edges(V),
-                            pregel_graph:add_vertex(G, Id, Edges);
-                        _ ->
-                            %% 有 value 时，保留 value（包含 node 和 routing edges）
-                            pregel_graph:add_vertex(G, Id, Value)
+                    %% 判断顶点模式：扁平化 vs 传统
+                    IsFlatVertex = pregel_vertex:fun_(V) =/= undefined,
+                    G1 = case IsFlatVertex of
+                        true ->
+                            %% 扁平化模式：直接使用 add_vertex_flat
+                            Fun = pregel_vertex:fun_(V),
+                            Metadata = pregel_vertex:metadata(V),
+                            RoutingEdges = pregel_vertex:routing_edges(V),
+                            pregel_graph:add_vertex_flat(G, Id, Fun, Metadata, RoutingEdges);
+                        false ->
+                            %% 传统模式：检查 value
+                            Value = pregel_vertex:value(V),
+                            case Value of
+                                undefined ->
+                                    %% 无 value 时，使用 pregel edges
+                                    Edges = pregel_vertex:edges(V),
+                                    pregel_graph:add_vertex(G, Id, Edges);
+                                _ ->
+                                    %% 有 value 时，保留 value
+                                    pregel_graph:add_vertex(G, Id, Value)
+                            end
                     end,
                     %% 保留 halted 状态
                     case IsHalted of

@@ -161,13 +161,13 @@ needs_checkpoint_mode(Options) ->
 
 %% @private 简单执行模式（无 checkpoint）
 %%
-%% 节点计算逻辑和路由规则已存储在 vertex value 中，无需通过 config 传递
+%% 节点计算逻辑和路由边已存储在顶点中（扁平化结构），无需额外配置
 -spec run_simple(graph(), state(), run_options()) -> run_result().
 run_simple(Graph, InitialState, Options) ->
-    #{pregel_graph := PregelGraph, config := Config} = Graph,
+    #{pregel_graph := PregelGraph} = Graph,
 
-    %% 准备执行选项
-    MaxIterations = maps:get(max_iterations, Config, 100),
+    %% 准备执行选项（max_iterations 直接从 Graph 获取）
+    MaxIterations = maps:get(max_iterations, Graph, 100),
     GlobalState = maps:get(global_state, Options, InitialState),
     FieldReducers = maps:get(field_reducers, Options, #{}),
 
@@ -267,12 +267,14 @@ init_context(Graph, InitialState, Options) ->
     }.
 
 %% @doc 合并选项与图配置
+%%
+%% 从简化的图结构直接获取 max_iterations
 -spec merge_options(graph(), run_options()) -> run_options().
-merge_options(#{config := Config}, Options) ->
+merge_options(Graph, Options) ->
     DefaultOptions = #{
         trace => false,
-        max_iterations => maps:get(max_iterations, Config, 100),
-        timeout => maps:get(timeout, Config, 30000)
+        max_iterations => maps:get(max_iterations, Graph, 100),
+        timeout => 30000  %% timeout 使用默认值
     },
     maps:merge(DefaultOptions, Options).
 

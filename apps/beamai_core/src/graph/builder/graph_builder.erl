@@ -43,13 +43,18 @@
     max_iterations => pos_integer(),
     timeout => pos_integer()
 }.
-%% 编译后的图结构，包含预构建的 Pregel 图
+%% 编译后的图结构（简化版）
+%%
+%% 只保留必要字段:
+%% - pregel_graph: 预构建的 Pregel 图（顶点已包含所有计算信息）
+%% - entry: 入口节点ID
+%% - max_iterations: 最大迭代次数
+%%
+%% 注意: nodes/edges/config 已整合到 pregel_graph 的顶点中
 -type graph() :: #{
     pregel_graph := pregel:graph(),           %% 预构建的 Pregel 图
-    nodes := #{node_id() => graph_node:graph_node()},
-    edges := #{node_id() => [graph_edge:edge()]},
-    entry := node_id(),
-    config := config()
+    entry := node_id(),                       %% 入口节点
+    max_iterations := pos_integer()           %% 最大迭代次数
 }.
 
 -export_type([builder/0, graph/0, config/0]).
@@ -148,7 +153,9 @@ compile(Builder) ->
     end.
 
 %% @doc 构建最终图结构
-%% 直接生成 Pregel 图，消除运行时转换
+%%
+%% 生成简化的 Pregel 图，顶点直接包含计算函数和路由边。
+%% 输出结构只包含必要字段，无冗余数据。
 -spec build_graph(builder()) -> {ok, graph()}.
 build_graph(#{nodes := Nodes, edges := Edges, entry := Entry, config := Config}) ->
     %% 按源节点分组边
@@ -157,21 +164,21 @@ build_graph(#{nodes := Nodes, edges := Edges, entry := Entry, config := Config})
     StartEdge = graph_edge:direct('__start__', Entry),
     FinalEdgeMap = add_edge_to_map(EdgeMap, '__start__', StartEdge),
 
-    %% 直接构建 Pregel 图
+    %% 直接构建 Pregel 图（使用扁平化顶点结构）
     PregelGraph = build_pregel_graph(Nodes, FinalEdgeMap),
 
+    %% 简化输出：只包含必要字段
+    MaxIterations = maps:get(max_iterations, Config, ?DEFAULT_MAX_ITERATIONS),
     {ok, #{
         pregel_graph => PregelGraph,
-        nodes => Nodes,
-        edges => FinalEdgeMap,
         entry => Entry,
-        config => Config
+        max_iterations => MaxIterations
     }}.
 
 %% @doc 构建 Pregel 图
 %%
-%% 全局状态模式：顶点包含计算函数和路由规则
-%% vertex_value = #{node => graph_node(), edges => [graph_edge()]}
+%% 扁平化模式：顶点直接包含 fun_/metadata/routing_edges 字段
+%% 无需嵌套的 vertex_value 结构，简化属性访问
 %%
 %% 图执行模式：除 __start__ 外，所有顶点初始为 halted 状态
 %% 这确保执行从 __start__ 开始，通过边激活后续顶点
@@ -181,13 +188,13 @@ build_pregel_graph(Nodes, EdgeMap) ->
     EmptyGraph = pregel:new_graph(),
     Graph = maps:fold(
         fun(NodeId, Node, AccGraph) ->
-            %% 将节点计算函数和路由规则存入 vertex value
-            NodeEdges = maps:get(NodeId, EdgeMap, []),
-            VertexValue = #{
-                node => Node,
-                edges => NodeEdges
-            },
-            pregel:add_vertex(AccGraph, NodeId, VertexValue)
+            %% 从 graph_node 提取 fun_ 和 metadata
+            Fun = graph_node:fun_(Node),
+            Metadata = graph_node:metadata(Node),
+            %% 获取该节点的路由边
+            RoutingEdges = maps:get(NodeId, EdgeMap, []),
+            %% 使用扁平化结构添加顶点
+            pregel_graph:add_vertex_flat(AccGraph, NodeId, Fun, Metadata, RoutingEdges)
         end,
         EmptyGraph,
         Nodes

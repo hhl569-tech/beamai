@@ -60,10 +60,10 @@
 
 %% 计算上下文（传递给计算函数）
 %% 无 inbox 版本：不再传递 messages，节点从 global_state 获取所有数据
-%% vertex_value 包含节点的计算函数和路由规则
+%% 扁平化模式：vertex 直接包含 fun_/metadata/routing_edges 字段
 -type context() :: #{
     vertex_id := vertex_id(),
-    vertex_value := map(),              %% #{node => ..., edges => ...}
+    vertex := vertex(),                 %% 完整顶点（扁平化结构）
     global_state := graph_state:state(),
     superstep := non_neg_integer(),
     num_vertices := non_neg_integer()
@@ -266,7 +266,7 @@ filter_active_vertices(Vertices, Activations) ->
 %% @doc 执行所有顶点计算
 %%
 %% 无 inbox 版本：计算函数不再接收 messages 参数
-%% vertex value 包含 node（计算函数）和 edges（路由规则）
+%% 扁平化模式：vertex 直接包含 fun_/metadata/routing_edges
 -spec compute_vertices(
     ActiveVertices :: #{vertex_id() => vertex()},
     ComputeFn :: fun((context()) -> compute_result()),
@@ -278,9 +278,8 @@ compute_vertices(ActiveVertices, ComputeFn, Superstep, NumVertices, GlobalState)
     InitAcc = {[], [], [], []},  %% {Deltas, Activations, Failed, Interrupted}
     maps:fold(
         fun(Id, Vertex, Acc) ->
-            %% 从 vertex 获取 value（包含 node 和 edges）
-            VertexValue = pregel_vertex:value(Vertex),
-            Context = make_context(Id, VertexValue, GlobalState, Superstep, NumVertices),
+            %% 传递完整顶点（扁平化结构）
+            Context = make_context(Id, Vertex, GlobalState, Superstep, NumVertices),
             Result = ComputeFn(Context),
             process_compute_result(Id, Result, Acc)
         end,
@@ -313,13 +312,13 @@ process_compute_result(Id, #{status := {interrupt, Reason}} = Result,
     {NewDeltaAcc, ActAcc, FailedAcc, [{Id, Reason} | InterruptedAcc]}.
 
 %% @private 创建计算上下文
-%% vertex_value 包含 node（计算函数）和 edges（路由规则）
--spec make_context(vertex_id(), map(), graph_state:state(),
+%% 扁平化模式：传递完整顶点，包含 fun_/metadata/routing_edges
+-spec make_context(vertex_id(), vertex(), graph_state:state(),
                    non_neg_integer(), non_neg_integer()) -> context().
-make_context(VertexId, VertexValue, GlobalState, Superstep, NumVertices) ->
+make_context(VertexId, Vertex, GlobalState, Superstep, NumVertices) ->
     #{
         vertex_id => VertexId,
-        vertex_value => VertexValue,
+        vertex => Vertex,
         global_state => GlobalState,
         superstep => Superstep,
         num_vertices => NumVertices

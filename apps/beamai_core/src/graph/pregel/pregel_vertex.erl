@@ -29,10 +29,14 @@
 
 %% === 构造函数 ===
 -export([new/1, new/2, new/3]).
+-export([new_flat/4]).
 
 %% === 读取操作 ===
 -export([id/1, edges/1, value/1, neighbors/1, out_degree/1]).
 -export([is_halted/1, is_active/1]).
+
+%% === 扁平化顶点属性访问（新API）===
+-export([fun_/1, metadata/1, routing_edges/1]).
 
 %% === 修改操作 ===
 -export([halt/1, activate/1]).
@@ -61,16 +65,31 @@
     weight := number()
 }.
 
-%% @type vertex() :: #{id := vertex_id(), edges := [edge()], value => term(), halted := boolean()}.
-%% 顶点完整结构。
+%% @type vertex() :: #{id := vertex_id(), ...}.
+%% 顶点完整结构。支持两种模式:
+%%
+%% 传统模式（向后兼容）:
 %% - id: 顶点唯一标识符
 %% - edges: 出边列表（图拓扑结构）
 %% - value: 可选的顶点值（存储计算逻辑和路由规则）
 %% - halted: 是否已投票停止（用于 Pregel 终止判断）
+%%
+%% 扁平化模式（推荐，用于 Graph 执行）:
+%% - id: 顶点唯一标识符
+%% - fun_: 节点计算函数
+%% - metadata: 节点元数据
+%% - routing_edges: 路由边列表（条件边）
+%% - halted: 是否已投票停止
 -type vertex() :: #{
     id := vertex_id(),
-    edges := [edge()],
+    %% 传统模式字段
+    edges => [edge()],
     value => term(),
+    %% 扁平化模式字段
+    fun_ => term(),
+    metadata => map(),
+    routing_edges => list(),
+    %% 共用字段
     halted := boolean()
 }.
 
@@ -107,6 +126,31 @@ new(Id, Edges) ->
 new(Id, Edges, Value) ->
     #{id => Id, edges => Edges, value => Value, halted => false}.
 
+%% @doc 创建扁平化顶点（推荐用于 Graph 执行）
+%%
+%% 直接在顶点上存储计算函数、元数据和路由边，无需嵌套 value 结构。
+%% 这是 Graph 执行的推荐方式，简化了属性访问。
+%%
+%% 参数:
+%% - Id: 顶点唯一标识符（通常与节点ID相同）
+%% - Fun: 节点计算函数（来自 graph_node）
+%% - Metadata: 节点元数据 map
+%% - RoutingEdges: 路由边列表（条件边，用于决定下一步激活哪些顶点）
+%%
+%% 示例:
+%% ```
+%% pregel_vertex:new_flat(my_node, fun(State) -> ... end, #{type => llm}, [Edge1, Edge2]).
+%% ```
+-spec new_flat(vertex_id(), term(), map(), list()) -> vertex().
+new_flat(Id, Fun, Metadata, RoutingEdges) ->
+    #{
+        id => Id,
+        fun_ => Fun,
+        metadata => Metadata,
+        routing_edges => RoutingEdges,
+        halted => false
+    }.
+
 %%====================================================================
 %% 读取操作
 %%====================================================================
@@ -115,11 +159,13 @@ new(Id, Edges, Value) ->
 -spec id(vertex()) -> vertex_id().
 id(#{id := Id}) -> Id.
 
-%% @doc 获取所有出边
+%% @doc 获取所有出边（Pregel 拓扑边）
 %%
 %% 返回出边列表，每条边包含 target 和 weight。
+%% 扁平化模式下，此字段不存在，返回空列表。
 -spec edges(vertex()) -> [edge()].
-edges(#{edges := E}) -> E.
+edges(#{edges := E}) -> E;
+edges(_) -> [].
 
 %% @doc 获取顶点值
 %%
@@ -128,6 +174,30 @@ edges(#{edges := E}) -> E.
 -spec value(vertex()) -> term().
 value(#{value := V}) -> V;
 value(_) -> undefined.
+
+%% @doc 获取节点计算函数（扁平化模式）
+%%
+%% 返回直接存储在顶点上的计算函数。
+%% 如果顶点使用传统模式（value 字段），返回 undefined。
+-spec fun_(vertex()) -> term().
+fun_(#{fun_ := F}) -> F;
+fun_(_) -> undefined.
+
+%% @doc 获取节点元数据（扁平化模式）
+%%
+%% 返回直接存储在顶点上的元数据 map。
+%% 如果顶点使用传统模式，返回空 map。
+-spec metadata(vertex()) -> map().
+metadata(#{metadata := M}) -> M;
+metadata(_) -> #{}.
+
+%% @doc 获取路由边列表（扁平化模式）
+%%
+%% 返回直接存储在顶点上的路由边（条件边）列表。
+%% 如果顶点使用传统模式，返回空列表。
+-spec routing_edges(vertex()) -> list().
+routing_edges(#{routing_edges := E}) -> E;
+routing_edges(_) -> [].
 
 %% @doc 获取所有邻居顶点ID
 %%

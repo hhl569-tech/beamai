@@ -114,12 +114,12 @@ from_pregel_result(Result) ->
 %% 无 inbox 版本：节点被激活时执行
 %% - 超步 0 时自动激活
 %% - 后续超步由 Master 通过 activations 激活
-%% vertex_value 直接包含 node 和 edges
+%% 扁平化模式：顶点直接包含 fun_/metadata/routing_edges
 -spec handle_start_node(pregel_worker:context(), graph_state:state()) ->
     pregel_worker:compute_result().
 handle_start_node(Ctx, GlobalState) ->
-    #{vertex_value := VertexValue} = Ctx,
-    execute_and_route(Ctx, GlobalState, VertexValue).
+    #{vertex := Vertex} = Ctx,
+    execute_and_route(Ctx, GlobalState, Vertex).
 
 %% @private 处理终止节点
 %%
@@ -134,12 +134,12 @@ handle_end_node(_Ctx) ->
 %%
 %% 无 inbox 版本：节点被激活时执行
 %% - resume 数据现在通过 global_state 传递
-%% vertex_value 直接包含 node 和 edges
+%% 扁平化模式：顶点直接包含 fun_/metadata/routing_edges
 -spec handle_regular_node(pregel_worker:context(), graph_state:state()) ->
     pregel_worker:compute_result().
 handle_regular_node(Ctx, GlobalState) ->
-    #{vertex_value := VertexValue} = Ctx,
-    execute_and_route(Ctx, GlobalState, VertexValue).
+    #{vertex := Vertex} = Ctx,
+    execute_and_route(Ctx, GlobalState, Vertex).
 
 %%====================================================================
 %% 节点执行
@@ -147,34 +147,45 @@ handle_regular_node(Ctx, GlobalState) ->
 
 %% @private 执行节点并路由到下一节点
 %%
-%% VertexValue 结构：#{node => graph_node(), edges => [graph_edge()]}
--spec execute_and_route(pregel_worker:context(), graph_state:state(), map()) ->
+%% 扁平化模式：Vertex 直接包含 fun_/metadata/routing_edges
+%% 使用 pregel_vertex 访问器获取属性
+-spec execute_and_route(pregel_worker:context(), graph_state:state(), pregel_vertex:vertex()) ->
     pregel_worker:compute_result().
-execute_and_route(Ctx, GlobalState, VertexValue) ->
+execute_and_route(Ctx, GlobalState, Vertex) ->
     #{vertex_id := VertexId} = Ctx,
-    Node = maps:get(node, VertexValue, undefined),
-    Edges = maps:get(edges, VertexValue, []),
+    %% 使用扁平化访问器获取属性
+    Fun = pregel_vertex:fun_(Vertex),
+    RoutingEdges = pregel_vertex:routing_edges(Vertex),
 
-    case Node of
+    case Fun of
         undefined ->
-            %% 无节点定义，直接路由
-            route_to_next(GlobalState, Edges);
+            %% 无计算函数，直接路由
+            route_to_next(GlobalState, RoutingEdges);
         _ ->
-            %% 执行节点
-            case graph_node:execute(Node, GlobalState) of
-                {ok, NewState} ->
-                    %% 成功：计算 delta，激活下游顶点
-                    Delta = compute_delta(GlobalState, NewState),
-                    Activations = build_activations(Edges, NewState),
-                    #{delta => Delta, activations => Activations, status => ok};
-                {interrupt, Reason, NewState} ->
-                    %% 中断：保存 delta，但不激活下游
-                    Delta = compute_delta(GlobalState, NewState),
-                    throw({interrupt, Reason, Delta, []});
-                {error, Reason} ->
-                    %% 失败：抛出异常
-                    throw({node_execution_error, VertexId, Reason})
-            end
+            %% 执行节点函数
+            execute_fun_and_route(VertexId, Fun, GlobalState, RoutingEdges)
+    end.
+
+%% @private 执行节点函数并路由
+-spec execute_fun_and_route(pregel_vertex:vertex_id(), term(), graph_state:state(), list()) ->
+    pregel_worker:compute_result().
+execute_fun_and_route(VertexId, Fun, GlobalState, RoutingEdges) ->
+    try Fun(GlobalState) of
+        {ok, NewState} ->
+            %% 成功：计算 delta，激活下游顶点
+            Delta = compute_delta(GlobalState, NewState),
+            Activations = build_activations(RoutingEdges, NewState),
+            #{delta => Delta, activations => Activations, status => ok};
+        {interrupt, Reason, NewState} ->
+            %% 中断：保存 delta，但不激活下游
+            Delta = compute_delta(GlobalState, NewState),
+            throw({interrupt, Reason, Delta, []});
+        {error, Reason} ->
+            %% 失败：抛出异常
+            throw({node_execution_error, VertexId, Reason})
+    catch
+        Class:Error:Stacktrace ->
+            throw({node_execution_error, VertexId, {Class, Error, Stacktrace}})
     end.
 
 %% @private 直接路由（无节点执行）
