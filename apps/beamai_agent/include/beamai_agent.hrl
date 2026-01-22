@@ -51,6 +51,7 @@
     middlewares     :: [term()],                       %% Middleware 配置列表
     middleware_chain :: list() | undefined,            %% 已初始化的 Middleware 链
     storage         :: beamai_memory:memory() | undefined, %% 存储后端
+    context_reducers :: map(),                         %% 用户上下文字段 Reducer 配置
     meta            :: map()                           %% 进程级元数据
 }).
 
@@ -66,6 +67,18 @@
 %% 注意：用户上下文使用特殊键名 <<"__beamai_user_context__">> 存储，
 %% 应通过 graph_state:get_context/1,2 和 graph_state:set_context/2 访问，
 %% 不要直接使用键名以避免与其他数据冲突。
+%%
+%% 用户上下文支持字段级 Reducer 配置（context_reducers）：
+%% ```
+%% Config = #{
+%%     context => #{counter => 0, items => []},
+%%     context_reducers => #{
+%%         counter => fun graph_state_reducer:add_reducer/2,
+%%         items => fun graph_state_reducer:append_reducer/2
+%%     }
+%% }.
+%% ```
+%% 未配置 reducer 的字段默认使用 last_write_win 策略。
 %%
 %% 设计优势：
 %% 1. 数据单一来源 - 消除 Agent 状态和图状态之间的数据复制

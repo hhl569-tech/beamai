@@ -43,7 +43,18 @@
 ]).
 
 %% 类型定义
--type field_reducer() :: fun((OldValue :: term(), NewValue :: term()) -> term()).
+%%
+%% Reducer 支持两种格式：
+%% 1. 普通 reducer: fun(OldValue, NewValue) -> MergedValue
+%%    - 同键合并，结果写入原键
+%%
+%% 2. 转换型 reducer: {transform, TargetKey, ReducerFun}
+%%    - 从 SourceKey 读取增量，应用到 TargetKey
+%%    - SourceKey 不会出现在最终状态
+%%    - 例如: <<"counter_incr">> => {transform, <<"counter">>, fun increment_reducer/2}
+%%
+-type field_reducer() :: fun((OldValue :: term(), NewValue :: term()) -> term())
+                       | {transform, TargetKey :: binary(), fun((term(), term()) -> term())}.
 -type field_reducers() :: #{atom() | binary() => field_reducer()}.
 -type delta() :: #{atom() | binary() => term()}.
 
@@ -58,20 +69,35 @@
 %% 遍历 delta 的每个字段，使用对应的 field_reducer 合并到 state。
 %% 未配置 reducer 的字段使用 last_write_win_reducer。
 %%
+%% 支持两种 reducer 格式：
+%% 1. 普通 reducer: fun(Old, New) -> Merged
+%%    - 同键合并，结果写入原键
+%% 2. 转换型 reducer: {transform, TargetKey, ReducerFun}
+%%    - 从 SourceKey 读取增量，应用到 TargetKey
+%%    - SourceKey 不会出现在最终状态
+%%
 %% @param State 当前全局状态
 %% @param Delta 要应用的增量 #{field => value}
 %% @param FieldReducers 字段 Reducer 配置
 %% @returns 更新后的全局状态
 -spec apply_delta(graph_state:state(), delta(), field_reducers()) -> graph_state:state().
-apply_delta(State, Delta, FieldReducers) when map_size(Delta) == 0 ->
+apply_delta(State, Delta, _FieldReducers) when map_size(Delta) == 0 ->
     State;
 apply_delta(State, Delta, FieldReducers) ->
     maps:fold(
         fun(Field, NewValue, AccState) ->
-            OldValue = graph_state:get(AccState, Field),
-            Reducer = get_field_reducer(Field, FieldReducers),
-            MergedValue = apply_reducer(Reducer, OldValue, NewValue),
-            graph_state:set(AccState, Field, MergedValue)
+            case get_field_reducer(Field, FieldReducers) of
+                %% 转换型 reducer：写入不同的目标键，源键不保留
+                {transform, TargetKey, Reducer} ->
+                    OldValue = graph_state:get(AccState, TargetKey),
+                    MergedValue = apply_reducer(Reducer, OldValue, NewValue),
+                    graph_state:set(AccState, TargetKey, MergedValue);
+                %% 普通 reducer：同键合并
+                Reducer ->
+                    OldValue = graph_state:get(AccState, Field),
+                    MergedValue = apply_reducer(Reducer, OldValue, NewValue),
+                    graph_state:set(AccState, Field, MergedValue)
+            end
         end,
         State,
         Delta
@@ -187,6 +213,10 @@ merge_two_states(State1, State2, FieldReducers) ->
     ).
 
 %% @private 获取字段对应的 Reducer
+%%
+%% 返回值可能是：
+%% - fun/2: 普通 reducer
+%% - {transform, TargetKey, fun/2}: 转换型 reducer
 -spec get_field_reducer(atom() | binary(), field_reducers()) -> field_reducer().
 get_field_reducer(Key, FieldReducers) when is_atom(Key) ->
     %% 优先尝试 atom key，然后尝试 binary key

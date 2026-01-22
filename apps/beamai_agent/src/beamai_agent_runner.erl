@@ -141,16 +141,18 @@ rebuild_graph(#state{config = #agent_config{tools = Tools, system_prompt = Promp
 %% run_id 由图执行层（pregel）自动生成。
 %% 如果配置了 storage，自动创建 on_checkpoint 回调。
 -spec build_run_options(#state{}, map()) -> map().
-build_run_options(#state{config = #agent_config{storage = undefined}} = _State, Opts) ->
+build_run_options(#state{config = #agent_config{storage = undefined,
+                                                 context_reducers = CtxReducers}} = _State, Opts) ->
     %% 无存储，不创建 checkpoint 回调
     BaseOpts = maps:with([restore_from], Opts),
-    BaseOpts#{field_reducers => agent_field_reducers()};
-build_run_options(#state{config = #agent_config{storage = Memory}} = State, Opts) ->
+    BaseOpts#{field_reducers => agent_field_reducers(CtxReducers)};
+build_run_options(#state{config = #agent_config{storage = Memory,
+                                                 context_reducers = CtxReducers}} = State, Opts) ->
     %% 有存储，创建 checkpoint 回调
     OnCheckpoint = beamai_agent_checkpoint_callback:create_callback(State, Memory),
     BaseOpts = maps:with([restore_from], Opts),
     BaseOpts#{
-        field_reducers => agent_field_reducers(),
+        field_reducers => agent_field_reducers(CtxReducers),
         on_checkpoint => OnCheckpoint
     }.
 
@@ -160,21 +162,54 @@ build_run_options(#state{config = #agent_config{storage = Memory}} = State, Opts
 %% - messages: append（追加，节点只设置新消息）
 %% - full_messages: append（追加，完整历史）
 %% - scratchpad: append（追加，中间步骤）
-%% - user_context: merge（合并，用户上下文）
+%% - user_context: 动态 reducer（基于 context_reducers 配置）
 %% - 其他字段: last_write_win（默认）
 %%
 %% 重要：节点使用增量更新模式
 %% - 节点只设置新增的消息，不包含历史消息
 %% - append_reducer 负责将新消息追加到现有列表
 %% - 例如：LLM 节点返回 [assistant_msg]，reducer 执行 existing ++ [assistant_msg]
--spec agent_field_reducers() -> graph_state_reducer:field_reducers().
-agent_field_reducers() ->
+-spec agent_field_reducers(map()) -> graph_state_reducer:field_reducers().
+agent_field_reducers(ContextReducers) ->
     #{
         <<"messages">> => fun graph_state_reducer:append_reducer/2,
         <<"full_messages">> => fun graph_state_reducer:append_reducer/2,
         <<"scratchpad">> => fun graph_state_reducer:append_reducer/2,
-        graph_state:context_key() => fun graph_state_reducer:merge_reducer/2
+        graph_state:context_key() => make_context_reducer(ContextReducers)
     }.
+
+%% @private 创建用户上下文的动态 Reducer
+%%
+%% 根据 context_reducers 配置，为每个字段应用相应的 reducer。
+%% 未配置的字段使用 last_write_win 策略（新值覆盖旧值）。
+%%
+%% 支持两种 reducer 格式：
+%% 1. 普通 reducer: fun(Old, New) -> Merged
+%% 2. 转换型 reducer: {transform, TargetKey, ReducerFun}
+%%
+%% 示例：
+%% ```
+%% ContextReducers = #{
+%%     <<"items">> => fun graph_state_reducer:append_reducer/2,
+%%     <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
+%% },
+%% %% 节点返回：#{counter_incr => 5, items => [new_item]}
+%% %% 合并结果：counter += 5（counter_incr 不保留），items 追加
+%% ```
+-spec make_context_reducer(map()) -> function().
+make_context_reducer(FieldReducers) when is_map(FieldReducers), map_size(FieldReducers) > 0 ->
+    fun(OldCtx, NewCtx) when is_map(OldCtx), is_map(NewCtx) ->
+        %% 复用 graph_state_reducer:apply_delta 的逻辑
+        %% 注意：这里直接操作 map，不是 graph_state
+        %% 但 apply_delta 内部使用 graph_state:get/set，对 map 也兼容
+        graph_state_reducer:apply_delta(OldCtx, NewCtx, FieldReducers);
+       (OldCtx, _NewCtx) ->
+        %% NewCtx 不是 map，保持原值
+        OldCtx
+    end;
+make_context_reducer(_) ->
+    %% 无配置，使用默认的 merge_reducer
+    fun graph_state_reducer:merge_reducer/2.
 
 %%====================================================================
 %% 内部函数 - 图构建

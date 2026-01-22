@@ -136,6 +136,9 @@ build_state(Id, Opts, Graph) ->
         _ -> beamai_middleware_runner:init(Middlewares)
     end,
 
+    %% 提取 context_reducers 配置并规范化键名
+    ContextReducers = normalize_context_reducers(maps:get(context_reducers, Opts, #{})),
+
     %% 构建配置记录（不可变）
     Config = #agent_config{
         id = Id,
@@ -151,6 +154,7 @@ build_state(Id, Opts, Graph) ->
         middlewares = Middlewares,
         middleware_chain = MiddlewareChain,
         storage = beamai_agent_checkpoint:init_storage(Id, Opts),
+        context_reducers = ContextReducers,
         meta = maps:get(meta, Opts, #{})
     },
 
@@ -203,3 +207,24 @@ append_format_instructions(Prompt, _) ->
 -spec collect_tools(map()) -> [tool_def()].
 collect_tools(Opts) ->
     maps:get(tools, Opts, []).
+
+%%====================================================================
+%% Context Reducers
+%%====================================================================
+
+%% @private 规范化 context_reducers 配置
+%%
+%% 将键名统一为 binary 类型，与 graph_state 保持一致。
+%% 用户可以使用 atom 或 binary 作为键名：
+%% ```
+%% #{counter => fun add_reducer/2}      %% atom 键
+%% #{<<"counter">> => fun add_reducer/2} %% binary 键
+%% ```
+-spec normalize_context_reducers(map()) -> map().
+normalize_context_reducers(Reducers) when is_map(Reducers) ->
+    maps:fold(fun(Key, Reducer, Acc) ->
+        NormalizedKey = graph_state:normalize_key(Key),
+        Acc#{NormalizedKey => Reducer}
+    end, #{}, Reducers);
+normalize_context_reducers(_) ->
+    #{}.
