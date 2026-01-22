@@ -46,7 +46,7 @@
 -module(pregel).
 
 %% 图构建
--export([new_graph/0, new_graph/1]).
+-export([new_graph/0]).
 -export([add_vertex/2, add_vertex/3]).
 -export([add_edge/3, add_edge/4]).
 -export([from_edges/1, from_edges/2]).
@@ -58,17 +58,15 @@
 -export([run/2, run/3]).
 
 %% 计算上下文 - 读取
--export([get_vertex/1, get_vertex_id/1, get_vertex_value/1]).
--export([get_messages/1, get_superstep/1]).
+-export([get_vertex/1, get_vertex_id/1]).
+-export([get_superstep/1]).
 -export([get_neighbors/1, get_edges/1, get_num_vertices/1]).
 
 %% 计算上下文 - 修改
--export([set_value/2, vote_to_halt/1]).
--export([send_message/3, send_to_all_neighbors/2, send_to_edges/2]).
+-export([vote_to_halt/1]).
 
 %% 结果查询
 -export([get_result_graph/1, get_result_status/1, get_result_global_state/1]).
--export([vertex_values/1, vertex_value/2]).
 
 %% 图操作委托
 -export([get_graph_vertex/2, vertices/1, vertex_count/1, map_vertices/2]).
@@ -108,11 +106,6 @@
 -spec new_graph() -> graph().
 new_graph() ->
     pregel_graph:new().
-
-%% @doc 创建带配置的图
--spec new_graph(pregel_graph:config()) -> graph().
-new_graph(Config) ->
-    pregel_graph:new(Config).
 
 %% @doc 添加顶点（仅ID）
 -spec add_vertex(graph(), vertex_id()) -> graph().
@@ -211,14 +204,43 @@ run(Graph, ComputeFn, Opts) ->
     end.
 
 %% @private 内部执行循环
+%%
+%% 无 checkpoint 回调时，遇到 error 或 interrupt 也应停止执行。
+%% 调用方可通过结果中的 failed_vertices 字段获取详细信息。
 -spec run_loop(pid()) -> result().
 run_loop(Master) ->
     case step(Master) of
+        {continue, #{type := error} = Info} ->
+            %% 有节点失败，停止执行并构建部分结果
+            build_early_termination_result(Master, Info, error);
+        {continue, #{type := interrupt} = Info} ->
+            %% 有节点中断（human-in-the-loop），停止执行
+            build_early_termination_result(Master, Info, interrupt);
         {continue, _Info} ->
             run_loop(Master);
         {done, _Reason, _Info} ->
             get_result(Master)
     end.
+
+%% @private 构建提前终止时的结果
+-spec build_early_termination_result(pid(), superstep_info(), error | interrupt) -> result().
+build_early_termination_result(Master, Info, _Reason) ->
+    CheckpointData = get_checkpoint_data(Master),
+    #{
+        superstep := Superstep,
+        global_state := GlobalState
+    } = CheckpointData,
+    #{
+        status => completed,  %% 使用 completed 但携带 failed_vertices
+        global_state => GlobalState,
+        graph => #{vertices => #{}},  %% 简化图（run 不使用）
+        supersteps => Superstep,
+        stats => #{},
+        failed_count => maps:get(failed_count, Info, 0),
+        failed_vertices => maps:get(failed_vertices, Info, []),
+        interrupted_count => maps:get(interrupted_count, Info, 0),
+        interrupted_vertices => maps:get(interrupted_vertices, Info, [])
+    }.
 
 %%====================================================================
 %% 计算上下文 - 读取 API
@@ -232,20 +254,6 @@ get_vertex(#{vertex := Vertex}) -> Vertex.
 -spec get_vertex_id(context()) -> vertex_id().
 get_vertex_id(#{vertex := Vertex}) ->
     pregel_vertex:id(Vertex).
-
-%% @doc 获取当前顶点值 (已废弃 - 全局状态模式下使用 global_state)
-%% 保留此函数用于向后兼容，但返回 undefined
--spec get_vertex_value(context()) -> term().
-get_vertex_value(_Ctx) ->
-    undefined.
-
-%% @doc 获取收到的消息列表 (已废弃 - 无 inbox 版本不传递消息)
-%% 在新的 activations 模式下，节点不再接收消息。
-%% 所有数据应从 global_state 中获取。
-%% @deprecated
--spec get_messages(context()) -> [term()].
-get_messages(Ctx) ->
-    maps:get(messages, Ctx, []).
 
 %% @doc 获取当前超步编号
 -spec get_superstep(context()) -> non_neg_integer().
@@ -269,47 +277,10 @@ get_num_vertices(#{num_vertices := N}) -> N.
 %% 计算上下文 - 修改 API
 %%====================================================================
 
-%% @doc 设置顶点值 (已废弃 - 全局状态模式下使用 delta)
-%% 保留此函数用于向后兼容，但不做任何操作
--spec set_value(context(), term()) -> context().
-set_value(Ctx, _Value) ->
-    Ctx.
-
 %% @doc 投票停止（标记顶点为非活跃）
 -spec vote_to_halt(context()) -> context().
 vote_to_halt(#{vertex := Vertex} = Ctx) ->
     Ctx#{vertex => pregel_vertex:halt(Vertex)}.
-
-%% @doc 发送消息给指定顶点 (已废弃 - 无 inbox 版本使用 activations)
-%% 在新的 activations 模式下，此函数不再适用。
-%% 请在计算函数中直接返回 activations 列表。
-%% @deprecated
--spec send_message(context(), vertex_id(), term()) -> context().
-send_message(Ctx, Target, _Value) ->
-    %% 转换为激活模式：只记录目标顶点ID
-    Activations = maps:get(activations, Ctx, []),
-    Ctx#{activations => [Target | Activations]}.
-
-%% @doc 向所有邻居发送相同消息
--spec send_to_all_neighbors(context(), term()) -> context().
-send_to_all_neighbors(Ctx, Value) ->
-    lists:foldl(
-        fun(Neighbor, AccCtx) -> send_message(AccCtx, Neighbor, Value) end,
-        Ctx,
-        get_neighbors(Ctx)
-    ).
-
-%% @doc 向所有出边发送消息（基于边信息）
-%% EdgeFn: fun(Edge) -> MessageValue
--spec send_to_edges(context(), fun((edge()) -> term())) -> context().
-send_to_edges(Ctx, EdgeFn) ->
-    lists:foldl(
-        fun(#{target := Target} = Edge, AccCtx) ->
-            send_message(AccCtx, Target, EdgeFn(Edge))
-        end,
-        Ctx,
-        get_edges(Ctx)
-    ).
 
 %%====================================================================
 %% 结果查询 API
@@ -326,24 +297,6 @@ get_result_status(#{status := Status}) -> Status.
 %% @doc 获取结果中的全局状态
 -spec get_result_global_state(result()) -> map().
 get_result_global_state(#{global_state := GlobalState}) -> GlobalState.
-
-%% @doc 获取所有顶点值映射 (已废弃 - 全局状态模式下使用 global_state)
-%% 保留此函数用于向后兼容，但返回空 map
--spec vertex_values(result() | graph()) -> #{vertex_id() => term()}.
-vertex_values(#{global_state := GlobalState}) ->
-    GlobalState;
-vertex_values(#{graph := _Graph}) ->
-    #{};
-vertex_values(_Graph) ->
-    #{}.
-
-%% @doc 获取指定顶点的值 (已废弃 - 全局状态模式下使用 global_state)
-%% 保留此函数用于向后兼容，但返回 undefined
--spec vertex_value(result() | graph(), vertex_id()) -> term() | undefined.
-vertex_value(#{global_state := GlobalState}, Key) ->
-    maps:get(Key, GlobalState, undefined);
-vertex_value(_, _) ->
-    undefined.
 
 %%====================================================================
 %% 图操作委托 API

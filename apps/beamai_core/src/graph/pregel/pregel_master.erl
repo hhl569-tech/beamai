@@ -225,7 +225,7 @@ init({Graph, ComputeFn, Opts}) ->
 
 handle_call(step, _From, #state{halted = true} = State) ->
     %% 已终止，返回最后的信息
-    Info = build_superstep_info(final, State#state.last_results),
+    Info = pregel_superstep:build_superstep_info(final, State#state.last_results),
     {reply, {done, get_done_reason(State), Info}, State};
 
 handle_call(step, _From, #state{initialized = false} = State) ->
@@ -240,14 +240,14 @@ handle_call(step, _From, #state{initialized = false} = State) ->
         initial_returned = true
     },
     %% 构建 initial 类型的 info
-    Info = build_superstep_info(initial, undefined),
+    Info = pregel_superstep:build_superstep_info(initial, undefined),
     {reply, {continue, Info}, StateFinal};
 
 handle_call(step, From, #state{initialized = true, pending_activations = PendingActivations} = State) ->
     %% 后续 step：广播全局状态，启动超步执行
     broadcast_global_state(State),
     %% 获取要激活的顶点列表（pending_activations 或 last_results 的 activations）
-    Activations = get_activations_for_superstep(PendingActivations, State#state.last_results),
+    Activations = pregel_superstep:get_activations_for_superstep(PendingActivations, State#state.last_results),
     NewState = State#state{
         step_caller = From,
         barrier = pregel_barrier:new(maps:size(State#state.workers)),
@@ -258,7 +258,7 @@ handle_call(step, From, #state{initialized = true, pending_activations = Pending
 
 handle_call({retry, _VertexIds}, _From, #state{halted = true} = State) ->
     %% 已终止，不能重试
-    Info = build_superstep_info(final, State#state.last_results),
+    Info = pregel_superstep:build_superstep_info(final, State#state.last_results),
     {reply, {done, get_done_reason(State), Info}, State};
 
 handle_call({retry, _VertexIds}, _From, #state{last_results = undefined} = State) ->
@@ -450,7 +450,7 @@ broadcast_global_state(#state{workers = Workers, global_state = GlobalState}) ->
 -spec broadcast_start_superstep(#state{}, [vertex_id()]) -> ok.
 broadcast_start_superstep(#state{workers = Workers, num_workers = NumWorkers, superstep = Superstep}, Activations) ->
     %% 按 Worker 分组 activations
-    GroupedActivations = group_activations_by_worker(Activations, NumWorkers),
+    GroupedActivations = pregel_superstep:group_activations_by_worker(Activations, NumWorkers),
     maps:foreach(
         fun(WorkerId, Pid) ->
             WorkerActivations = maps:get(WorkerId, GroupedActivations, []),
@@ -473,60 +473,13 @@ handle_worker_done(Result, #state{barrier = Barrier} = State) ->
 %% Delta 处理与全局状态更新
 %%====================================================================
 
-%% @private 应用所有 deltas 到全局状态
--spec apply_deltas(graph_state:state(), [delta()], field_reducers()) -> graph_state:state().
-apply_deltas(State, Deltas, FieldReducers) ->
-    lists:foldl(fun(Delta, AccState) ->
-        apply_delta(Delta, AccState, FieldReducers)
-    end, State, Deltas).
-
-%% @private 应用单个 delta 到状态
--spec apply_delta(delta(), graph_state:state(), field_reducers()) -> graph_state:state().
-apply_delta(Delta, State, FieldReducers) ->
-    maps:fold(fun(Field, NewValue, AccState) ->
-        OldValue = graph_state:get(AccState, Field),
-        %% 标准化 Field 为 binary，因为 graph_state 内部使用 binary 键
-        %% FieldReducers 键可能是 atom 或 binary，需要同时尝试
-        NormalizedField = normalize_field_key(Field),
-        Reducer = find_reducer(Field, NormalizedField, FieldReducers),
-        MergedValue = apply_field_reducer(Reducer, OldValue, NewValue),
-        graph_state:set(AccState, Field, MergedValue)
-    end, State, Delta).
-
-%% @private 标准化字段键为 binary
--spec normalize_field_key(atom() | binary()) -> binary().
-normalize_field_key(Field) when is_atom(Field) ->
-    atom_to_binary(Field, utf8);
-normalize_field_key(Field) when is_binary(Field) ->
-    Field.
-
-%% @private 查找字段对应的 reducer
-%% 同时尝试原始键和标准化后的 binary 键
--spec find_reducer(term(), binary(), field_reducers()) -> field_reducer().
-find_reducer(OrigField, NormalizedField, FieldReducers) ->
-    case maps:get(OrigField, FieldReducers, undefined) of
-        undefined ->
-            maps:get(NormalizedField, FieldReducers, fun last_write_win/2);
-        Reducer ->
-            Reducer
-    end.
-
-%% @private 应用字段 reducer
--spec apply_field_reducer(field_reducer(), term(), term()) -> term().
-apply_field_reducer(_Reducer, undefined, NewValue) ->
-    NewValue;
-apply_field_reducer(_Reducer, OldValue, undefined) ->
-    OldValue;
-apply_field_reducer(Reducer, OldValue, NewValue) ->
-    Reducer(OldValue, NewValue).
-
-%% @private 默认 reducer: last_write_win
--spec last_write_win(term(), term()) -> term().
-last_write_win(_Old, New) -> New.
+%% Delta 应用逻辑委托给 graph_state_reducer 模块，避免代码重复。
+%% 参见 graph_state_reducer:apply_deltas/3
 
 %% @private 完成超步处理
 %%
 %% 全局状态模式（无 inbox 版本）：收集所有 Worker 的 delta 和 activations
+%% 委托给 pregel_superstep 模块处理
 -spec complete_superstep(#state{}) -> #state{}.
 complete_superstep(#state{
     barrier = Barrier,
@@ -537,57 +490,14 @@ complete_superstep(#state{
     cumulative_failures = CumulativeFailures,
     step_caller = Caller
 } = State) ->
-    %% 1. 汇总结果
-    Results = pregel_barrier:get_results(Barrier),
-    AggregatedResults = pregel_barrier:aggregate_results(Results),
-    TotalActive = maps:get(active_count, AggregatedResults),
+    %% 委托给 pregel_superstep 模块
+    {NewGlobalState, NewPendingDeltas, NewPendingActivations,
+     NewSuperstep, Halted, Reply, UpdatedResults, NewCumulativeFailures} =
+        pregel_superstep:complete_superstep(
+            Barrier, Superstep, MaxSupersteps, GlobalState,
+            FieldReducers, CumulativeFailures, Caller),
 
-    %% 2. 收集所有 deltas 和 activations
-    AllDeltas = maps:get(deltas, AggregatedResults, []),
-    AllActivations = maps:get(activations, AggregatedResults, []),
-    TotalActivations = length(AllActivations),
-
-    %% 3. 检查是否有失败/中断，并累积失败信息
-    FailedVertices = maps:get(failed_vertices, AggregatedResults, []),
-    FailedCount = maps:get(failed_count, AggregatedResults, 0),
-    InterruptedCount = maps:get(interrupted_count, AggregatedResults, 0),
-    HasError = FailedCount > 0 orelse InterruptedCount > 0,
-    %% 累积失败（去重）
-    NewCumulativeFailures = case FailedVertices of
-        [] -> CumulativeFailures;
-        _ -> lists:usort(FailedVertices ++ CumulativeFailures)
-    end,
-
-    %% 4. 根据是否有错误决定处理方式
-    {NewGlobalState, NewPendingDeltas, NewPendingActivations} = case HasError of
-        true ->
-            %% 延迟提交：暂存 deltas 和 activations，不 apply
-            {GlobalState, AllDeltas, AllActivations};
-        false ->
-            %% 正常提交：apply deltas 到全局状态
-            UpdatedState = apply_deltas(GlobalState, AllDeltas, FieldReducers),
-            {UpdatedState, undefined, undefined}
-    end,
-
-    %% 5. 更新 AggregatedResults（添加 activation_count）
-    UpdatedResults = AggregatedResults#{
-        activation_count => TotalActivations,
-        superstep => Superstep
-    },
-
-    %% 6. 检查终止条件
-    Halted = (TotalActive =:= 0) andalso (TotalActivations =:= 0) andalso (not HasError),
-    MaxReached = Superstep >= MaxSupersteps - 1,
-    IsDone = Halted orelse MaxReached,
-
-    %% 7. 确定 checkpoint 类型并构建返回信息
-    Type = case IsDone of
-        true -> final;
-        false -> determine_checkpoint_type(UpdatedResults)
-    end,
-    Info = build_superstep_info(Type, UpdatedResults),
-
-    %% 8. 更新状态
+    %% 更新状态
     NewState = State#state{
         global_state = NewGlobalState,
         pending_deltas = NewPendingDeltas,
@@ -595,23 +505,17 @@ complete_superstep(#state{
         last_results = UpdatedResults,
         cumulative_failures = NewCumulativeFailures,
         step_caller = undefined,
-        superstep = if IsDone -> Superstep; true -> Superstep + 1 end,
-        halted = IsDone
+        superstep = NewSuperstep,
+        halted = Halted
     },
 
-    %% 9. 回复调用者
-    Reply = case IsDone of
-        true ->
-            Reason = if Halted -> completed; true -> max_supersteps end,
-            {done, Reason, Info};
-        false ->
-            {continue, Info}
-    end,
+    %% 回复调用者
     gen_server:reply(Caller, Reply),
 
     NewState.
 
 %% @private 执行顶点重试（无 pending_deltas）
+%% 委托给 pregel_retry 模块处理
 -spec execute_retry([vertex_id()], #state{}) -> {noreply, #state{}}.
 execute_retry(VertexIds, #state{
     workers = Workers,
@@ -624,33 +528,13 @@ execute_retry(VertexIds, #state{
     %% 1. 广播当前全局状态
     broadcast_global_state(State),
 
-    %% 2. 调用所有 Workers 重试指定顶点
-    RetryResults = maps:fold(
-        fun(_WorkerId, Pid, Acc) ->
-            case pregel_worker:retry_vertices(Pid, VertexIds) of
-                {ok, Result} -> [Result | Acc];
-                _ -> Acc
-            end
-        end,
-        [],
-        Workers
-    ),
+    %% 2. 委托给 pregel_retry 模块执行重试
+    {RetryDeltas, RetryActivations, StillFailed, StillInterrupted, _RetryResults} =
+        pregel_retry:execute_retry(Workers, VertexIds, GlobalState, FieldReducers),
 
-    %% 3. 收集重试产生的 deltas 和 activations
-    RetryDeltas = lists:flatmap(
-        fun(R) -> maps:get(deltas, R, []) end,
-        RetryResults
-    ),
-    RetryActivations = lists:flatmap(
-        fun(R) -> maps:get(activations, R, []) end,
-        RetryResults
-    ),
-
-    %% 4. 检查是否仍有失败
-    {StillFailed, StillInterrupted} = collect_retry_failures(RetryResults),
     HasError = length(StillFailed) > 0 orelse length(StillInterrupted) > 0,
 
-    %% 5. 根据是否有错误决定处理方式
+    %% 3. 根据是否有错误决定处理方式
     {NewGlobalState, NewPendingDeltas, NewPendingActivations} = case HasError of
         true ->
             %% 仍有错误，暂存
@@ -658,11 +542,11 @@ execute_retry(VertexIds, #state{
             {GlobalState, RetryDeltas, LastActivations ++ RetryActivations};
         false ->
             %% 成功，apply deltas
-            UpdatedState = apply_deltas(GlobalState, RetryDeltas, FieldReducers),
+            UpdatedState = graph_state_reducer:apply_deltas(GlobalState, RetryDeltas, FieldReducers),
             {UpdatedState, undefined, undefined}
     end,
 
-    %% 6. 更新结果
+    %% 4. 更新结果
     UpdatedResults = LastResults#{
         failed_count => length(StillFailed),
         failed_vertices => StillFailed,
@@ -673,11 +557,11 @@ execute_retry(VertexIds, #state{
         superstep => Superstep
     },
 
-    %% 7. 确定 checkpoint 类型并构建返回信息
-    Type = determine_checkpoint_type(UpdatedResults),
-    Info = build_superstep_info(Type, UpdatedResults),
+    %% 5. 确定 checkpoint 类型并构建返回信息
+    Type = pregel_superstep:determine_checkpoint_type(UpdatedResults),
+    Info = pregel_superstep:build_superstep_info(Type, UpdatedResults),
 
-    %% 8. 更新状态
+    %% 6. 更新状态
     NewState = State#state{
         global_state = NewGlobalState,
         pending_deltas = NewPendingDeltas,
@@ -686,12 +570,13 @@ execute_retry(VertexIds, #state{
         step_caller = undefined
     },
 
-    %% 9. 回复调用者
+    %% 7. 回复调用者
     gen_server:reply(Caller, {continue, Info}),
 
     {noreply, NewState}.
 
 %% @private 执行延迟提交重试
+%% 委托给 pregel_retry 模块处理
 -spec execute_deferred_retry([vertex_id()], #state{}) -> {noreply, #state{}}.
 execute_deferred_retry(VertexIds, #state{
     workers = Workers,
@@ -705,54 +590,25 @@ execute_deferred_retry(VertexIds, #state{
     %% 1. 广播当前全局状态
     broadcast_global_state(State),
 
-    %% 2. 调用所有 Workers 重试指定顶点
-    RetryResults = maps:fold(
-        fun(_WorkerId, Pid, Acc) ->
-            case pregel_worker:retry_vertices(Pid, VertexIds) of
-                {ok, Result} -> [Result | Acc];
-                _ -> Acc
-            end
-        end,
-        [],
-        Workers
-    ),
+    %% 2. 委托给 pregel_retry 模块执行延迟提交重试
+    {MergedDeltas, MergedActivations, StillFailed, StillInterrupted, _RetryResults} =
+        pregel_retry:execute_deferred_retry(
+            Workers, VertexIds, PendingDeltas, PendingActivations, GlobalState),
 
-    %% 3. 收集重试产生的新 deltas 和 activations
-    RetryDeltas = lists:flatmap(
-        fun(R) -> maps:get(deltas, R, []) end,
-        RetryResults
-    ),
-    RetryActivations = lists:flatmap(
-        fun(R) -> maps:get(activations, R, []) end,
-        RetryResults
-    ),
-
-    %% 4. 合并 deltas（替换重试顶点的 delta）
-    RetriedVertexIds = get_retried_vertex_ids(RetryResults),
-    MergedDeltas = merge_pending_deltas(PendingDeltas, RetryDeltas, RetriedVertexIds),
-    %% 合并 activations
-    CurrentPendingActivations = case PendingActivations of
-        undefined -> [];
-        _ -> PendingActivations
-    end,
-    MergedActivations = CurrentPendingActivations ++ RetryActivations,
-
-    %% 5. 检查是否仍有失败
-    {StillFailed, StillInterrupted} = collect_retry_failures(RetryResults),
     HasError = length(StillFailed) > 0 orelse length(StillInterrupted) > 0,
 
-    %% 6. 根据是否有错误决定处理方式
+    %% 3. 根据是否有错误决定处理方式
     {NewGlobalState, NewPendingDeltas, NewPendingActivations} = case HasError of
         true ->
             %% 仍有错误，继续暂存
             {GlobalState, MergedDeltas, MergedActivations};
         false ->
             %% 全部成功，apply 所有 deltas
-            UpdatedState = apply_deltas(GlobalState, MergedDeltas, FieldReducers),
+            UpdatedState = graph_state_reducer:apply_deltas(GlobalState, MergedDeltas, FieldReducers),
             {UpdatedState, undefined, undefined}
     end,
 
-    %% 7. 构建更新结果
+    %% 4. 构建更新结果
     UpdatedResults = #{
         failed_count => length(StillFailed),
         failed_vertices => StillFailed,
@@ -764,11 +620,11 @@ execute_deferred_retry(VertexIds, #state{
         active_count => 0
     },
 
-    %% 8. 确定 checkpoint 类型并构建返回信息
-    Type = determine_checkpoint_type(UpdatedResults),
-    Info = build_superstep_info(Type, UpdatedResults),
+    %% 5. 确定 checkpoint 类型并构建返回信息
+    Type = pregel_superstep:determine_checkpoint_type(UpdatedResults),
+    Info = pregel_superstep:build_superstep_info(Type, UpdatedResults),
 
-    %% 9. 更新状态
+    %% 6. 更新状态
     NewState = State#state{
         global_state = NewGlobalState,
         pending_deltas = NewPendingDeltas,
@@ -777,110 +633,17 @@ execute_deferred_retry(VertexIds, #state{
         step_caller = undefined
     },
 
-    %% 10. 回复调用者
+    %% 7. 回复调用者
     gen_server:reply(Caller, {continue, Info}),
 
     {noreply, NewState}.
-
-%% @private 收集重试失败信息
--spec collect_retry_failures([pregel_worker:retry_result()]) ->
-    {[{vertex_id(), term()}], [{vertex_id(), term()}]}.
-collect_retry_failures(RetryResults) ->
-    lists:foldl(
-        fun(R, {FAcc, IAcc}) ->
-            {maps:get(failed_vertices, R, []) ++ FAcc,
-             maps:get(interrupted_vertices, R, []) ++ IAcc}
-        end,
-        {[], []},
-        RetryResults
-    ).
-
-%% @private 获取重试的顶点 ID 列表
--spec get_retried_vertex_ids([pregel_worker:retry_result()]) -> [vertex_id()].
-get_retried_vertex_ids(RetryResults) ->
-    lists:flatmap(
-        fun(R) ->
-            Vertices = maps:get(vertices, R, #{}),
-            maps:keys(Vertices)
-        end,
-        RetryResults
-    ).
-
-%% @private 合并 pending deltas 和重试 deltas
-%% 重试顶点的 delta 替换原有的
--spec merge_pending_deltas([delta()], [delta()], [vertex_id()]) -> [delta()].
-merge_pending_deltas(PendingDeltas, RetryDeltas, _RetriedVertexIds) ->
-    %% 简单实现：直接追加新的 deltas
-    %% 因为 deltas 是增量，重试的结果会覆盖之前的
-    PendingDeltas ++ RetryDeltas.
-
-%% @private 按目标 Worker 分组 activations
--spec group_activations_by_worker([vertex_id()], pos_integer()) ->
-    #{non_neg_integer() => [vertex_id()]}.
-group_activations_by_worker(Activations, NumWorkers) ->
-    lists:foldl(
-        fun(VertexId, Acc) ->
-            WorkerId = pregel_partition:worker_id(VertexId, NumWorkers, hash),
-            Existing = maps:get(WorkerId, Acc, []),
-            Acc#{WorkerId => [VertexId | Existing]}
-        end,
-        #{},
-        Activations
-    ).
-
-%% @private 获取下一超步要激活的顶点列表
--spec get_activations_for_superstep([vertex_id()] | undefined,
-                                     pregel_barrier:superstep_results() | undefined) ->
-    [vertex_id()].
-get_activations_for_superstep(PendingActivations, _LastResults) when is_list(PendingActivations) ->
-    %% 有 pending_activations 时使用它（恢复场景或延迟提交）
-    PendingActivations;
-get_activations_for_superstep(undefined, undefined) ->
-    %% 首次超步，激活所有顶点（通过空列表表示）
-    [];
-get_activations_for_superstep(undefined, LastResults) ->
-    %% 从上次结果获取 activations
-    maps:get(activations, LastResults, []).
 
 %%====================================================================
 %% 辅助函数
 %%====================================================================
 
-%% @private 构建超步信息（带类型）
--spec build_superstep_info(checkpoint_type(), pregel_barrier:superstep_results() | undefined) -> superstep_info().
-build_superstep_info(Type, undefined) ->
-    #{
-        type => Type,
-        superstep => 0,
-        active_count => 0,
-        activation_count => 0,
-        failed_count => 0,
-        failed_vertices => [],
-        interrupted_count => 0,
-        interrupted_vertices => []
-    };
-build_superstep_info(Type, Results) ->
-    #{
-        type => Type,
-        superstep => maps:get(superstep, Results, 0),
-        active_count => maps:get(active_count, Results, 0),
-        activation_count => maps:get(activation_count, Results, 0),
-        failed_count => maps:get(failed_count, Results, 0),
-        failed_vertices => maps:get(failed_vertices, Results, []),
-        interrupted_count => maps:get(interrupted_count, Results, 0),
-        interrupted_vertices => maps:get(interrupted_vertices, Results, [])
-    }.
-
-%% @private 根据结果判断 checkpoint 类型
--spec determine_checkpoint_type(pregel_barrier:superstep_results()) -> checkpoint_type().
-determine_checkpoint_type(Results) ->
-    InterruptedCount = maps:get(interrupted_count, Results, 0),
-    FailedCount = maps:get(failed_count, Results, 0),
-    if
-        InterruptedCount > 0 -> interrupt;
-        FailedCount > 0 -> error;
-        true -> step
-    end.
+%% 超步相关函数已移至 pregel_superstep 模块
+%% 重试相关函数已移至 pregel_retry 模块
 
 %% @private 获取终止原因
 -spec get_done_reason(#state{}) -> done_reason().

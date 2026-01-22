@@ -34,6 +34,8 @@
 -export([delete/2, keys/1, values/1]).
 -export([has_key/2, is_empty/1]).
 -export([to_map/1, from_map/1]).
+%% 键规范化
+-export([normalize_key/1]).
 
 %% 类型定义
 -type state() :: #{binary() => term()}.
@@ -158,6 +160,31 @@ from_map(Map) ->
     new(Map).
 
 %%====================================================================
+%%% 键规范化 API
+%%====================================================================
+
+%% @doc 将单个键标准化为 binary
+%%
+%% 转换规则：
+%% - binary: 直接返回（推荐，避免 atom 泄漏）
+%% - atom: 转换为 binary（安全的，atom 是编译时已知的）
+%% - list: 转换为 binary（安全的，list 是内容已知的）
+%% - 其他: 抛出错误
+%%
+%% 此函数可被其他模块复用，避免在多处重复实现键规范化逻辑。
+%%
+%% @see https://www.erlang.org/doc/efficiency_guide/atoms.html
+-spec normalize_key(term()) -> binary().
+normalize_key(Key) when is_binary(Key) ->
+    Key;
+normalize_key(Key) when is_atom(Key) ->
+    atom_to_binary(Key, utf8);
+normalize_key(Key) when is_list(Key) ->
+    list_to_binary(Key);
+normalize_key(Key) ->
+    error({invalid_key_type, Key}).
+
+%%====================================================================
 %%% 内部函数
 %%====================================================================
 
@@ -177,9 +204,9 @@ from_map(Map) ->
 %% @see https://www.erlang.org/doc/efficiency_guide/atoms.html
 -spec normalize_keys(map()) -> state().
 normalize_keys(Map) ->
-    maps:fold(fun normalize_key/3, #{}, Map).
+    maps:fold(fun normalize_key_fold/3, #{}, Map).
 
-%% @doc 标准化单个键
+%% @doc 内部函数：标准化单个键（用于 maps:fold）
 %%
 %% 转换规则：
 %% - binary: 直接使用（推荐，避免 atom 泄漏）
@@ -190,18 +217,18 @@ normalize_keys(Map) ->
 %% 安全保证：
 %% - 只将已知的 atom 转换为 binary（编译时确定）
 %% - 不将任意 binary 转换为 atom（防止 atom 表溢出）
--spec normalize_key(term(), value(), state()) -> state().
-normalize_key(Key, Value, Acc) when is_binary(Key) ->
+-spec normalize_key_fold(term(), value(), state()) -> state().
+normalize_key_fold(Key, Value, Acc) when is_binary(Key) ->
     %% binary 键：直接使用（推荐方式）
     %% 不转换为 atom，避免 atom 泄漏
     Acc#{Key => Value};
-normalize_key(Key, Value, Acc) when is_atom(Key) ->
+normalize_key_fold(Key, Value, Acc) when is_atom(Key) ->
     %% atom 键：转换为 binary（安全的，atom 是已知的）
     %% 这里的 atom 是代码中显式写的，不是外部输入
     Acc#{atom_to_binary(Key, utf8) => Value};
-normalize_key(Key, Value, Acc) when is_list(Key) ->
+normalize_key_fold(Key, Value, Acc) when is_list(Key) ->
     %% list 键：转换为 binary（安全的，list 内容是已知的）
     Acc#{list_to_binary(Key) => Value};
-normalize_key(Key, _Value, _Acc) ->
+normalize_key_fold(Key, _Value, _Acc) ->
     %% 其他类型：错误
     error({invalid_key_type, Key}).
