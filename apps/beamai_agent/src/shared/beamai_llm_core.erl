@@ -91,15 +91,20 @@ execute_call(LLMConfig, AllMsgs, Messages, State, MsgsKey) ->
 %%
 %% Extracts content, tool calls, and finish reason from response.
 %% Invokes text and action callbacks.
-%% Updates messages and full_messages.
+%% Updates messages and full_messages with ONLY the new message (delta pattern).
+%%
+%% 重要：使用增量更新模式
+%% - 只设置新的 assistant 消息，不包含历史消息
+%% - field_reducer (append_reducer) 负责将新消息追加到现有列表
+%% - 这避免了 compute_delta 返回完整列表导致的消息重复问题
 %%
 %% @param Response LLM response map
-%% @param Messages Original messages list
+%% @param _Messages Original messages list (unused, kept for API compatibility)
 %% @param State Graph state
 %% @param MsgsKey Key for messages in state
 %% @returns {ok, NewState}
 -spec process_response(map(), [map()], map(), atom()) -> {ok, map()}.
-process_response(Response, Messages, State, MsgsKey) ->
+process_response(Response, _Messages, State, MsgsKey) ->
     %% Extract response data
     Content = extract_content(Response),
     ToolCalls = extract_tool_calls(Response),
@@ -112,17 +117,17 @@ process_response(Response, Messages, State, MsgsKey) ->
     %% Build assistant message
     AssistantMsg = build_assistant_msg(Content, ToolCalls),
 
-    %% Update state
-    NewMsgs = Messages ++ [AssistantMsg],
+    %% Update state with ONLY the new message (delta pattern)
+    %% append_reducer 会将新消息追加到现有消息列表
     BaseUpdates = [
-        {MsgsKey, NewMsgs},
+        {MsgsKey, [AssistantMsg]},  %% 只设置新消息，不包含历史
         {last_response, Response},
         {last_content, Content},
         {tool_calls, ToolCalls},
         {finish_reason, FinishReason}
     ],
 
-    %% Sync full_messages if present
+    %% Sync full_messages if present (also uses delta pattern)
     AllUpdates = beamai_state_helpers:sync_full_messages(BaseUpdates, AssistantMsg, State),
     NewState = beamai_state_helpers:set_many(State, AllUpdates),
 

@@ -104,16 +104,18 @@ restore_checkpoint_state(Memory, ThreadId, CpId, State) ->
 %% @private 应用检查点数据到状态
 %%
 %% 恢复 messages、full_messages、scratchpad、context 到状态。
+%% checkpoint.values 直接是 global_state，键为 binary 格式。
 %%
 %% 注意：
 %% - context 使用合并策略，保留当前状态中存在但检查点中不存在的键
 -spec apply_checkpoint_data(map(), #state{}) -> #state{}.
 apply_checkpoint_data(Data, #state{context = CurrentCtx} = State) ->
-    Messages = maps:get(messages, Data, []),
-    FullMessages = maps:get(full_messages, Data, []),
-    Scratchpad = maps:get(scratchpad, Data, []),
+    %% global_state 使用 binary 键，所以同时检查 atom 和 binary 键
+    Messages = get_field(Data, messages, []),
+    FullMessages = get_field(Data, full_messages, []),
+    Scratchpad = get_field(Data, scratchpad, []),
     %% Context 恢复：检查点数据覆盖当前值，但保留检查点中没有的当前键
-    SavedCtx = maps:get(context, Data, #{}),
+    SavedCtx = get_field(Data, context, #{}),
     NewCtx = maps:merge(CurrentCtx, SavedCtx),
     State#state{
         messages = Messages,
@@ -121,3 +123,13 @@ apply_checkpoint_data(Data, #state{context = CurrentCtx} = State) ->
         scratchpad = Scratchpad,
         context = NewCtx
     }.
+
+%% @private 从 checkpoint data 获取字段
+%% 支持 atom 和 binary 键（global_state 使用 binary 键）
+-spec get_field(map(), atom(), term()) -> term().
+get_field(Data, Key, Default) when is_atom(Key) ->
+    BinaryKey = atom_to_binary(Key, utf8),
+    case maps:get(BinaryKey, Data, undefined) of
+        undefined -> maps:get(Key, Data, Default);
+        Value -> Value
+    end.

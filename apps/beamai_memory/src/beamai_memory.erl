@@ -210,22 +210,23 @@ save_checkpoint(#{context_store := Store}, Config, State, MetadataMap) ->
     },
 
     %% 构建元数据（扁平化结构）
+    %% 所有执行上下文字段从 MetadataMap 获取（State 现在只包含 global_state）
     Metadata = #checkpoint_metadata{
         %% 执行阶段信息
         checkpoint_type = determine_checkpoint_type(State, MetadataMap),
-        step = maps:get(superstep, State, maps:get(step, MetadataMap, 0)),
+        step = maps:get(superstep, MetadataMap, maps:get(step, MetadataMap, 0)),
 
         %% 图顶点状态
-        active_vertices = maps:get(active_vertices, State, []),
-        completed_vertices = maps:get(completed_vertices, State, []),
+        active_vertices = maps:get(active_vertices, MetadataMap, []),
+        completed_vertices = maps:get(completed_vertices, MetadataMap, []),
 
         %% 执行标识
-        run_id = maps:get(run_id, State, maps:get(run_id, Config, undefined)),
+        run_id = maps:get(run_id, Config, undefined),
         agent_id = maps:get(agent_id, Config, undefined),
         agent_name = maps:get(agent_name, Config, undefined),
-        iteration = maps:get(iteration, State, 0),
+        iteration = maps:get(iteration, MetadataMap, 0),
 
-        %% 用户自定义元数据
+        %% 用户自定义元数据（包含执行上下文用于恢复）
         metadata = maps:get(metadata, MetadataMap, #{})
     },
 
@@ -969,10 +970,7 @@ get_flex(Key, Map, Default) when is_atom(Key), is_map(Map) ->
 
 %% @private 确定检查点类型
 %%
-%% 优先级：State.checkpoint_type > MetadataMap.checkpoint_type
+%% checkpoint_type 从 MetadataMap 获取（State 现在只包含 global_state）
 -spec determine_checkpoint_type(map(), map()) -> atom() | undefined.
-determine_checkpoint_type(State, MetadataMap) ->
-    case maps:get(checkpoint_type, State, undefined) of
-        undefined -> maps:get(checkpoint_type, MetadataMap, undefined);
-        Type -> Type
-    end.
+determine_checkpoint_type(_State, MetadataMap) ->
+    maps:get(checkpoint_type, MetadataMap, undefined).

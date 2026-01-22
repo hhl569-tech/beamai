@@ -91,23 +91,27 @@ build_tool_messages(ToolCalls, Results) ->
     end, ToolCalls, Results).
 
 %% @doc 追加单个消息到 full_messages（如果存在）
+%%
+%% 使用增量更新模式：只设置新消息，append_reducer 负责追加
 -spec append_to_full_messages(list(), map(), map()) -> list().
 append_to_full_messages(Updates, NewMsg, State) ->
     case graph:get(State, full_messages, undefined) of
         undefined -> Updates;
-        FullMessages ->
-            NewFullMsgs = FullMessages ++ [NewMsg],
-            Updates ++ [{full_messages, NewFullMsgs}]
+        _FullMessages ->
+            %% 只设置新消息，append_reducer 会追加到现有列表
+            Updates ++ [{full_messages, [NewMsg]}]
     end.
 
 %% @doc 追加消息列表到 full_messages（如果存在）
+%%
+%% 使用增量更新模式：只设置新消息列表，append_reducer 负责追加
 -spec append_list_to_full_messages(list(), [map()], map()) -> list().
 append_list_to_full_messages(Updates, NewMsgs, State) ->
     case graph:get(State, full_messages, undefined) of
         undefined -> Updates;
-        FullMessages ->
-            NewFullMsgs = FullMessages ++ NewMsgs,
-            Updates ++ [{full_messages, NewFullMsgs}]
+        _FullMessages ->
+            %% 只设置新消息列表，append_reducer 会追加到现有列表
+            Updates ++ [{full_messages, NewMsgs}]
     end.
 
 %%====================================================================

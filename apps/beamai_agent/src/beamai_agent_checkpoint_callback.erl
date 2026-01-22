@@ -53,24 +53,12 @@ create_callback(#state{config = #agent_config{id = AgentId, name = AgentName}}, 
         %% 提取检查点类型
         CheckpointType = maps:get(type, CheckpointData, maps:get(type, Info, step)),
 
-        %% 从 pregel_checkpoint 提取状态
+        %% 从 pregel_checkpoint 提取状态和执行上下文
         PregelCheckpoint = maps:get(pregel_checkpoint, CheckpointData, #{}),
-        GraphState = extract_graph_state(PregelCheckpoint),
 
-        %% 构建要保存的状态数据
-        StateData = #{
-            messages => maps:get(<<"messages">>, GraphState, maps:get(messages, GraphState, [])),
-            full_messages => maps:get(<<"full_messages">>, GraphState, maps:get(full_messages, GraphState, [])),
-            scratchpad => maps:get(<<"scratchpad">>, GraphState, maps:get(scratchpad, GraphState, [])),
-            context => maps:get(<<"context">>, GraphState, maps:get(context, GraphState, #{})),
-            %% 执行上下文信息
-            checkpoint_type => CheckpointType,
-            run_id => maps:get(run_id, CheckpointData, undefined),
-            iteration => maps:get(iteration, CheckpointData, 0),
-            superstep => maps:get(superstep, CheckpointData, maps:get(superstep, Info, 0)),
-            active_vertices => maps:get(active_vertices, CheckpointData, []),
-            completed_vertices => maps:get(completed_vertices, CheckpointData, [])
-        },
+        %% StateData = global_state（直接存储 agent 状态）
+        %% global_state 已经包含 messages, full_messages, scratchpad, context 等
+        StateData = extract_graph_state(PregelCheckpoint),
 
         %% 构建配置
         Config = #{
@@ -81,12 +69,21 @@ create_callback(#state{config = #agent_config{id = AgentId, name = AgentName}}, 
         },
 
         %% 构建元数据
+        %% 扁平字段由 beamai_memory 处理
+        %% metadata 字段存储执行上下文（用于恢复）
+        Superstep = maps:get(superstep, CheckpointData, maps:get(superstep, Info, 0)),
         MetadataMap = #{
             checkpoint_type => CheckpointType,
             iteration => maps:get(iteration, CheckpointData, 0),
-            superstep => maps:get(superstep, CheckpointData, maps:get(superstep, Info, 0)),
+            superstep => Superstep,
             active_vertices => maps:get(active_vertices, CheckpointData, []),
-            completed_vertices => maps:get(completed_vertices, CheckpointData, [])
+            completed_vertices => maps:get(completed_vertices, CheckpointData, []),
+            %% 执行上下文（用于图恢复）
+            metadata => #{
+                pending_activations => maps:get(pending_activations, PregelCheckpoint, []),
+                vertices => maps:get(vertices, PregelCheckpoint, #{}),
+                pending_deltas => maps:get(pending_deltas, PregelCheckpoint, [])
+            }
         },
 
         %% 保存 checkpoint
@@ -104,14 +101,7 @@ create_callback(#state{config = #agent_config{id = AgentId, name = AgentName}}, 
 
 %% @private 从 pregel checkpoint 提取图状态
 %%
-%% 状态存储在 __start__ 顶点的 initial_state 字段中
+%% 全局状态模式：状态存储在 pregel_checkpoint.global_state 中
 -spec extract_graph_state(map()) -> map().
 extract_graph_state(PregelCheckpoint) ->
-    Vertices = maps:get(vertices, PregelCheckpoint, #{}),
-    case maps:get('__start__', Vertices, undefined) of
-        undefined ->
-            #{};
-        StartVertex ->
-            Value = maps:get(value, StartVertex, #{}),
-            maps:get(initial_state, Value, #{})
-    end.
+    maps:get(global_state, PregelCheckpoint, #{}).

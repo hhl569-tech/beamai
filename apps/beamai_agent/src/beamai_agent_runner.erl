@@ -152,11 +152,16 @@ build_run_options(#state{config = #agent_config{storage = Memory}} = State, Opts
 %% @private Agent 特定的字段 Reducer 配置
 %%
 %% 定义 Agent 状态字段的合并策略：
-%% - messages: append（追加，保留对话历史）
+%% - messages: append（追加，节点只设置新消息）
 %% - full_messages: append（追加，完整历史）
 %% - scratchpad: append（追加，中间步骤）
 %% - context: merge（合并，用户上下文）
 %% - 其他字段: last_write_win（默认）
+%%
+%% 重要：节点使用增量更新模式
+%% - 节点只设置新增的消息，不包含历史消息
+%% - append_reducer 负责将新消息追加到现有列表
+%% - 例如：LLM 节点返回 [assistant_msg]，reducer 执行 existing ++ [assistant_msg]
 -spec agent_field_reducers() -> graph_state_reducer:field_reducers().
 agent_field_reducers() ->
     #{

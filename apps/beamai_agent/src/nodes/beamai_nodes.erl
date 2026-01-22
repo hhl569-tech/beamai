@@ -84,17 +84,21 @@ iteration_node() ->
 
 %% @doc 创建 Scratchpad 记录节点
 %% StepType: llm_response | tool_call | tool_result
+%%
+%% 使用增量更新模式：只设置新的步骤，append_reducer 负责追加到现有列表
 -spec scratchpad_node(atom()) -> fun((map()) -> {ok, map()}).
 scratchpad_node(StepType) ->
     fun(State) ->
-        Pad = graph:get(State, scratchpad, []),
+        %% 使用状态中的 iteration（比列表长度更有意义）
+        Iteration = graph:get(State, iteration, 0),
         Step = #{
-            iteration => length(Pad),
+            iteration => Iteration,
             type => StepType,
             timestamp => erlang:system_time(millisecond),
             data => extract_step_data(State, StepType)
         },
-        {ok, graph:set(State, scratchpad, Pad ++ [Step])}
+        %% 只设置新步骤，append_reducer 会追加到现有列表
+        {ok, graph:set(State, scratchpad, [Step])}
     end.
 
 %% @private 提取步骤数据

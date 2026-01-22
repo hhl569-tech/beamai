@@ -38,7 +38,6 @@ create(ToolHandlers) ->
     fun(State) ->
         %% Get data from state
         ToolCalls = beamai_state_helpers:get_tool_calls(State),
-        Messages = beamai_state_helpers:get_messages(State),
         Context = beamai_state_helpers:get_context(State),
 
         %% Execute all tool calls using shared core
@@ -48,18 +47,18 @@ create(ToolHandlers) ->
         %% Build tool result messages
         ToolMessages = beamai_agent_utils:build_tool_messages(ToolCalls, Results),
 
-        %% Batch update state
-        NewMsgs = Messages ++ ToolMessages,
+        %% Batch update state (使用增量模式：只设置新消息)
+        %% append_reducer 会将新消息追加到现有列表
         NewCtx = maps:merge(Context, CtxUpdates),
 
         BaseUpdates = [
-            {messages, NewMsgs},
+            {messages, ToolMessages},  %% 只设置新消息，不包含历史
             {tool_results, Results},
             {tool_calls, []},
             {context, NewCtx}
         ],
 
-        %% Sync full_messages if present
+        %% Sync full_messages if present (also uses delta pattern)
         AllUpdates = beamai_state_helpers:sync_full_messages_list(
             BaseUpdates, ToolMessages, State),
         NewState = beamai_state_helpers:set_many(State, AllUpdates),

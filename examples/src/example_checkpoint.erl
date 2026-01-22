@@ -190,7 +190,8 @@ example_access_checkpoints(LLMConfig) ->
     io:format("~n加载最新 checkpoint:~n"),
     case beamai_memory:load_latest_checkpoint(Memory, #{thread_id => ThreadId}) of
         {ok, LatestData} ->
-            Messages = maps:get(messages, LatestData, []),
+            %% global_state 使用 binary 键
+            Messages = get_data_value(LatestData, messages, []),
             io:format("  消息数量: ~p~n", [length(Messages)]);
         {error, LoadError} ->
             io:format("加载失败: ~p~n", [LoadError])
@@ -315,19 +316,22 @@ example_list_all_checkpoints(LLMConfig) ->
                 Index + 1
             end, 1, Checkpoints),
 
-            %% 6. 演示加载特定 checkpoint 的完整数据
-            case Checkpoints of
-                [{FirstCp, _, _} | _] ->
-                    FirstCpId = get_checkpoint_field(FirstCp, id),
+            %% 6. 演示加载最新 checkpoint（final 类型）的完整数据
+            %% 注意：第一个 checkpoint 通常是 initial 类型，还没有 LLM 回复
+            %% 最后一个 checkpoint 是 final 类型，包含完整的对话历史
+            case lists:reverse(Checkpoints) of
+                [{LastCp, _, _} | _] ->
+                    LastCpId = get_checkpoint_field(LastCp, id),
                     io:format("~n" ++ string:copies("-", 60) ++ "~n"),
-                    io:format("加载第一个 checkpoint (~s) 的完整数据:~n", [FirstCpId]),
+                    io:format("加载最新 checkpoint (~s) 的完整数据:~n", [LastCpId]),
                     io:format(string:copies("-", 60) ++ "~n"),
-                    case beamai_memory:load_checkpoint(Memory, #{
+                    %% 使用 load_checkpoint_tuple 获取完整信息（包括 metadata）
+                    case beamai_memory:load_checkpoint_tuple(Memory, #{
                         thread_id => ThreadId,
-                        checkpoint_id => FirstCpId
+                        checkpoint_id => LastCpId
                     }) of
-                        {ok, CpData} ->
-                            print_checkpoint_data(CpData);
+                        {ok, {LoadedCp, LoadedMeta, _}} ->
+                            print_checkpoint_data(LoadedCp, LoadedMeta);
                         {error, LoadErr} ->
                             io:format("加载失败: ~p~n", [LoadErr])
                     end;
@@ -399,6 +403,7 @@ print_checkpoint_details(Index, Cp, Meta) ->
     Superstep = get_metadata_field(Meta, step),
     ActiveVertices = get_metadata_field(Meta, active_vertices),
     CompletedVertices = get_metadata_field(Meta, completed_vertices),
+    RunId = get_metadata_field(Meta, run_id),
 
     %% 计算消息数量
     Messages = maps:get(messages, Values, maps:get(<<"messages">>, Values, [])),
@@ -406,6 +411,7 @@ print_checkpoint_details(Index, Cp, Meta) ->
 
     io:format("[~p] Checkpoint: ~s~n", [Index, CpId]),
     io:format("    ID: ~s~n", [CpId]),
+    io:format("    run_id: ~s~n", [format_run_id(RunId)]),
     io:format("    类型: ~p~n", [CheckpointType]),
     io:format("    迭代: ~p~n", [Iteration]),
     io:format("    超步: ~p~n", [Superstep]),
@@ -416,15 +422,19 @@ print_checkpoint_details(Index, Cp, Meta) ->
     io:format("~n").
 
 %% @private 打印 checkpoint 完整数据
-print_checkpoint_data(CpData) ->
-    %% 打印执行上下文信息
+%% Cp: checkpoint record, Meta: checkpoint_metadata record
+print_checkpoint_data(Cp, Meta) ->
+    %% 从 checkpoint 获取 values (global_state)
+    Values = get_checkpoint_field(Cp, values),
+
+    %% 从 metadata 获取执行上下文信息
     io:format("~n执行上下文:~n"),
-    CheckpointType = get_data_value(CpData, checkpoint_type, undefined),
-    RunId = get_data_value(CpData, run_id, undefined),
-    Iteration = get_data_value(CpData, iteration, 0),
-    Superstep = get_data_value(CpData, superstep, 0),
-    ActiveVertices = get_data_value(CpData, active_vertices, []),
-    CompletedVertices = get_data_value(CpData, completed_vertices, []),
+    CheckpointType = get_metadata_field(Meta, checkpoint_type),
+    RunId = get_metadata_field(Meta, run_id),
+    Iteration = get_metadata_field(Meta, iteration),
+    Superstep = get_metadata_field(Meta, step),
+    ActiveVertices = get_metadata_field(Meta, active_vertices),
+    CompletedVertices = get_metadata_field(Meta, completed_vertices),
 
     io:format("  checkpoint_type: ~p~n", [CheckpointType]),
     io:format("  run_id: ~s~n", [format_run_id(RunId)]),
@@ -433,8 +443,8 @@ print_checkpoint_data(CpData) ->
     io:format("  active_vertices: ~p~n", [ActiveVertices]),
     io:format("  completed_vertices: ~p~n", [CompletedVertices]),
 
-    %% 打印消息历史
-    Messages = get_data_value(CpData, messages, []),
+    %% 从 values (global_state) 获取消息历史
+    Messages = get_data_value(Values, messages, []),
     io:format("~n消息历史 (~p 条):~n", [length(Messages)]),
     lists:foreach(fun(Msg) ->
         Role = maps:get(role, Msg, maps:get(<<"role">>, Msg, unknown)),
@@ -445,7 +455,7 @@ print_checkpoint_data(CpData) ->
     end, Messages),
 
     %% 打印 scratchpad（如果有）
-    Scratchpad = get_data_value(CpData, scratchpad, []),
+    Scratchpad = get_data_value(Values, scratchpad, []),
     case Scratchpad of
         [] -> ok;
         _ ->
@@ -456,7 +466,7 @@ print_checkpoint_data(CpData) ->
     end,
 
     %% 打印 context（如果有）
-    Context = get_data_value(CpData, context, #{}),
+    Context = get_data_value(Values, context, #{}),
     case maps:size(Context) > 0 of
         true ->
             io:format("~nContext:~n"),
