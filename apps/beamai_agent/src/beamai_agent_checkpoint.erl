@@ -153,9 +153,9 @@ restore_checkpoint_state(Memory, ThreadId, CpId, State) ->
 -spec apply_checkpoint_data(map(), #state{}) -> #state{}.
 apply_checkpoint_data(Data, #state{graph_state = CurrentGS} = State) ->
     %% Context 恢复：合并当前 context 和检查点 context
-    CurrentCtx = graph_state:get(CurrentGS, <<"context">>, #{}),
-    SavedCtx = maps:get(<<"context">>, Data, maps:get(context, Data, #{})),
+    CurrentCtx = graph_state:get_context(CurrentGS),
+    SavedCtx = graph_state:get_context(Data),
     MergedCtx = maps:merge(CurrentCtx, SavedCtx),
-    %% 将检查点数据作为新的 graph_state，更新合并后的 context
-    NewGS = graph_state:set(Data, <<"context">>, MergedCtx),
+    %% 将检查点数据作为新的 graph_state，设置合并后的 context
+    NewGS = graph_state:set_context(Data, MergedCtx),
     State#state{graph_state = NewGS}.

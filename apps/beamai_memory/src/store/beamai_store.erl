@@ -72,7 +72,8 @@
 -export([
     namespace_to_string/1,
     string_to_namespace/1,
-    is_prefix_of/2
+    is_prefix_of/2,
+    is_available/1
 ]).
 
 %%====================================================================
@@ -149,7 +150,7 @@ put({_Module, Ref}, Namespace, Key, Value, Opts) ->
         ok ->
             case validate_key(Key) of
                 ok ->
-                    gen_server:call(Ref, {put, Namespace, Key, Value, Opts});
+                    safe_call(Ref, {put, Namespace, Key, Value, Opts});
                 {error, _} = Error ->
                     Error
             end;
@@ -162,12 +163,12 @@ put({_Module, Ref}, Namespace, Key, Value, Opts) ->
 %% 从指定的命名空间和键获取值。
 -spec get(store(), namespace(), key()) -> {ok, item()} | {error, not_found | term()}.
 get({_Module, Ref}, Namespace, Key) ->
-    gen_server:call(Ref, {get, Namespace, Key}).
+    safe_call(Ref, {get, Namespace, Key}).
 
 %% @doc 删除数据
 -spec delete(store(), namespace(), key()) -> ok | {error, term()}.
 delete({_Module, Ref}, Namespace, Key) ->
-    gen_server:call(Ref, {delete, Namespace, Key}).
+    safe_call(Ref, {delete, Namespace, Key}).
 
 %%====================================================================
 %% 搜索和列表 API
@@ -183,7 +184,7 @@ delete({_Module, Ref}, Namespace, Key) ->
     {ok, [search_result()]} | {error, term()}.
 search({_Module, Ref}, NamespacePrefix, Opts) ->
     NormalizedOpts = normalize_search_opts(Opts),
-    gen_server:call(Ref, {search, NamespacePrefix, NormalizedOpts}).
+    safe_call(Ref, {search, NamespacePrefix, NormalizedOpts}).
 
 %% @doc 列出命名空间下的所有子命名空间
 -spec list_namespaces(store(), namespace()) ->
@@ -196,7 +197,7 @@ list_namespaces(Store, Prefix) ->
     {ok, [namespace()]} | {error, term()}.
 list_namespaces({_Module, Ref}, Prefix, Opts) ->
     NormalizedOpts = normalize_list_opts(Opts),
-    gen_server:call(Ref, {list_namespaces, Prefix, NormalizedOpts}).
+    safe_call(Ref, {list_namespaces, Prefix, NormalizedOpts}).
 
 %%====================================================================
 %% 批量操作 API
@@ -207,7 +208,7 @@ list_namespaces({_Module, Ref}, Prefix, Opts) ->
 %% 执行多个操作，返回每个操作的结果。
 -spec batch(store(), [batch_op()]) -> {ok, [term()]} | {error, term()}.
 batch({_Module, Ref}, Operations) ->
-    gen_server:call(Ref, {batch, Operations}).
+    safe_call(Ref, {batch, Operations}).
 
 %%====================================================================
 %% 管理 API
@@ -216,16 +217,16 @@ batch({_Module, Ref}, Operations) ->
 %% @doc 获取存储统计信息
 %%
 %% 返回后端存储的统计信息，如项目数、命名空间数等。
--spec stats(store()) -> map().
+-spec stats(store()) -> map() | {error, term()}.
 stats({_Module, Ref}) ->
-    gen_server:call(Ref, stats).
+    safe_call(Ref, stats).
 
 %% @doc 清空存储
 %%
 %% 删除所有存储的数据。
 -spec clear(store()) -> ok | {error, term()}.
 clear({_Module, Ref}) ->
-    gen_server:call(Ref, clear).
+    safe_call(Ref, clear).
 
 %%====================================================================
 %% 工具函数
@@ -260,9 +261,43 @@ is_prefix_of([H | T1], [H | T2]) ->
 is_prefix_of(_, _) ->
     false.
 
+%% @doc 检查 Store 是否可用
+%%
+%% 检查底层存储进程是否存在且可访问。
+-spec is_available(store()) -> boolean().
+is_available({_Module, Ref}) when is_pid(Ref) ->
+    is_process_alive(Ref);
+is_available({_Module, Ref}) when is_atom(Ref) ->
+    case whereis(Ref) of
+        undefined -> false;
+        Pid -> is_process_alive(Pid)
+    end;
+is_available(_) ->
+    false.
+
 %%====================================================================
 %% 内部函数
 %%====================================================================
+
+%% @private 安全调用 gen_server
+%%
+%% 捕获 noproc 等异常，返回友好的错误信息。
+-spec safe_call(pid() | atom(), term()) -> term().
+safe_call(Ref, Request) ->
+    try
+        gen_server:call(Ref, Request)
+    catch
+        exit:{noproc, _} ->
+            {error, store_not_available};
+        exit:{normal, _} ->
+            {error, store_stopped};
+        exit:{shutdown, _} ->
+            {error, store_shutdown};
+        exit:{{shutdown, _}, _} ->
+            {error, store_shutdown};
+        exit:{timeout, _} ->
+            {error, timeout}
+    end.
 
 %% @private 验证命名空间
 -spec validate_namespace(namespace()) -> ok | {error, invalid_namespace}.

@@ -57,11 +57,15 @@
 %% Agent 运行时状态
 %%
 %% graph_state 使用 binary 键存储以下字段：
-%% - <<"messages">>       - 压缩的消息历史（用于 LLM 调用）
-%% - <<"full_messages">>  - 完整消息历史（用于审计/调试）
-%% - <<"scratchpad">>     - 中间步骤记录
-%% - <<"context">>        - 用户上下文
-%% - <<"pending_action">> - 等待确认的动作
+%% - <<"messages">>                 - 压缩的消息历史（用于 LLM 调用）
+%% - <<"full_messages">>            - 完整消息历史（用于审计/调试）
+%% - <<"scratchpad">>               - 中间步骤记录
+%% - <<"__beamai_user_context__">>  - 用户上下文（使用特殊键避免冲突）
+%% - <<"pending_action">>           - 等待确认的动作
+%%
+%% 注意：用户上下文使用特殊键名 <<"__beamai_user_context__">> 存储，
+%% 应通过 graph_state:get_context/1,2 和 graph_state:set_context/2 访问，
+%% 不要直接使用键名以避免与其他数据冲突。
 %%
 %% 设计优势：
 %% 1. 数据单一来源 - 消除 Agent 状态和图状态之间的数据复制

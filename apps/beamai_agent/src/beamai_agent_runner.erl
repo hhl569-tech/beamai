@@ -70,7 +70,7 @@ execute(Msg, Opts, #state{config = #agent_config{graph = Graph, system_prompt = 
     %% 从 graph_state 获取历史消息
     HistoryMsgs = graph_state:get(GS, <<"messages">>, []),
     HistoryFullMsgs = graph_state:get(GS, <<"full_messages">>, []),
-    Context = graph_state:get(GS, <<"context">>, #{}),
+    Context = graph_state:get_context(GS),
     Scratchpad = graph_state:get(GS, <<"scratchpad">>, []),
 
     %% 将新用户消息追加到历史记录
@@ -84,8 +84,8 @@ execute(Msg, Opts, #state{config = #agent_config{graph = Graph, system_prompt = 
         <<"last_user_message">> => Msg
     },
 
-    %% 直接更新现有 graph_state，设置图执行所需字段
-    InitState = graph_state:set_many(GS, [
+    %% 设置图执行所需字段
+    GS1 = graph_state:set_many(GS, [
         {<<"messages">>, AllMessages},
         {<<"full_messages">>, AllFullMessages},
         {<<"system_prompt">>, Prompt},
@@ -93,10 +93,11 @@ execute(Msg, Opts, #state{config = #agent_config{graph = Graph, system_prompt = 
         {<<"max_iterations">>, MaxIter},
         {<<"iteration">>, 0},
         {<<"scratchpad">>, Scratchpad},
-        {<<"context">>, ContextWithInput},
         {<<"callbacks">>, beamai_agent_callbacks:to_map(Callbacks)},
         {<<"callback_meta">>, CallbackMeta}
     ]),
+    %% 使用专用函数设置用户上下文
+    InitState = graph_state:set_context(GS1, ContextWithInput),
 
     %% 构建执行选项（run_id 由图层自动生成，on_checkpoint 由 Agent 提供）
     RunOptions = build_run_options(State, Opts),
@@ -159,7 +160,7 @@ build_run_options(#state{config = #agent_config{storage = Memory}} = State, Opts
 %% - messages: append（追加，节点只设置新消息）
 %% - full_messages: append（追加，完整历史）
 %% - scratchpad: append（追加，中间步骤）
-%% - context: merge（合并，用户上下文）
+%% - user_context: merge（合并，用户上下文）
 %% - 其他字段: last_write_win（默认）
 %%
 %% 重要：节点使用增量更新模式
@@ -172,7 +173,7 @@ agent_field_reducers() ->
         <<"messages">> => fun graph_state_reducer:append_reducer/2,
         <<"full_messages">> => fun graph_state_reducer:append_reducer/2,
         <<"scratchpad">> => fun graph_state_reducer:append_reducer/2,
-        <<"context">> => fun graph_state_reducer:merge_reducer/2
+        graph_state:context_key() => fun graph_state_reducer:merge_reducer/2
     }.
 
 %%====================================================================

@@ -36,6 +36,9 @@
 -export([to_map/1, from_map/1]).
 %% 键规范化
 -export([normalize_key/1]).
+%% 用户上下文专用函数
+-export([get_context/1, get_context/2, set_context/2, update_context/2]).
+-export([context_key/0]).  %% 导出上下文键名（用于 field_reducers 等场景）
 
 %% 类型定义
 -type state() :: #{binary() => term()}.
@@ -158,6 +161,52 @@ to_map(State) ->
 -spec from_map(map()) -> state().
 from_map(Map) ->
     new(Map).
+
+%%====================================================================
+%%% 用户上下文操作
+%%====================================================================
+
+%% 用户上下文键名（使用特殊前缀避免与用户数据冲突）
+-define(USER_CONTEXT_KEY, <<"__beamai_user_context__">>).
+
+%% @doc 获取用户上下文键名
+%%
+%% 供外部模块使用（如配置 field_reducers）。
+-spec context_key() -> binary().
+context_key() ->
+    ?USER_CONTEXT_KEY.
+
+%% @doc 获取用户上下文
+%%
+%% 用户上下文是 Agent 运行期间用户可以自由读写的数据存储区。
+%% 使用特殊键名避免与其他 graph_state 数据冲突。
+-spec get_context(state()) -> map().
+get_context(State) ->
+    get(State, ?USER_CONTEXT_KEY, #{}).
+
+%% @doc 获取用户上下文中的指定键
+-spec get_context(state(), key()) -> value() | undefined.
+get_context(State, Key) ->
+    Context = get_context(State),
+    NormalizedKey = normalize_key(Key),
+    maps:get(NormalizedKey, Context, undefined).
+
+%% @doc 设置用户上下文（完全替换）
+-spec set_context(state(), map()) -> state().
+set_context(State, Context) when is_map(Context) ->
+    set(State, ?USER_CONTEXT_KEY, Context).
+
+%% @doc 更新用户上下文（合并）
+%%
+%% 将 Updates 合并到现有上下文中，已存在的键会被覆盖。
+%% Updates 中的键会自动规范化为 binary 类型。
+-spec update_context(state(), map()) -> state().
+update_context(State, Updates) when is_map(Updates) ->
+    Context = get_context(State),
+    %% 规范化 Updates 中的键为 binary
+    NormalizedUpdates = normalize_keys(Updates),
+    NewContext = maps:merge(Context, NormalizedUpdates),
+    set_context(State, NewContext).
 
 %%====================================================================
 %%% 键规范化 API

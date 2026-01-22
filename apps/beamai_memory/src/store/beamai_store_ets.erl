@@ -492,11 +492,11 @@ execute_op({delete, Ns, Key}, State) ->
 evict_lru(Table, MaxItems) ->
     %% 收集所有条目并按访问时间排序
     AllItems = ets:foldl(fun({{NsTuple, Key}, #store_item{updated_at = UpdatedAt}}, Acc) ->
-        [{{UpdatedAt, NsTuple, Key}} | Acc]
+        [{UpdatedAt, NsTuple, Key} | Acc]
     end, [], Table),
 
     %% 按更新时间排序（最旧的在前）
-    SortedByTime = lists:sort(fun({Time1, _}, {Time2, _}) ->
+    SortedByTime = lists:sort(fun({Time1, _, _}, {Time2, _, _}) ->
         Time1 =< Time2
     end, AllItems),
 

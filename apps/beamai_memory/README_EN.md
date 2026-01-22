@@ -78,6 +78,34 @@ checkpoint_manager supports configuring checkpoint quantity limits with automati
 - ETS Store defaults to at most **1000** data items
 - Old data is automatically cleaned up when limits are exceeded
 
+### ETS Store Limit Details
+
+**Important: `max_items` is a GLOBAL limit, NOT a per-thread-id limit.**
+
+```erlang
+%% Configure when creating ETS Store
+{ok, _} = beamai_store_ets:start_link(my_store, #{
+    max_items => 1000,        %% Global limit: 1000 items total across ALL thread-ids
+    max_namespaces => 1000    %% Global limit: 1000 namespaces total
+}).
+```
+
+| Limit Type | Scope | Description |
+|------------|-------|-------------|
+| `max_items` | **Global** | Total items across ALL thread-ids cannot exceed this number |
+| `max_namespaces` | **Global** | Total namespaces cannot exceed this number |
+| `max_checkpoints` | **Per-thread** | Each thread-id is limited individually (managed by checkpoint_manager) |
+
+**Example Scenarios (with `max_items => 1000`):**
+- 10 thread-ids → approximately 100 items each on average
+- 1 thread-id → up to 1000 items maximum
+- When total reaches 1000, LRU eviction is triggered (removes approximately 10% of oldest items)
+
+**Eviction Policy:**
+- LRU (Least Recently Used) strategy based on `updated_at` timestamp
+- Evicts approximately 10% of the oldest entries when triggered
+- Eviction does NOT distinguish by thread-id; operates uniformly across all data
+
 ### Cleanup Strategy
 
 - **Automatic cleanup**: When saving a checkpoint, if the quantity exceeds `max_checkpoints`, the oldest checkpoints are automatically deleted

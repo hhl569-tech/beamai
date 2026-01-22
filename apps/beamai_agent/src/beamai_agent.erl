@@ -201,21 +201,20 @@ get_scratchpad(#state{graph_state = GS}) ->
 %% @doc 获取完整上下文
 -spec get_context(state()) -> map().
 get_context(#state{graph_state = GS}) ->
-    graph_state:get(GS, <<"context">>, #{}).
+    graph_state:get_context(GS).
 
 %% @doc 获取上下文值
 -spec get_context(state(), atom() | binary()) -> term() | undefined.
 get_context(#state{graph_state = GS}, Key) ->
-    Context = graph_state:get(GS, <<"context">>, #{}),
-    NormalizedKey = graph_state:normalize_key(Key),
-    maps:get(NormalizedKey, Context, undefined).
+    graph_state:get_context(GS, Key).
 
 %% @doc 获取上下文值（带默认值）
 -spec get_context(state(), atom() | binary(), term()) -> term().
 get_context(#state{graph_state = GS}, Key, Default) ->
-    Context = graph_state:get(GS, <<"context">>, #{}),
-    NormalizedKey = graph_state:normalize_key(Key),
-    maps:get(NormalizedKey, Context, Default).
+    case graph_state:get_context(GS, Key) of
+        undefined -> Default;
+        Value -> Value
+    end.
 
 %%====================================================================
 %% 状态修改 API 实现
@@ -224,32 +223,19 @@ get_context(#state{graph_state = GS}, Key, Default) ->
 %% @doc 设置完整上下文
 -spec set_context(state(), map()) -> state().
 set_context(#state{graph_state = GS} = State, Context) when is_map(Context) ->
-    NewGS = graph_state:set(GS, <<"context">>, Context),
+    NewGS = graph_state:set_context(GS, Context),
     State#state{graph_state = NewGS}.
 
 %% @doc 更新上下文（合并）
 -spec update_context(state(), map()) -> state().
 update_context(#state{graph_state = GS} = State, Updates) when is_map(Updates) ->
-    Context = graph_state:get(GS, <<"context">>, #{}),
-    %% 将 Updates 的键规范化为 binary
-    NormalizedUpdates = maps:fold(
-        fun(K, V, Acc) ->
-            Acc#{graph_state:normalize_key(K) => V}
-        end,
-        #{},
-        Updates
-    ),
-    NewContext = maps:merge(Context, NormalizedUpdates),
-    NewGS = graph_state:set(GS, <<"context">>, NewContext),
+    NewGS = graph_state:update_context(GS, Updates),
     State#state{graph_state = NewGS}.
 
 %% @doc 设置单个上下文值
 -spec put_context(state(), atom() | binary(), term()) -> state().
 put_context(#state{graph_state = GS} = State, Key, Value) ->
-    Context = graph_state:get(GS, <<"context">>, #{}),
-    NormalizedKey = graph_state:normalize_key(Key),
-    NewContext = maps:put(NormalizedKey, Value, Context),
-    NewGS = graph_state:set(GS, <<"context">>, NewContext),
+    NewGS = graph_state:update_context(GS, #{Key => Value}),
     State#state{graph_state = NewGS}.
 
 %% @doc 清空消息历史

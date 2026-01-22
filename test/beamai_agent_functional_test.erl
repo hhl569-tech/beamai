@@ -284,7 +284,8 @@ graph_state_test_() ->
                ?assertEqual([], graph_state:get(GS, <<"messages">>, [])),
                ?assertEqual([], graph_state:get(GS, <<"full_messages">>, [])),
                ?assertEqual([], graph_state:get(GS, <<"scratchpad">>, [])),
-               ?assertEqual(#{<<"key">> => <<"value">>}, graph_state:get(GS, <<"context">>, #{}))
+               %% 用户上下文使用专用函数访问（避免键名冲突）
+               ?assertEqual(#{<<"key">> => <<"value">>}, graph_state:get_context(GS))
            end}
          ]
      end}.

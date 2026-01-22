@@ -155,13 +155,14 @@ build_state(Id, Opts, Graph) ->
     },
 
     %% 构建初始 graph_state（使用 binary 键）
-    InitialGraphState = graph_state:new(#{
+    GS0 = graph_state:new(#{
         <<"messages">> => [],
         <<"full_messages">> => [],
         <<"scratchpad">> => [],
-        <<"context">> => maps:get(context, Opts, #{}),
         <<"pending_action">> => undefined
     }),
+    %% 使用专用函数设置用户上下文（避免键名冲突）
+    InitialGraphState = graph_state:set_context(GS0, maps:get(context, Opts, #{})),
 
     %% 构建运行时状态
     #state{

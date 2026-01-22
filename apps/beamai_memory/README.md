@@ -77,6 +77,34 @@ checkpoint_manager 支持配置检查点数量限制，自动清理旧检查点�
 - ETS Store 默认最多 **1000** 个数据项
 - 超过限制时自动清理旧数据
 
+### ETS Store 限制说明
+
+**重要：`max_items` 是全局限制，不是每个 thread-id 的限制。**
+
+```erlang
+%% 创建 ETS Store 时配置
+{ok, _} = beamai_store_ets:start_link(my_store, #{
+    max_items => 1000,        %% 全局限制：所有 thread-id 总共 1000 条
+    max_namespaces => 1000    %% 全局限制：所有命名空间总共 1000 个
+}).
+```
+
+| 限制类型 | 范围 | 说明 |
+|---------|------|------|
+| `max_items` | **全局** | 所有 thread-id 的数据**总共**不能超过此数量 |
+| `max_namespaces` | **全局** | 所有命名空间**总共**不能超过此数量 |
+| `max_checkpoints` | **每 thread** | 每个 thread-id 单独限制（checkpoint_manager 管理） |
+
+**示例场景（`max_items => 1000`）：**
+- 10 个 thread-id → 平均每个约 100 条数据
+- 1 个 thread-id → 最多 1000 条数据
+- 当总数达到 1000 时，触发 LRU 淘汰（删除最旧的约 10%）
+
+**淘汰策略：**
+- 基于 `updated_at` 时间戳的 LRU（最近最少使用）策略
+- 淘汰时删除约 10% 的最旧条目
+- 淘汰不区分 thread-id，跨所有数据统一处理
+
 ### 清理策略
 
 - **自动清理**：保存检查点时，如果数量超过 `max_checkpoints`，自动删除最旧的检查点
