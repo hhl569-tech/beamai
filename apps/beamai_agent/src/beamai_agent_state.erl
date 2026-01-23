@@ -33,8 +33,27 @@
     auto_save := boolean(),         %% 是否每轮自动保存
     turn_count := non_neg_integer(),%% 已完成的对话轮数
     metadata := map(),              %% 用户自定义元数据
-    created_at := integer()         %% 创建时间戳（毫秒）
+    created_at := integer(),        %% 创建时间戳（毫秒）
+    %% 中断相关
+    interrupt_state := undefined | interrupt_state(), %% 中断时的完整上下文
+    run_id := binary() | undefined, %% 当前执行的唯一 ID
+    interrupt_tools := [map()]      %% 中断 tool 定义列表
 }.
+
+-type interrupt_state() :: #{
+    status := interrupted,
+    reason := term(),                     %% 中断原因
+    pending_messages := [map()],          %% tool loop 中已累积的消息
+    assistant_response := map(),          %% LLM 的响应（含 tool_calls）
+    completed_tool_results := [map()],    %% 已完成的 tool 结果
+    interrupted_tool_call := map() | undefined, %% 触发中断的 tool_call
+    iteration := non_neg_integer(),       %% 当前 tool loop 迭代次数
+    tool_calls_made := [map()],           %% 之前已执行的 tool 调用记录
+    interrupt_type := tool_request | tool_result | callback,
+    created_at := integer()
+}.
+
+-export_type([interrupt_state/0]).
 
 %%====================================================================
 %% API
@@ -85,7 +104,11 @@ create(Config) ->
             auto_save => maps:get(auto_save, Config, false),
             turn_count => 0,
             metadata => maps:get(metadata, Config, #{}),
-            created_at => erlang:system_time(millisecond)
+            created_at => erlang:system_time(millisecond),
+            %% 中断相关字段
+            interrupt_state => undefined,
+            run_id => undefined,
+            interrupt_tools => maps:get(interrupt_tools, Config, [])
         },
         {ok, State}
     catch

@@ -107,6 +107,12 @@
     get_thread_id/1
 ]).
 
+%% Agent 中断查询 API
+-export([
+    has_pending_interrupt/2,
+    get_interrupt_context/2
+]).
+
 %%====================================================================
 %% 类型定义
 %%====================================================================
@@ -667,6 +673,57 @@ get_persistent_store(#{persistent_store := Store}) ->
 -spec get_thread_id(memory()) -> binary().
 get_thread_id(#{thread_id := ThreadId}) ->
     ThreadId.
+
+%%====================================================================
+%% Agent 中断查询 API
+%%====================================================================
+
+%% @doc 查询是否有未完成的中断
+%%
+%% 加载最新 checkpoint，检查其中是否包含 interrupt_state。
+%% 用于快速判断某个 thread 是否有待恢复的中断。
+%%
+%% @param Memory memory 实例
+%% @param Config 配置 map（需包含 thread_id）
+%% @returns boolean()
+-spec has_pending_interrupt(memory(), config()) -> boolean().
+has_pending_interrupt(Memory, Config) ->
+    case load_latest_checkpoint(Memory, Config) of
+        {ok, Data} ->
+            case get_flex(interrupt_state, Data) of
+                undefined -> false;
+                null -> false;
+                _ -> true
+            end;
+        _ -> false
+    end.
+
+%% @doc 获取中断上下文（不加载完整状态）
+%%
+%% 从最新 checkpoint 中提取中断的原因信息，
+%% 用于在恢复前展示给用户。
+%%
+%% @param Memory memory 实例
+%% @param Config 配置 map（需包含 thread_id）
+%% @returns {ok, map()} | {error, term()}
+-spec get_interrupt_context(memory(), config()) -> {ok, map()} | {error, term()}.
+get_interrupt_context(Memory, Config) ->
+    case load_latest_checkpoint(Memory, Config) of
+        {ok, Data} ->
+            case get_flex(interrupt_state, Data) of
+                undefined -> {error, not_interrupted};
+                null -> {error, not_interrupted};
+                IntState when is_map(IntState) ->
+                    {ok, #{
+                        reason => get_flex(reason, IntState),
+                        interrupt_type => get_flex(interrupt_type, IntState),
+                        interrupted_tool_call => get_flex(interrupted_tool_call, IntState),
+                        created_at => get_flex(created_at, IntState)
+                    }}
+            end;
+        {error, not_found} -> {error, not_interrupted};
+        {error, _} = Err -> Err
+    end.
 
 %%====================================================================
 %% 内部函数 - 命名空间

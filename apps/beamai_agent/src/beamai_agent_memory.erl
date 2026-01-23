@@ -24,7 +24,7 @@
 %%%-------------------------------------------------------------------
 -module(beamai_agent_memory).
 
--export([save/1, restore/2]).
+-export([save/1, restore/2, resume_from_memory/3]).
 
 %%====================================================================
 %% API
@@ -51,17 +51,25 @@ save(#{memory := undefined}) ->
     {error, no_memory_configured};
 save(#{memory := Memory, messages := Messages, id := AgentId,
        turn_count := TurnCount, metadata := Meta,
-       system_prompt := SysPrompt}) ->
+       system_prompt := SysPrompt} = State) ->
     ThreadId = beamai_memory:get_thread_id(Memory),
+    IntState = maps:get(interrupt_state, State, undefined),
+    RunId = maps:get(run_id, State, undefined),
     StateData = #{
         messages => Messages,
         turn_count => TurnCount,
         metadata => Meta,
         agent_id => AgentId,
-        system_prompt => SysPrompt
+        system_prompt => SysPrompt,
+        interrupt_state => IntState,
+        run_id => RunId
     },
+    CheckpointType = case IntState of
+        undefined -> <<"agent_checkpoint">>;
+        _ -> <<"agent_interrupt">>
+    end,
     Config = #{thread_id => ThreadId},
-    Metadata = #{agent_id => AgentId, type => <<"agent_checkpoint">>},
+    Metadata = #{agent_id => AgentId, type => CheckpointType},
     beamai_memory:save_checkpoint(Memory, Config, StateData, Metadata).
 
 %% @doc 从 memory 恢复 agent 状态
@@ -100,10 +108,35 @@ restore(Config, Memory) ->
                         undefined -> State1;
                         SP -> State1#{system_prompt => SP}
                     end,
-                    {ok, State2};
+                    %% 恢复中断状态
+                    State3 = State2#{
+                        interrupt_state => maps:get(interrupt_state, SavedData, undefined),
+                        run_id => maps:get(run_id, SavedData, undefined)
+                    },
+                    {ok, State3};
                 {error, _} = Err ->
                     Err
             end;
         {error, _} = Err ->
             Err
+    end.
+
+%% @doc 从 memory 加载最新中断状态并恢复执行
+%%
+%% 便捷函数：加载 checkpoint → 检查是否中断 → resume
+%%
+%% @param Config agent 配置
+%% @param Memory memory 实例
+%% @param HumanInput 人类输入
+%% @returns {ok, RunResult, AgentState} | {interrupt, InterruptInfo, AgentState} | {error, Reason}
+-spec resume_from_memory(map(), term(), term()) ->
+    {ok, map(), map()} | {error, term()}.
+resume_from_memory(Config, Memory, HumanInput) ->
+    case restore(Config, Memory) of
+        {ok, Agent} ->
+            case beamai_agent:is_interrupted(Agent) of
+                true -> beamai_agent:resume(Agent, HumanInput);
+                false -> {error, not_interrupted}
+            end;
+        {error, _} = Err -> Err
     end.

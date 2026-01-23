@@ -300,10 +300,18 @@ tool_calling_loop(_Kernel, _LlmConfig, _Msgs, _Opts, _Context, 0) ->
 tool_calling_loop(Kernel, LlmConfig, Msgs, Opts, Context, N) ->
     case beamai_chat_completion:chat(LlmConfig, Msgs, Opts) of
         {ok, #{tool_calls := TCs} = _Response} when is_list(TCs), TCs =/= [] ->
-            {ToolResults, NewContext} = execute_tool_calls(Kernel, TCs, Context),
+            %% 记录带 tool_calls 的 assistant 消息到 context history
             AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
+            Ctx1 = beamai_context:add_message(Context, AssistantMsg),
+            %% 执行工具调用，结果消息也会被记录到 context history
+            {ToolResults, Ctx2} = execute_tool_calls(Kernel, TCs, Ctx1),
             NewMsgs = Msgs ++ [AssistantMsg | ToolResults],
-            tool_calling_loop(Kernel, LlmConfig, NewMsgs, Opts, NewContext, N - 1);
+            tool_calling_loop(Kernel, LlmConfig, NewMsgs, Opts, Ctx2, N - 1);
+        {ok, #{content := Content} = Response} ->
+            %% 记录最终的 assistant 文本响应到 context history
+            FinalMsg = #{role => assistant, content => Content},
+            FinalCtx = beamai_context:add_message(Context, FinalMsg),
+            {ok, Response, FinalCtx};
         {ok, Response} ->
             {ok, Response, Context};
         {error, _} = Err ->
@@ -321,8 +329,10 @@ execute_tool_calls(Kernel, ToolCalls, Context) ->
             {ok, Value, UpdatedCtx} -> {beamai_function:encode_result(Value), UpdatedCtx};
             {error, Reason} -> {beamai_function:encode_result(#{error => Reason}), CtxAcc}
         end,
-        Msg = #{role => tool, tool_call_id => Id, content => ResultContent},
-        {ResultsAcc ++ [Msg], NewCtx}
+        Msg = #{role => tool, tool_call_id => Id, name => Name, content => ResultContent},
+        %% 记录 tool 结果消息到 context history
+        Ctx2 = beamai_context:add_message(NewCtx, Msg),
+        {ResultsAcc ++ [Msg], Ctx2}
     end, {[], Context}, ToolCalls).
 
 %%====================================================================
