@@ -152,10 +152,10 @@ apply_post_filters(Filters, FuncDef, Result, Context) ->
 %%
 -spec apply_post_filters_result([filter_def()], beamai_function:function_def(),
                                  term(), beamai_context:t()) ->
-    {ok, term()} | {error, term()}.
+    {ok, term(), beamai_context:t()} | {error, term()}.
 apply_post_filters_result(Filters, FuncDef, Value, Context) ->
     case apply_post_filters(Filters, FuncDef, Value, Context) of
-        {ok, FinalValue, _FinalCtx} -> {ok, FinalValue};
+        {ok, FinalValue, FinalCtx} -> {ok, FinalValue, FinalCtx};
         {error, _} = Err -> Err
     end.
 

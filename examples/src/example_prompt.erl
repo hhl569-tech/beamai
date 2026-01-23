@@ -124,7 +124,7 @@ run_structured(LLMConfig) ->
     ],
 
     case beamai:chat(Kernel, Messages) of
-        {ok, #{content := Content}} ->
+        {ok, #{content := Content}, _} ->
             io:format("Raw response:~n~ts~n~n", [Content]),
 
             %% 4. 用 Output Parser 解析

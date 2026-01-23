@@ -161,19 +161,19 @@ add_filter(Kernel, Name, Type, Handler) ->
 %%
 %% 函数名支持 <<"plugin.func">> 或 <<"func">> 格式。
 -spec invoke(beamai_kernel:kernel(), binary(), beamai_function:args()) ->
-    beamai_function:function_result().
+    {ok, term(), beamai_context:t()} | {error, term()}.
 invoke(Kernel, FuncName, Args) ->
     beamai_kernel:invoke(Kernel, FuncName, Args).
 
 %% @doc 调用 Kernel 中注册的函数（带上下文）
 -spec invoke(beamai_kernel:kernel(), binary(), beamai_function:args(), beamai_context:t()) ->
-    beamai_function:function_result().
+    {ok, term(), beamai_context:t()} | {error, term()}.
 invoke(Kernel, FuncName, Args, Context) ->
     beamai_kernel:invoke(Kernel, FuncName, Args, Context).
 
 %% @doc 发送 Chat Completion 请求（默认选项）
 -spec chat(beamai_kernel:kernel(), [map()]) ->
-    {ok, map()} | {error, term()}.
+    {ok, map(), beamai_context:t()} | {error, term()}.
 chat(Kernel, Messages) ->
     chat(Kernel, Messages, #{}).
 
@@ -181,7 +181,7 @@ chat(Kernel, Messages) ->
 %%
 %% 执行前置/后置 Chat 过滤器管道。
 -spec chat(beamai_kernel:kernel(), [map()], beamai_kernel:chat_opts()) ->
-    {ok, map()} | {error, term()}.
+    {ok, map(), beamai_context:t()} | {error, term()}.
 chat(Kernel, Messages, Opts) ->
     beamai_kernel:invoke_chat(Kernel, Messages, Opts).
 
@@ -189,13 +189,13 @@ chat(Kernel, Messages, Opts) ->
 %%
 %% 自动注册 Kernel 中所有函数为 tools，驱动 LLM ↔ Function 循环。
 -spec chat_with_tools(beamai_kernel:kernel(), [map()]) ->
-    {ok, map()} | {error, term()}.
+    {ok, map(), beamai_context:t()} | {error, term()}.
 chat_with_tools(Kernel, Messages) ->
     chat_with_tools(Kernel, Messages, #{}).
 
 %% @doc 发送带工具调用循环的 Chat 请求（自定义选项）
 -spec chat_with_tools(beamai_kernel:kernel(), [map()], beamai_kernel:chat_opts()) ->
-    {ok, map()} | {error, term()}.
+    {ok, map(), beamai_context:t()} | {error, term()}.
 chat_with_tools(Kernel, Messages, Opts) ->
     beamai_kernel:invoke_chat_with_tools(Kernel, Messages, Opts).
 

@@ -70,7 +70,7 @@ run(LLMConfig) ->
     io:format("User: What's the weather like in Beijing today?~n~n"),
 
     case beamai:chat_with_tools(K2, Messages) of
-        {ok, #{content := Content}} ->
+        {ok, #{content := Content}, _} ->
             io:format("Assistant: ~ts~n~n", [Content]);
         {error, Reason} ->
             io:format("Error: ~p~n", [Reason])
@@ -85,7 +85,7 @@ run(LLMConfig) ->
     io:format("User: Compare the weather in Tokyo and Shanghai~n~n"),
 
     case beamai:chat_with_tools(K2, Messages2) of
-        {ok, #{content := Content2}} ->
+        {ok, #{content := Content2}, _} ->
             io:format("Assistant: ~ts~n~n", [Content2]);
         {error, Reason2} ->
             io:format("Error: ~p~n", [Reason2])
@@ -108,7 +108,7 @@ invoke_only() ->
     ]),
 
     %% 直接调用函数
-    {ok, Result} = beamai:invoke(K1, <<"weather.get_current_weather">>, #{city => <<"Beijing">>}),
+    {ok, Result, _} = beamai:invoke(K1, <<"weather.get_current_weather">>, #{city => <<"Beijing">>}),
     io:format("Direct invoke result: ~p~n", [Result]),
     ok.
 

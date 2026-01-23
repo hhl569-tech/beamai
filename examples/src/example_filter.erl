@@ -61,7 +61,7 @@ run_invoke() ->
     %% 4. 调用函数，观察过滤器效果
     io:format("Invoking math.add(3, 5):~n"),
     case beamai:invoke(K3, <<"math.add">>, #{a => 3, b => 5}) of
-        {ok, Value} ->
+        {ok, Value, _} ->
             io:format("  Final result: ~p~n~n", [Value]);
         {error, Reason} ->
             io:format("  Error: ~p~n~n", [Reason])
@@ -78,7 +78,7 @@ run_invoke() ->
 
     io:format("Invoking math.add(200, 1) with validation:~n"),
     case beamai:invoke(K4, <<"math.add">>, #{a => 200, b => 1}) of
-        {ok, Value2} ->
+        {ok, Value2, _} ->
             io:format("  Final result: ~p~n", [Value2]);
         {error, Reason2} ->
             io:format("  Rejected: ~p~n", [Reason2])
@@ -133,7 +133,7 @@ run_chat(LLMConfig) ->
     io:format("User: 什么是 GenServer？~n~n"),
 
     case beamai:chat(K3, Messages) of
-        {ok, #{content := Content}} ->
+        {ok, #{content := Content}, _} ->
             io:format("Assistant: ~ts~n", [Content]);
         {error, Reason} ->
             io:format("Error: ~p~n", [Reason])

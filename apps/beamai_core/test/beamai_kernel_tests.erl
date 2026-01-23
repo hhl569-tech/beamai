@@ -74,15 +74,15 @@ add_plugin_inline_test() ->
 
 invoke_qualified_name_test() ->
     K = make_math_kernel(),
-    ?assertEqual({ok, 15}, beamai_kernel:invoke(K, <<"math.add">>, #{a => 7, b => 8})).
+    ?assertMatch({ok, 15, _}, beamai_kernel:invoke(K, <<"math.add">>, #{a => 7, b => 8})).
 
 invoke_unqualified_name_test() ->
     K = make_math_kernel(),
-    ?assertEqual({ok, 15}, beamai_kernel:invoke(K, <<"add">>, #{a => 7, b => 8})).
+    ?assertMatch({ok, 15, _}, beamai_kernel:invoke(K, <<"add">>, #{a => 7, b => 8})).
 
 invoke_multiply_test() ->
     K = make_math_kernel(),
-    ?assertEqual({ok, 42}, beamai_kernel:invoke(K, <<"math.multiply">>, #{a => 6, b => 7})).
+    ?assertMatch({ok, 42, _}, beamai_kernel:invoke(K, <<"math.multiply">>, #{a => 6, b => 7})).
 
 invoke_not_found_test() ->
     K = make_math_kernel(),
@@ -97,13 +97,13 @@ invoke_with_context_test() ->
             end)
     ]),
     Ctx = beamai_context:set(beamai_context:new(), <<"name">>, <<"Alice">>),
-    ?assertEqual({ok, <<"Alice">>},
+    ?assertMatch({ok, <<"Alice">>, _},
                  beamai_kernel:invoke(K, <<"ctx.get_var">>, #{key => <<"name">>}, Ctx)).
 
 invoke_multi_plugin_test() ->
     K = make_multi_plugin_kernel(),
-    ?assertEqual({ok, 15}, beamai_kernel:invoke(K, <<"math.add">>, #{a => 7, b => 8})),
-    ?assertEqual({ok, <<"HELLO">>}, beamai_kernel:invoke(K, <<"string.upper">>, #{text => <<"hello">>})).
+    ?assertMatch({ok, 15, _}, beamai_kernel:invoke(K, <<"math.add">>, #{a => 7, b => 8})),
+    ?assertMatch({ok, <<"HELLO">>, _}, beamai_kernel:invoke(K, <<"string.upper">>, #{text => <<"hello">>})).
 
 %%====================================================================
 %% get_function/2 Tests
@@ -197,7 +197,7 @@ invoke_with_pre_filter_test() ->
             {continue, Ctx#{args => NewArgs}}
         end),
     K2 = beamai_kernel:add_filter(K1, Filter),
-    ?assertEqual({ok, 30}, beamai_kernel:invoke(K2, <<"math.add">>, #{a => 7, b => 8})).
+    ?assertMatch({ok, 30, _}, beamai_kernel:invoke(K2, <<"math.add">>, #{a => 7, b => 8})).
 
 invoke_with_post_filter_test() ->
     K0 = beamai_kernel:new(),
@@ -209,7 +209,7 @@ invoke_with_post_filter_test() ->
             {continue, Ctx#{result => R * 2}}
         end),
     K2 = beamai_kernel:add_filter(K1, Filter),
-    ?assertEqual({ok, 30}, beamai_kernel:invoke(K2, <<"math.add">>, #{a => 7, b => 8})).
+    ?assertMatch({ok, 30, _}, beamai_kernel:invoke(K2, <<"math.add">>, #{a => 7, b => 8})).
 
 invoke_with_skip_filter_test() ->
     K0 = beamai_kernel:new(),
@@ -221,7 +221,7 @@ invoke_with_skip_filter_test() ->
             {skip, cached_result}
         end),
     K2 = beamai_kernel:add_filter(K1, Filter),
-    ?assertEqual({ok, cached_result}, beamai_kernel:invoke(K2, <<"math.add">>, #{a => 7, b => 8})).
+    ?assertMatch({ok, cached_result, _}, beamai_kernel:invoke(K2, <<"math.add">>, #{a => 7, b => 8})).
 
 %%====================================================================
 %% Facade API Tests
@@ -242,7 +242,7 @@ facade_add_plugin_test() ->
             }
         })
     ]),
-    ?assertEqual({ok, 15}, beamai:invoke(K1, <<"math.add">>, #{a => 7, b => 8})).
+    ?assertMatch({ok, 15, _}, beamai:invoke(K1, <<"math.add">>, #{a => 7, b => 8})).
 
 facade_add_llm_test() ->
     K0 = beamai:kernel(),
@@ -355,5 +355,5 @@ mock_tool_call_loop() ->
     LlmConfig = beamai_chat_completion:create({custom, ?MOCK_MODULE}, #{model => <<"mock">>}),
     K2 = beamai_kernel:add_service(K1, LlmConfig),
     Messages = [#{role => user, content => <<"What is 7 + 8?">>}],
-    {ok, Response} = beamai_kernel:invoke_chat_with_tools(K2, Messages, #{}),
+    {ok, Response, _Ctx} = beamai_kernel:invoke_chat_with_tools(K2, Messages, #{}),
     ?assertEqual(<<"The answer is 15">>, maps:get(content, Response)).

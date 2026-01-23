@@ -52,7 +52,7 @@ run(LLMConfig) ->
 
     %% 4. 调用 Kernel 获取回复
     case beamai:chat(K1, History1) of
-        {ok, #{content := Content}} ->
+        {ok, #{content := Content}, _} ->
             io:format("Assistant: ~ts~n~n", [Content]),
 
             %% 5. 将回复加入历史
@@ -85,7 +85,7 @@ run_inline() ->
     io:format("User: Erlang OTP 是什么？~n~n"),
 
     case beamai:chat(Kernel, Messages) of
-        {ok, #{content := Content}} ->
+        {ok, #{content := Content}, _} ->
             io:format("Assistant: ~ts~n~n", [Content]);
         {error, Reason} ->
             io:format("Error: ~p~n", [Reason])
@@ -138,7 +138,7 @@ chat_loop(Kernel, History, [Question | Rest], Turn) ->
     History1 = History ++ [#{role => user, content => Question}],
 
     case beamai:chat(Kernel, History1) of
-        {ok, #{content := Content}} ->
+        {ok, #{content := Content}, _} ->
             io:format("Assistant: ~ts~n~n", [Content]),
             History2 = History1 ++ [#{role => assistant, content => Content}],
             chat_loop(Kernel, History2, Rest, Turn + 1);

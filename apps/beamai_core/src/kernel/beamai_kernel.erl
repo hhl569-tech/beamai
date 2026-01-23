@@ -149,8 +149,9 @@ add_filter(#{filters := Filters} = Kernel, Filter) ->
 %% @param Kernel Kernel 实例
 %% @param FuncName 函数名称
 %% @param Args 调用参数 Map
-%% @returns {ok, 结果} | {error, 原因}
--spec invoke(kernel(), binary(), beamai_function:args()) -> beamai_function:function_result().
+%% @returns {ok, 结果, 上下文} | {error, 原因}
+-spec invoke(kernel(), binary(), beamai_function:args()) ->
+    {ok, term(), beamai_context:t()} | {error, term()}.
 invoke(Kernel, FuncName, Args) ->
     invoke(Kernel, FuncName, Args, beamai_context:new()).
 
@@ -163,8 +164,9 @@ invoke(Kernel, FuncName, Args) ->
 %% @param FuncName 函数名称
 %% @param Args 调用参数
 %% @param Context 执行上下文
-%% @returns {ok, 结果} | {error, 原因}
--spec invoke(kernel(), binary(), beamai_function:args(), beamai_context:t()) -> beamai_function:function_result().
+%% @returns {ok, 结果, 更新后上下文} | {error, 原因}
+-spec invoke(kernel(), binary(), beamai_function:args(), beamai_context:t()) ->
+    {ok, term(), beamai_context:t()} | {error, term()}.
 invoke(#{filters := Filters} = Kernel, FuncName, Args, Context0) ->
     case get_function(Kernel, FuncName) of
         {ok, FuncDef} ->
@@ -182,9 +184,9 @@ invoke(#{filters := Filters} = Kernel, FuncName, Args, Context0) ->
 %% @param Kernel Kernel 实例
 %% @param Messages 消息列表（[#{role => ..., content => ...}]）
 %% @param Opts Chat 选项
-%% @returns {ok, 响应 Map} | {error, 原因}
+%% @returns {ok, 响应 Map, 更新后上下文} | {error, 原因}
 -spec invoke_chat(kernel(), [map()], chat_opts()) ->
-    {ok, map()} | {error, term()}.
+    {ok, map(), beamai_context:t()} | {error, term()}.
 invoke_chat(Kernel, Messages, Opts) ->
     case get_service(Kernel) of
         {ok, LlmConfig} ->
@@ -204,9 +206,9 @@ invoke_chat(Kernel, Messages, Opts) ->
 %% @param Kernel Kernel 实例（需注册函数和 LLM 服务）
 %% @param Messages 初始消息列表
 %% @param Opts Chat 选项（可设置 max_tool_iterations、tool_choice）
-%% @returns {ok, 最终响应 Map} | {error, 原因}
+%% @returns {ok, 最终响应 Map, 更新后上下文} | {error, 原因}
 -spec invoke_chat_with_tools(kernel(), [map()], chat_opts()) ->
-    {ok, map()} | {error, term()}.
+    {ok, map(), beamai_context:t()} | {error, term()}.
 invoke_chat_with_tools(Kernel, Messages, Opts) ->
     ToolSpecs = get_tool_specs(Kernel),
     ChatOpts = Opts#{tools => ToolSpecs, tool_choice => maps:get(tool_choice, Opts, auto)},
@@ -303,7 +305,7 @@ tool_calling_loop(Kernel, LlmConfig, Msgs, Opts, Context, N) ->
             NewMsgs = Msgs ++ [AssistantMsg | ToolResults],
             tool_calling_loop(Kernel, LlmConfig, NewMsgs, Opts, NewContext, N - 1);
         {ok, Response} ->
-            {ok, Response};
+            {ok, Response, Context};
         {error, _} = Err ->
             Err
     end.
@@ -316,7 +318,6 @@ execute_tool_calls(Kernel, ToolCalls, Context) ->
     lists:foldl(fun(TC, {ResultsAcc, CtxAcc}) ->
         {Id, Name, Args} = beamai_function:parse_tool_call(TC),
         {ResultContent, NewCtx} = case invoke(Kernel, Name, Args, CtxAcc) of
-            {ok, Value} -> {beamai_function:encode_result(Value), CtxAcc};
             {ok, Value, UpdatedCtx} -> {beamai_function:encode_result(Value), UpdatedCtx};
             {error, Reason} -> {beamai_function:encode_result(#{error => Reason}), CtxAcc}
         end,
@@ -350,7 +351,7 @@ run_invoke_pipeline(Filters, FuncDef, Args, Context) ->
         {ok, FilteredArgs, FilteredCtx} ->
             invoke_and_post_filter(Filters, FuncDef, FilteredArgs, FilteredCtx);
         {skip, Value} ->
-            {ok, Value};
+            {ok, Value, Context};
         {error, _} = Err ->
             Err
     end.
@@ -380,7 +381,7 @@ call_llm_and_post_filter(LlmConfig, Filters, Messages, Opts, Context) ->
     case beamai_chat_completion:chat(LlmConfig, Messages, Opts) of
         {ok, Response} ->
             case beamai_filter:apply_post_chat_filters(Filters, Response, Context) of
-                {ok, FinalResp, _} -> {ok, FinalResp};
+                {ok, FinalResp, FinalCtx} -> {ok, FinalResp, FinalCtx};
                 {error, _} = Err -> Err
             end;
         {error, _} = Err ->
