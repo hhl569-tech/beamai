@@ -1,25 +1,25 @@
 {application, beamai_core, [
-    {description, "Agent Framework Core - Behaviours and Pure Functions"},
+    {description, "BeamAI Core - Kernel Framework"},
     {vsn, "0.1.0"},
     {registered, [beamai_core_sup, beamai_http_pool]},
     {mod, {beamai_core_app, []}},
-    {applications, [
-        kernel,
-        stdlib,
-        jsx,
-        uuid,
-        hackney
-    ]},
-    %% Gun 作为可选依赖，用于 HTTP/2 支持
-    {optional_applications, [gun]},
-    {env, [
-        %% HTTP 后端配置（可选：beamai_http_hackney | beamai_http_gun）
-        %% {http_backend, beamai_http_hackney}
-    ]},
+    {applications, [kernel, stdlib, jsx, uuid, hackney]},
+    {optional_applications, [gun, beamai_llm, beamai_tools]},
+    {env, []},
     {modules, [
         %% Application
         beamai_core_app,
         beamai_core_sup,
+        %% Facade
+        beamai,
+        %% Kernel
+        beamai_kernel,
+        beamai_function,
+        beamai_plugin,
+        beamai_context,
+        beamai_filter,
+        beamai_result,
+        beamai_prompt,
         %% Behaviours
         beamai_behaviour,
         beamai_llm_behaviour,
@@ -27,15 +27,16 @@
         beamai_http_behaviour,
         %% Data Types
         beamai_message,
-        beamai_result,
         beamai_tool,
         beamai_types,
-        %% Protocol (JSON-RPC, SSE)
+        %% Protocol
         beamai_jsonrpc,
         beamai_sse,
         %% Utils
         beamai_id,
         beamai_utils,
+        beamai_callback_utils,
+        beamai_state_utils,
         %% HTTP Client
         beamai_http,
         beamai_http_hackney,

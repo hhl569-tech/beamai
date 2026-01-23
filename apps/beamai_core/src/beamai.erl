@@ -56,15 +56,15 @@ kernel(Settings) ->
 %% Plugin
 %%====================================================================
 
--spec plugin(binary(), [beamai_function:function_def()]) -> beamai_plugin:plugin_def().
+-spec plugin(binary(), [beamai_function:function_def()]) -> beamai_plugin:plugin().
 plugin(Name, Functions) ->
     beamai_plugin:new(Name, Functions).
 
--spec plugin(binary(), [beamai_function:function_def()], map()) -> beamai_plugin:plugin_def().
+-spec plugin(binary(), [beamai_function:function_def()], map()) -> beamai_plugin:plugin().
 plugin(Name, Functions, Opts) ->
     beamai_plugin:new(Name, Functions, Opts).
 
--spec add_plugin(beamai_kernel:kernel(), beamai_plugin:plugin_def()) -> beamai_kernel:kernel().
+-spec add_plugin(beamai_kernel:kernel(), beamai_plugin:plugin()) -> beamai_kernel:kernel().
 add_plugin(Kernel, Plugin) ->
     beamai_kernel:add_plugin(Kernel, Plugin).
 

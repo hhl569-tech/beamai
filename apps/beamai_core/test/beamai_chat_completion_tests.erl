@@ -130,14 +130,14 @@ result_ok_test() ->
     ?assertEqual({ok, 42}, R),
     ?assert(beamai_result:is_ok(R)),
     ?assertNot(beamai_result:is_error(R)),
-    ?assertEqual(42, beamai_result:get_value(R)).
+    ?assertEqual(42, beamai_result:unwrap(R)).
 
 result_error_test() ->
     R = beamai_result:error(oops),
     ?assertEqual({error, oops}, R),
     ?assertNot(beamai_result:is_ok(R)),
     ?assert(beamai_result:is_error(R)),
-    ?assertEqual(oops, beamai_result:get_error(R)).
+    ?assertEqual(oops, beamai_result:unwrap_error(R)).
 
 result_map_test() ->
     R = beamai_result:ok(21),
@@ -154,7 +154,6 @@ result_flat_map_test() ->
     R2 = beamai_result:flat_map(R, fun(V) -> {ok, V * 2} end),
     ?assertEqual({ok, 42}, R2).
 
-result_to_json_test() ->
-    Json = beamai_result:to_json({ok, <<"hello">>}),
-    ?assertEqual(<<"ok">>, maps:get(status, Json)),
-    ?assertEqual(<<"hello">>, maps:get(value, Json)).
+result_unwrap_or_test() ->
+    ?assertEqual(42, beamai_result:unwrap_or({ok, 42}, 0)),
+    ?assertEqual(0, beamai_result:unwrap_or({error, oops}, 0)).

@@ -24,7 +24,7 @@
 
 -type kernel() :: #{
     '__kernel__' := true,
-    plugins := #{binary() => beamai_plugin:plugin_def()},
+    plugins := #{binary() => beamai_plugin:plugin()},
     llm_config := beamai_chat_completion:config() | undefined,
     filters := [beamai_filter:filter_def()],
     settings := kernel_settings()
@@ -61,7 +61,7 @@ new(Settings) ->
         settings => Settings
     }.
 
--spec add_plugin(kernel(), beamai_plugin:plugin_def()) -> kernel().
+-spec add_plugin(kernel(), beamai_plugin:plugin()) -> kernel().
 add_plugin(#{plugins := Plugins} = Kernel, #{name := Name} = Plugin) ->
     Kernel#{plugins => Plugins#{Name => Plugin}}.
 
