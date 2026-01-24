@@ -44,6 +44,10 @@
         beamai_process_memory_store,
         beamai_process_store_behaviour,
         beamai_process_sup,
+        %% JSON-RPC
+        beamai_jsonrpc,
+        %% SSE
+        beamai_sse,
         %% 工具
         beamai_id,
         beamai_utils
