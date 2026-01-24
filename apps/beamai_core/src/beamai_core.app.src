@@ -38,6 +38,7 @@
         beamai_process_event,
         beamai_process_runtime,
         beamai_process_step,
+        beamai_process_step_transform,
         beamai_process_worker,
         beamai_process_state,
         beamai_process_sup,

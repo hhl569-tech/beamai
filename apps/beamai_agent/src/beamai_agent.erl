@@ -716,65 +716,28 @@ stream_final_call(Kernel, Msgs, Opts, Callbacks, Meta) ->
             {error, no_llm_service}
     end.
 
-%% @private 执行 tool calls 并收集结果
-%%
-%% 遍历 LLM 返回的所有 tool_call，逐个：
-%%   1. 解析 tool_call 获取 ID、函数名、参数
-%%   2. 调用 kernel:invoke 执行函数（经过 pre/post_invocation filters）
-%%   3. 将执行结果编码为 JSON 字符串
-%%   4. 构建 tool 角色消息和调用记录
-%%
-%% @param Kernel kernel 实例
-%% @param ToolCalls LLM 返回的 tool_call 列表
-%% @returns {ToolResultMsgs, CallRecords}
-%%   ToolResultMsgs: tool 角色消息列表，用于拼接到下一轮消息中
-%%   CallRecords: 调用记录列表，用于返回给用户
+%% @private 执行 tool calls 并收集结果（委托给共享工具模块）
 execute_tools(Kernel, ToolCalls) ->
-    lists:foldl(fun(TC, {ResultsAcc, CallsAcc}) ->
-        {Id, Name, Args} = beamai_function:parse_tool_call(TC),
-        Result = case beamai_kernel:invoke_tool(Kernel, Name, Args, beamai_context:new()) of
-            {ok, Value, _Ctx} -> beamai_function:encode_result(Value);
-            {error, Reason} -> beamai_function:encode_result(#{error => Reason})
-        end,
-        Msg = #{role => tool, tool_call_id => Id, content => Result},
-        CallRecord = #{name => Name, args => Args, result => Result, tool_call_id => Id},
-        {ResultsAcc ++ [Msg], CallsAcc ++ [CallRecord]}
-    end, {[], []}, ToolCalls).
+    beamai_agent_utils:execute_tools(Kernel, ToolCalls).
 
 %%====================================================================
 %% 内部函数 - 辅助
 %%====================================================================
 
-%% @private 构建 chat 选项
-%%
-%% 从 kernel 获取所有已注册函数的 tool specs，自动添加到 chat 选项中。
-%% 如果 kernel 中没有注册任何函数，不添加 tools 字段。
-%%
-%% @param Kernel kernel 实例
-%% @param Opts 用户传入的选项（可通过 chat_opts 键传递额外参数）
-%% @returns 完整的 chat 选项 map
+%% @private 构建 chat 选项（基于共享工具模块，附加中断 tool specs）
 build_chat_opts(#{kernel := Kernel} = Agent, Opts) ->
-    ToolSpecs = beamai_kernel:get_tool_specs(Kernel),
+    BaseOpts = beamai_agent_utils:build_chat_opts(Kernel, Opts),
     InterruptSpecs = beamai_agent_interrupt:get_interrupt_tool_specs(Agent),
-    AllSpecs = ToolSpecs ++ InterruptSpecs,
-    BaseChatOpts = maps:get(chat_opts, Opts, #{}),
-    case AllSpecs of
-        [] -> BaseChatOpts;
-        _ -> BaseChatOpts#{
-            tools => AllSpecs,
-            tool_choice => maps:get(tool_choice, BaseChatOpts, auto)
-        }
+    case InterruptSpecs of
+        [] -> BaseOpts;
+        _ ->
+            ExistingTools = maps:get(tools, BaseOpts, []),
+            BaseOpts#{tools => ExistingTools ++ InterruptSpecs}
     end.
 
-%% @private 从 LLM 响应中提取文本内容
-%%
-%% 处理三种情况：
-%%   - content 为 binary: 直接返回
-%%   - content 为 null: 返回空二进制（tool_calls 响应时常见）
-%%   - 其他情况: 返回空二进制
-extract_content(#{content := Content}) when is_binary(Content) -> Content;
-extract_content(#{content := null}) -> <<>>;
-extract_content(#{}) -> <<>>.
+%% @private 从 LLM 响应中提取文本内容（委托给共享工具模块）
+extract_content(Response) ->
+    beamai_agent_utils:extract_content(Response).
 
 %% @private 从消息列表中查找最后一条 assistant 消息
 %%

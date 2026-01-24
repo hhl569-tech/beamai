@@ -21,7 +21,8 @@
         example_process_simple,
         example_process_tools,
         example_process_hooks,
-        example_process_parallel
+        example_process_parallel,
+        example_process_agent_test
     ]},
     {licenses, ["Apache-2.0"]},
     {links, []}
