@@ -2,7 +2,6 @@
 %%% @doc Pregel Dispatch Pool LLM 实时集成测试
 %%%
 %%% 使用真实 LLM 调用验证 dispatch 并发执行:
-%%% - zhipu GLM-4.6 (zhipu provider, native API)
 %%% - zhipu GLM-4.7 (anthropic provider, Anthropic-compatible API)
 %%%
 %%% 验证目标:
@@ -31,18 +30,9 @@ get_api_key() ->
         Key -> list_to_binary(Key)
     end.
 
-%% @private 创建 GLM-4.6 zhipu provider 配置
-glm46_zhipu_config(ApiKey) ->
-    llm_client:create(zhipu, #{
-        model => <<"glm-4.6">>,
-        api_key => ApiKey,
-        timeout => 30000,
-        max_tokens => 64
-    }).
-
 %% @private 创建 GLM-4.7 anthropic provider 配置
 glm47_anthropic_config(ApiKey) ->
-    llm_client:create(anthropic, #{
+    beamai_chat_completion:create(anthropic, #{
         model => <<"glm-4.7">>,
         api_key => ApiKey,
         base_url => <<"https://open.bigmodel.cn/api/anthropic">>,
@@ -52,7 +42,7 @@ glm47_anthropic_config(ApiKey) ->
 
 %% @private 创建一个故意失败的 LLM 配置（错误 API Key）
 bad_llm_config() ->
-    llm_client:create(anthropic, #{
+    beamai_chat_completion:create(anthropic, #{
         model => <<"glm-4.7">>,
         api_key => <<"invalid_key_for_testing">>,
         base_url => <<"https://open.bigmodel.cn/api/anthropic">>,
@@ -144,7 +134,7 @@ run_glm47_concurrent_dispatch(ApiKey) ->
     NodeFun = fun(_GlobalState, VertexInput) ->
         Prompt = maps:get(prompt, VertexInput, <<"Say hello">>),
         Messages = [#{role => user, content => Prompt}],
-        case llm_client:chat(LLMConfig, Messages) of
+        case beamai_chat_completion:chat(LLMConfig, Messages) of
             {ok, #{content := Content}} ->
                 {ok, #{response => Content, prompt => Prompt}};
             {error, Reason} ->
@@ -189,10 +179,10 @@ run_glm47_concurrent_dispatch(ApiKey) ->
     end, Deltas).
 
 %%====================================================================
-%% GLM-4.6 (zhipu provider) 并发 dispatch 测试
+%% GLM-4.7 (anthropic provider) binary role 兼容测试
 %%====================================================================
 
-glm46_concurrent_dispatch_test_() ->
+glm47_binary_role_dispatch_test_() ->
     {timeout, 120, fun() ->
         case get_api_key() of
             skip ->
@@ -200,21 +190,21 @@ glm46_concurrent_dispatch_test_() ->
             ApiKey ->
                 PoolState = ensure_started(),
                 try
-                    run_glm46_concurrent_dispatch(ApiKey)
+                    run_glm47_binary_role_dispatch(ApiKey)
                 after
                     cleanup(PoolState)
                 end
         end
     end}.
 
-run_glm46_concurrent_dispatch(ApiKey) ->
-    LLMConfig = glm46_zhipu_config(ApiKey),
+run_glm47_binary_role_dispatch(ApiKey) ->
+    LLMConfig = glm47_anthropic_config(ApiKey),
 
     NodeFun = fun(_GlobalState, VertexInput) ->
         Prompt = maps:get(prompt, VertexInput, <<"Say hello">>),
         %% 使用 binary role 验证 to_binary_role 兼容性
         Messages = [#{role => <<"user">>, content => Prompt}],
-        case llm_client:chat(LLMConfig, Messages) of
+        case beamai_chat_completion:chat(LLMConfig, Messages) of
             {ok, #{content := Content}} ->
                 {ok, #{response => Content, prompt => Prompt}};
             {error, Reason} ->
@@ -230,7 +220,7 @@ run_glm46_concurrent_dispatch(ApiKey) ->
     D2 = #{target => llm_node, input => #{prompt => <<"What is 7+3? Answer with just the number.">>}},
     VertexInputs = #{llm_node => [D1, D2]},
 
-    io:format("~n=== GLM-4.6 (zhipu provider) 并发 dispatch 测试 ===~n"),
+    io:format("~n=== GLM-4.7 (anthropic provider) binary role 兼容测试 ===~n"),
     io:format("发送 2 个并发 LLM 请求...~n"),
 
     T1 = erlang:monotonic_time(millisecond),
@@ -279,7 +269,7 @@ run_error_isolation_test(ApiKey) ->
         Config = maps:get(llm_config, VertexInput),
         Prompt = maps:get(prompt, VertexInput),
         Messages = [#{role => user, content => Prompt}],
-        case llm_client:chat(Config, Messages) of
+        case beamai_chat_completion:chat(Config, Messages) of
             {ok, #{content := Content}} ->
                 {ok, #{response => Content}};
             {error, Reason} ->
@@ -369,7 +359,7 @@ run_process_crash_test(ApiKey) ->
                 Config = maps:get(llm_config, VertexInput),
                 Prompt = maps:get(prompt, VertexInput),
                 Messages = [#{role => user, content => Prompt}],
-                case llm_client:chat(Config, Messages) of
+                case beamai_chat_completion:chat(Config, Messages) of
                     {ok, #{content := Content}} ->
                         {ok, #{response => Content}};
                     {error, Reason} ->
@@ -462,7 +452,7 @@ run_worker_failure_report_test(ApiKey) ->
                 Config = maps:get(llm_config, VertexInput),
                 Prompt = maps:get(prompt, VertexInput),
                 Messages = [#{role => user, content => Prompt}],
-                case llm_client:chat(Config, Messages) of
+                case beamai_chat_completion:chat(Config, Messages) of
                     {ok, #{content := Content}} -> {ok, #{response => Content}};
                     {error, Reason} -> {error, Reason}
                 end
@@ -557,7 +547,7 @@ run_concurrency_speedup_test(ApiKey) ->
     NodeFun = fun(_GlobalState, VertexInput) ->
         Prompt = maps:get(prompt, VertexInput),
         Messages = [#{role => user, content => Prompt}],
-        case llm_client:chat(LLMConfig, Messages) of
+        case beamai_chat_completion:chat(LLMConfig, Messages) of
             {ok, #{content := Content}} ->
                 {ok, #{response => Content}};
             {error, Reason} ->
