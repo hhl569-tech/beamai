@@ -83,22 +83,21 @@ on_resume(ResumeData, State, Context) ->
 %% 内部函数
 %%====================================================================
 
+%% @private 逐个执行 tool_calls 列表
+%%
+%% 遍历所有 tool_call，每个执行前先通过 on_tool_call 钩子检查。
+%% 全部执行完毕后发射 tool_results 事件。
 execute_all_tools(_Kernel, [], _OnToolCall, ResultsAcc, State) ->
-    %% 所有 tool 执行完毕
     Results = lists:reverse(ResultsAcc),
     Event = beamai_process_event:new(tool_results, Results),
     {ok, #{events => [Event], state => State}};
 execute_all_tools(Kernel, [TC | Rest], OnToolCall, ResultsAcc, State) ->
     {Id, Name, Args} = beamai_function:parse_tool_call(TC),
-
-    %% 检查 on_tool_call 钩子
     case check_tool_hook(OnToolCall, Name, Args) of
         ok ->
-            %% 执行 tool
             Result = execute_single_tool(Kernel, Id, Name, Args),
             execute_all_tools(Kernel, Rest, OnToolCall, [Result | ResultsAcc], State);
         {pause, Reason} ->
-            %% HITL: 暂停等待人工介入
             PauseInfo = #{
                 reason => Reason,
                 interrupted_tool => #{name => Name, args => Args, tool_call_id => Id},
@@ -108,6 +107,9 @@ execute_all_tools(Kernel, [TC | Rest], OnToolCall, ResultsAcc, State) ->
             {pause, PauseInfo, State}
     end.
 
+%% @private 执行单个 tool 并返回结果 map
+%%
+%% 通过 kernel:invoke_tool 执行，错误时返回编码后的错误信息。
 execute_single_tool(Kernel, Id, Name, Args) ->
     ResultBinary = case beamai_kernel:invoke_tool(Kernel, Name, Args, beamai_context:new()) of
         {ok, Value, _Ctx} ->
@@ -117,6 +119,9 @@ execute_single_tool(Kernel, Id, Name, Args) ->
     end,
     #{tool_call_id => Id, name => Name, args => Args, result => ResultBinary}.
 
+%% @private 检查 on_tool_call 钩子
+%%
+%% 未配置钩子时直接放行；钩子返回 {pause, Reason} 时触发暂停。
 check_tool_hook(undefined, _Name, _Args) -> ok;
 check_tool_hook(Fun, Name, Args) when is_function(Fun, 2) ->
     try Fun(Name, Args) of

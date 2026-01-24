@@ -80,12 +80,15 @@ execute_tools(Kernel, ToolCalls) ->
 %%
 %% 用于 Process-native agent 将 tool_step 返回的结果
 %% 转换为可追加到 messages 列表的 tool 角色消息。
+%% 支持 result 键和 content 键两种格式，未匹配的直接透传。
 -spec parse_tool_results_messages([map()]) -> [map()].
 parse_tool_results_messages(Results) ->
     lists:map(fun(#{tool_call_id := Id, result := R}) ->
         #{role => tool, tool_call_id => Id, content => ensure_binary(R)};
     (#{tool_call_id := Id, content := C}) ->
-        #{role => tool, tool_call_id => Id, content => ensure_binary(C)}
+        #{role => tool, tool_call_id => Id, content => ensure_binary(C)};
+    (Other) ->
+        Other
     end, Results).
 
 %%====================================================================

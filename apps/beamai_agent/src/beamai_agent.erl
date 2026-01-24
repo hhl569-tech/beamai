@@ -130,7 +130,7 @@ run(State, UserMessage, Opts) ->
       max_tool_iterations := MaxIter} = State,
 
     %% 生成本轮 run_id
-    RunId = generate_run_id(),
+    RunId = beamai_id:gen_id(<<"run">>),
     State0 = State#{run_id => RunId},
 
     Meta = beamai_agent_callbacks:build_metadata(State0),
@@ -141,28 +141,15 @@ run(State, UserMessage, Opts) ->
 
     ChatOpts = build_chat_opts(State0, Opts),
 
-    case tool_loop(Kernel, Messages, ChatOpts, Callbacks, Meta, MaxIter, [], State0) of
+    LoopOpts = #{
+        kernel => Kernel, messages => Messages, chat_opts => ChatOpts,
+        callbacks => Callbacks, meta => Meta, max_iterations => MaxIter,
+        agent => State0, mode => normal
+    },
+    case beamai_agent_tool_loop:run(LoopOpts, []) of
         {ok, Response, ToolCallsMade, Iterations} ->
-            Content = extract_content(Response),
-            AssistantMsg = #{role => assistant, content => Content},
-            NewMessages = maps:get(messages, State0) ++ [UserMsg, AssistantMsg],
-            NewState = State0#{
-                messages => NewMessages,
-                turn_count => maps:get(turn_count, State0) + 1
-            },
-            Result = #{
-                content => Content,
-                tool_calls_made => ToolCallsMade,
-                finish_reason => maps:get(finish_reason, Response, <<>>),
-                usage => maps:get(usage, Response, #{}),
-                iterations => Iterations
-            },
-            EndMeta = Meta#{turn_count => maps:get(turn_count, NewState)},
-            beamai_agent_callbacks:invoke(on_turn_end, [EndMeta], Callbacks),
-            FinalState = maybe_auto_save(NewState),
-            {ok, Result, FinalState};
+            finalize_turn(State0, Response, ToolCallsMade, Iterations, [UserMsg]);
         {interrupt, Type, Context} ->
-            %% 中断：构建 interrupt_state 并保存
             handle_new_interrupt(State0, Type, Context, UserMsg, Callbacks, Meta);
         {error, Reason} ->
             beamai_agent_callbacks:invoke(on_turn_error, [Reason, Meta], Callbacks),
@@ -200,7 +187,7 @@ stream(State, UserMessage, Opts) ->
     #{callbacks := Callbacks, kernel := Kernel,
       max_tool_iterations := MaxIter} = State,
 
-    RunId = generate_run_id(),
+    RunId = beamai_id:gen_id(<<"run">>),
     State0 = State#{run_id => RunId},
 
     Meta = beamai_agent_callbacks:build_metadata(State0),
@@ -211,26 +198,14 @@ stream(State, UserMessage, Opts) ->
 
     ChatOpts = build_chat_opts(State0, Opts),
 
-    case stream_tool_loop(Kernel, Messages, ChatOpts, Callbacks, Meta, MaxIter, [], State0) of
+    LoopOpts = #{
+        kernel => Kernel, messages => Messages, chat_opts => ChatOpts,
+        callbacks => Callbacks, meta => Meta, max_iterations => MaxIter,
+        agent => State0, mode => stream
+    },
+    case beamai_agent_tool_loop:run(LoopOpts, []) of
         {ok, Response, ToolCallsMade, Iterations} ->
-            Content = extract_content(Response),
-            AssistantMsg = #{role => assistant, content => Content},
-            NewMessages = maps:get(messages, State0) ++ [UserMsg, AssistantMsg],
-            NewState = State0#{
-                messages => NewMessages,
-                turn_count => maps:get(turn_count, State0) + 1
-            },
-            Result = #{
-                content => Content,
-                tool_calls_made => ToolCallsMade,
-                finish_reason => maps:get(finish_reason, Response, <<>>),
-                usage => maps:get(usage, Response, #{}),
-                iterations => Iterations
-            },
-            EndMeta = Meta#{turn_count => maps:get(turn_count, NewState)},
-            beamai_agent_callbacks:invoke(on_turn_end, [EndMeta], Callbacks),
-            FinalState = maybe_auto_save(NewState),
-            {ok, Result, FinalState};
+            finalize_turn(State0, Response, ToolCallsMade, Iterations, [UserMsg]);
         {interrupt, Type, Context} ->
             handle_new_interrupt(State0, Type, Context, UserMsg, Callbacks, Meta);
         {error, Reason} ->
@@ -424,29 +399,15 @@ resume(#{interrupt_state := IntState} = Agent, HumanInput) ->
             RemainingIter = MaxIter - Iter,
             ChatOpts = build_chat_opts(Agent1, #{}),
 
-            case tool_loop(Kernel, ResumeMessages, ChatOpts, Callbacks, Meta,
-                          RemainingIter, PrevCalls, Agent1) of
+            LoopOpts = #{
+                kernel => Kernel, messages => ResumeMessages, chat_opts => ChatOpts,
+                callbacks => Callbacks, meta => Meta, max_iterations => RemainingIter,
+                agent => Agent1, mode => normal
+            },
+            case beamai_agent_tool_loop:run(LoopOpts, PrevCalls) of
                 {ok, Response, AllToolCalls, Iterations} ->
-                    Content = extract_content(Response),
-                    AssistantMsg = #{role => assistant, content => Content},
-                    NewMessages = maps:get(messages, Agent1) ++ [AssistantMsg],
-                    NewState = Agent1#{
-                        messages => NewMessages,
-                        turn_count => maps:get(turn_count, Agent1) + 1
-                    },
-                    Result = #{
-                        content => Content,
-                        tool_calls_made => AllToolCalls,
-                        finish_reason => maps:get(finish_reason, Response, <<>>),
-                        usage => maps:get(usage, Response, #{}),
-                        iterations => Iterations
-                    },
-                    EndMeta = Meta#{turn_count => maps:get(turn_count, NewState)},
-                    beamai_agent_callbacks:invoke(on_turn_end, [EndMeta], Callbacks),
-                    FinalState = maybe_auto_save(NewState),
-                    {ok, Result, FinalState};
+                    finalize_turn(Agent1, Response, AllToolCalls, Iterations, []);
                 {interrupt, Type, Context} ->
-                    %% 再次中断
                     UserMsg = #{role => user, content => <<"[resume]">>},
                     handle_new_interrupt(Agent1, Type, Context, UserMsg, Callbacks, Meta);
                 {error, Reason} ->
@@ -507,222 +468,40 @@ get_interrupt_info(_) ->
     undefined.
 
 %%====================================================================
-%% 内部函数 - Tool Loop
-%%====================================================================
-
-%% @private 自实现 tool loop（普通模式）
-%%
-%% 核心循环逻辑：
-%%   1. 调用 invoke_chat 发送消息给 LLM（经过 pre/post_chat filters）
-%%   2. 检查响应中是否包含 tool_calls
-%%      - 有 tool_calls: 执行所有工具，拼接结果到消息，递归
-%%      - 无 tool_calls（纯文本响应）: 返回最终结果
-%%   3. 迭代次数用尽时返回 max_tool_iterations 错误
-%%
-%% 不使用 kernel 的 invoke_chat_with_tools，因为它内部直接调用
-%% beamai_chat_completion:chat，绕过了 pre_chat/post_chat filters。
-%%
-%% @param Kernel kernel 实例
-%% @param Msgs 当前消息列表
-%% @param Opts chat 选项（含 tools spec）
-%% @param Callbacks 回调表（此处未直接使用，回调通过 filter 触发）
-%% @param Meta 元数据
-%% @param N 剩余迭代次数
-%% @param ToolCallsMade 已执行的 tool 调用记录
-%% @returns {ok, Response, ToolCallsMade, Iterations} | {error, Reason}
-tool_loop(_Kernel, _Msgs, _Opts, _Callbacks, _Meta, 0, ToolCallsMade, _Agent) ->
-    {error, {max_tool_iterations, ToolCallsMade}};
-tool_loop(Kernel, Msgs, Opts, Callbacks, Meta, N, ToolCallsMade, Agent) ->
-    #{max_tool_iterations := MaxIter} = Agent,
-    case beamai_kernel:invoke_chat(Kernel, Msgs, Opts) of
-        {ok, #{tool_calls := TCs} = _Response, _Ctx} when is_list(TCs), TCs =/= [] ->
-            %% 1. 检查是否有 interrupt tool
-            case beamai_agent_interrupt:find_interrupt_tool(TCs, Agent) of
-                {yes, InterruptToolCall, OtherCalls} ->
-                    %% 先执行非中断 tools
-                    {OtherResults, OtherCallRecords} = execute_tools(Kernel, OtherCalls),
-                    AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
-                    Context = #{
-                        pending_messages => Msgs,
-                        assistant_response => AssistantMsg,
-                        completed_tool_results => OtherResults,
-                        interrupted_tool_call => InterruptToolCall,
-                        iteration => MaxIter - N,
-                        tool_calls_made => ToolCallsMade ++ OtherCallRecords
-                    },
-                    %% 提取中断原因（从 tool_call 的参数中）
-                    Reason = extract_interrupt_reason(InterruptToolCall),
-                    {interrupt, tool_request, Context#{reason => Reason}};
-                no ->
-                    %% 2. 检查 callback 是否触发中断
-                    case check_callback_interrupt(TCs, Callbacks, Agent) of
-                        {interrupt, CallbackReason, InterruptedTC} ->
-                            AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
-                            Context = #{
-                                pending_messages => Msgs,
-                                assistant_response => AssistantMsg,
-                                completed_tool_results => [],
-                                interrupted_tool_call => InterruptedTC,
-                                iteration => MaxIter - N,
-                                tool_calls_made => ToolCallsMade,
-                                reason => CallbackReason
-                            },
-                            {interrupt, callback, Context};
-                        ok ->
-                            %% 3. 执行 tools，检查结果是否有中断
-                            case execute_tools_with_interrupt_check(Kernel, TCs) of
-                                {ok, ToolResults, NewToolCalls} ->
-                                    AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
-                                    NewMsgs = Msgs ++ [AssistantMsg | ToolResults],
-                                    tool_loop(Kernel, NewMsgs, Opts, Callbacks, Meta, N - 1,
-                                              ToolCallsMade ++ NewToolCalls, Agent);
-                                {interrupt, IntReason, PartialResults, InterruptedTC, CompletedCalls} ->
-                                    AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
-                                    Context = #{
-                                        pending_messages => Msgs,
-                                        assistant_response => AssistantMsg,
-                                        completed_tool_results => PartialResults,
-                                        interrupted_tool_call => InterruptedTC,
-                                        iteration => MaxIter - N,
-                                        tool_calls_made => ToolCallsMade ++ CompletedCalls,
-                                        reason => IntReason
-                                    },
-                                    {interrupt, tool_result, Context}
-                            end
-                    end
-            end;
-        {ok, Response, _Ctx} ->
-            %% LLM 返回纯文本响应：tool loop 终止
-            Iters = case ToolCallsMade of
-                [] -> 1;
-                _ -> length(ToolCallsMade) + 1
-            end,
-            {ok, Response, ToolCallsMade, Iters};
-        {error, _} = Err ->
-            Err
-    end.
-
-%% @private 流式 tool loop
-%%
-%% Tool-call 迭代使用普通 chat（需要完整 response 才能解析 tool_calls），
-%% 确认不再有 tool calls 后，最后一次 LLM 调用使用 streaming 模式。
-%%
-%% 流程：
-%%   1. 先用普通 invoke_chat 探测是否有 tool_calls
-%%   2. 有 tool_calls: 执行工具，递归（同 tool_loop）
-%%   3. 无 tool_calls: 切换到 stream_final_call 进行流式调用
-%%
-%% @param Kernel kernel 实例
-%% @param Msgs 当前消息列表
-%% @param Opts chat 选项
-%% @param Callbacks 回调表（on_token 在 stream_final_call 中使用）
-%% @param Meta 元数据
-%% @param N 剩余迭代次数
-%% @param ToolCallsMade 已执行的 tool 调用记录
-%% @returns {ok, Response, ToolCallsMade, Iterations} | {error, Reason}
-stream_tool_loop(_Kernel, _Msgs, _Opts, _Callbacks, _Meta, 0, ToolCallsMade, _Agent) ->
-    {error, {max_tool_iterations, ToolCallsMade}};
-stream_tool_loop(Kernel, Msgs, Opts, Callbacks, Meta, N, ToolCallsMade, Agent) ->
-    #{max_tool_iterations := MaxIter} = Agent,
-    case beamai_kernel:invoke_chat(Kernel, Msgs, Opts) of
-        {ok, #{tool_calls := TCs} = _Response, _Ctx} when is_list(TCs), TCs =/= [] ->
-            %% 检查中断（与 tool_loop 相同逻辑）
-            case beamai_agent_interrupt:find_interrupt_tool(TCs, Agent) of
-                {yes, InterruptToolCall, OtherCalls} ->
-                    {OtherResults, OtherCallRecords} = execute_tools(Kernel, OtherCalls),
-                    AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
-                    Reason = extract_interrupt_reason(InterruptToolCall),
-                    Context = #{
-                        pending_messages => Msgs,
-                        assistant_response => AssistantMsg,
-                        completed_tool_results => OtherResults,
-                        interrupted_tool_call => InterruptToolCall,
-                        iteration => MaxIter - N,
-                        tool_calls_made => ToolCallsMade ++ OtherCallRecords,
-                        reason => Reason
-                    },
-                    {interrupt, tool_request, Context};
-                no ->
-                    case check_callback_interrupt(TCs, Callbacks, Agent) of
-                        {interrupt, CallbackReason, InterruptedTC} ->
-                            AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
-                            Context = #{
-                                pending_messages => Msgs,
-                                assistant_response => AssistantMsg,
-                                completed_tool_results => [],
-                                interrupted_tool_call => InterruptedTC,
-                                iteration => MaxIter - N,
-                                tool_calls_made => ToolCallsMade,
-                                reason => CallbackReason
-                            },
-                            {interrupt, callback, Context};
-                        ok ->
-                            case execute_tools_with_interrupt_check(Kernel, TCs) of
-                                {ok, ToolResults, NewToolCalls} ->
-                                    AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
-                                    NewMsgs = Msgs ++ [AssistantMsg | ToolResults],
-                                    stream_tool_loop(Kernel, NewMsgs, Opts, Callbacks, Meta, N - 1,
-                                                    ToolCallsMade ++ NewToolCalls, Agent);
-                                {interrupt, IntReason, PartialResults, InterruptedTC, CompletedCalls} ->
-                                    AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
-                                    Context = #{
-                                        pending_messages => Msgs,
-                                        assistant_response => AssistantMsg,
-                                        completed_tool_results => PartialResults,
-                                        interrupted_tool_call => InterruptedTC,
-                                        iteration => MaxIter - N,
-                                        tool_calls_made => ToolCallsMade ++ CompletedCalls,
-                                        reason => IntReason
-                                    },
-                                    {interrupt, tool_result, Context}
-                            end
-                    end
-            end;
-        {ok, _Response, _Ctx} ->
-            %% 无更多 tool calls：切换到流式模式进行最终调用
-            case stream_final_call(Kernel, Msgs, Opts, Callbacks, Meta) of
-                {ok, StreamResponse} ->
-                    TotalIterations = case ToolCallsMade of
-                        [] -> 1;
-                        _ -> length(ToolCallsMade) + 1
-                    end,
-                    {ok, StreamResponse, ToolCallsMade, TotalIterations};
-                {error, _} = Err ->
-                    Err
-            end;
-        {error, _} = Err ->
-            Err
-    end.
-
-%% @private 流式最终 LLM 调用
-%%
-%% 使用 beamai_chat_completion:stream_chat 进行流式调用，
-%% 每收到一个 token 通过 on_token 回调传递给用户。
-%%
-%% @param Kernel kernel 实例
-%% @param Msgs 最终消息列表
-%% @param Opts chat 选项
-%% @param Callbacks 回调表（需包含 on_token）
-%% @param Meta 元数据（传递给 on_token）
-%% @returns {ok, Response} | {error, Reason}
-stream_final_call(Kernel, Msgs, Opts, Callbacks, Meta) ->
-    case beamai_kernel:get_service(Kernel) of
-        {ok, LlmConfig} ->
-            TokenCb = fun(Token) ->
-                beamai_agent_callbacks:invoke(on_token, [Token, Meta], Callbacks)
-            end,
-            beamai_chat_completion:stream_chat(LlmConfig, Msgs, TokenCb, Opts);
-        error ->
-            {error, no_llm_service}
-    end.
-
-%% @private 执行 tool calls 并收集结果（委托给共享工具模块）
-execute_tools(Kernel, ToolCalls) ->
-    beamai_agent_utils:execute_tools(Kernel, ToolCalls).
-
-%%====================================================================
 %% 内部函数 - 辅助
 %%====================================================================
+
+%% @private 完成一轮对话：构建结果、更新状态、触发回调
+%%
+%% 统一 run/stream/resume 三处相同的结果构建逻辑。
+%%
+%% @param State0 执行前的 agent 状态
+%% @param Response LLM 最终响应
+%% @param ToolCallsMade 本轮所有 tool 调用记录
+%% @param Iterations 迭代次数
+%% @param UserMsgs 需追加到历史的用户消息列表
+%% @returns {ok, RunResult, FinalState}
+finalize_turn(State0, Response, ToolCallsMade, Iterations, UserMsgs) ->
+    #{callbacks := Callbacks} = State0,
+    Meta = beamai_agent_callbacks:build_metadata(State0),
+    Content = beamai_agent_utils:extract_content(Response),
+    AssistantMsg = #{role => assistant, content => Content},
+    NewMessages = maps:get(messages, State0) ++ UserMsgs ++ [AssistantMsg],
+    NewState = State0#{
+        messages => NewMessages,
+        turn_count => maps:get(turn_count, State0) + 1
+    },
+    Result = #{
+        content => Content,
+        tool_calls_made => ToolCallsMade,
+        finish_reason => maps:get(finish_reason, Response, <<>>),
+        usage => maps:get(usage, Response, #{}),
+        iterations => Iterations
+    },
+    EndMeta = Meta#{turn_count => maps:get(turn_count, NewState)},
+    beamai_agent_callbacks:invoke(on_turn_end, [EndMeta], Callbacks),
+    FinalState = maybe_auto_save(NewState),
+    {ok, Result, FinalState}.
 
 %% @private 构建 chat 选项（基于共享工具模块，附加中断 tool specs）
 build_chat_opts(#{kernel := Kernel} = Agent, Opts) ->
@@ -734,10 +513,6 @@ build_chat_opts(#{kernel := Kernel} = Agent, Opts) ->
             ExistingTools = maps:get(tools, BaseOpts, []),
             BaseOpts#{tools => ExistingTools ++ InterruptSpecs}
     end.
-
-%% @private 从 LLM 响应中提取文本内容（委托给共享工具模块）
-extract_content(Response) ->
-    beamai_agent_utils:extract_content(Response).
 
 %% @private 从消息列表中查找最后一条 assistant 消息
 %%
@@ -779,75 +554,3 @@ handle_new_interrupt(Agent, Type, Context, _UserMsg, Callbacks, Meta) ->
         created_at => maps:get(created_at, IntState)
     },
     {interrupt, Info, Agent2}.
-
-%% @private 检查 on_tool_call callback 是否触发中断
-%%
-%% 遍历 tool_calls，对每个调用触发 on_tool_call callback。
-%% 如果 callback 返回 {interrupt, Reason}，中断执行。
-check_callback_interrupt(ToolCalls, Callbacks, _Agent) ->
-    OnToolCall = maps:get(on_tool_call, Callbacks, undefined),
-    case OnToolCall of
-        undefined -> ok;
-        Fun ->
-            check_callback_interrupt_loop(ToolCalls, Fun)
-    end.
-
-check_callback_interrupt_loop([], _Fun) ->
-    ok;
-check_callback_interrupt_loop([TC | Rest], Fun) ->
-    {_Id, Name, Args} = beamai_function:parse_tool_call(TC),
-    case catch Fun(Name, Args) of
-        {interrupt, Reason} ->
-            {interrupt, Reason, TC};
-        _ ->
-            check_callback_interrupt_loop(Rest, Fun)
-    end.
-
-%% @private 执行 tools 并检查执行结果中的中断信号
-%%
-%% 逐个执行 tool_calls，如果某个 tool 返回 {interrupt, Reason, PartialResult}，
-%% 则停止执行并返回中断信息。
-execute_tools_with_interrupt_check(Kernel, ToolCalls) ->
-    execute_tools_with_interrupt_check(Kernel, ToolCalls, [], []).
-
-execute_tools_with_interrupt_check(_Kernel, [], ResultsAcc, CallsAcc) ->
-    {ok, lists:reverse(ResultsAcc), lists:reverse(CallsAcc)};
-execute_tools_with_interrupt_check(Kernel, [TC | Rest], ResultsAcc, CallsAcc) ->
-    {Id, Name, Args} = beamai_function:parse_tool_call(TC),
-    case beamai_kernel:invoke_tool(Kernel, Name, Args, beamai_context:new()) of
-        {ok, Value, _Ctx} ->
-            Result = beamai_function:encode_result(Value),
-            Msg = #{role => tool, tool_call_id => Id, content => Result},
-            CallRecord = #{name => Name, args => Args, result => Result, tool_call_id => Id},
-            execute_tools_with_interrupt_check(Kernel, Rest,
-                [Msg | ResultsAcc], [CallRecord | CallsAcc]);
-        {interrupt, Reason, PartialResult} ->
-            %% Tool 执行返回中断信号
-            PartialMsg = #{role => tool, tool_call_id => Id,
-                          content => beamai_function:encode_result(PartialResult)},
-            {interrupt, Reason,
-             lists:reverse([PartialMsg | ResultsAcc]),
-             TC,
-             lists:reverse(CallsAcc)};
-        {error, Reason} ->
-            Result = beamai_function:encode_result(#{error => Reason}),
-            Msg = #{role => tool, tool_call_id => Id, content => Result},
-            CallRecord = #{name => Name, args => Args, result => Result, tool_call_id => Id},
-            execute_tools_with_interrupt_check(Kernel, Rest,
-                [Msg | ResultsAcc], [CallRecord | CallsAcc])
-    end.
-
-%% @private 从 interrupt tool_call 中提取中断原因
-extract_interrupt_reason(#{function := #{arguments := Args}}) when is_map(Args) ->
-    Args;
-extract_interrupt_reason(#{<<"function">> := #{<<"arguments">> := Args}}) when is_map(Args) ->
-    Args;
-extract_interrupt_reason(TC) ->
-    {_Id, Name, Args} = beamai_function:parse_tool_call(TC),
-    #{tool => Name, arguments => Args}.
-
-%% @private 生成 run_id
-generate_run_id() ->
-    Ts = erlang:system_time(microsecond),
-    Rand = rand:uniform(16#FFFF),
-    list_to_binary(io_lib:format("run_~16.16.0b_~4.16.0b", [Ts, Rand])).

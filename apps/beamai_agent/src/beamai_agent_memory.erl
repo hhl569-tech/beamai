@@ -24,7 +24,7 @@
 %%%-------------------------------------------------------------------
 -module(beamai_agent_memory).
 
--export([save/1, restore/2, resume_from_memory/3]).
+-export([save/1, restore/2]).
 
 %%====================================================================
 %% API
@@ -121,22 +121,3 @@ restore(Config, Memory) ->
             Err
     end.
 
-%% @doc 从 memory 加载最新中断状态并恢复执行
-%%
-%% 便捷函数：加载 checkpoint → 检查是否中断 → resume
-%%
-%% @param Config agent 配置
-%% @param Memory memory 实例
-%% @param HumanInput 人类输入
-%% @returns {ok, RunResult, AgentState} | {interrupt, InterruptInfo, AgentState} | {error, Reason}
--spec resume_from_memory(map(), term(), term()) ->
-    {ok, map(), map()} | {error, term()}.
-resume_from_memory(Config, Memory, HumanInput) ->
-    case restore(Config, Memory) of
-        {ok, Agent} ->
-            case beamai_agent:is_interrupted(Agent) of
-                true -> beamai_agent:resume(Agent, HumanInput);
-                false -> {error, not_interrupted}
-            end;
-        {error, _} = Err -> Err
-    end.
