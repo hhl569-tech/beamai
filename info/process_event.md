@@ -179,9 +179,117 @@ Builder3 = beamai_process_builder:add_binding(Builder2,
 {ok, Process} = beamai_process_builder:compile(Builder3).
 ```
 
+## External Input Support
+
+BeamAI Process Framework supports external input through two mechanisms:
+
+### 1. Dynamic Event Sending (`send_event/2`)
+
+Send events to a running process from external code:
+
+```erlang
+%% Start process
+{ok, Pid} = beamai_process_runtime:start_link(ProcessSpec, #{}),
+
+%% Send external event anytime
+beamai_process_runtime:send_event(Pid, beamai_process_event:new(user_input, #{
+    text => <<"Hello">>
+})).
+```
+
+Events are queued and routed to matching step inputs.
+
+### 2. Pause/Resume Mechanism
+
+Steps can pause execution and wait for external input:
+
+```erlang
+%% Step returns pause to wait for external input
+on_activate(_Inputs, State, _Context) ->
+    {pause, awaiting_human_input, State}.
+
+%% Step handles resume data (optional callback)
+on_resume(ResumeData, State, _Context) ->
+    NewState = State#{user_response => ResumeData},
+    Events = [beamai_process_event:new(user_confirmed, ResumeData)],
+    {ok, #{events => Events, state => NewState}}.
+```
+
+```erlang
+%% External code resumes the paused process
+beamai_process_runtime:resume(Pid, #{confirmed => true}).
+```
+
+### Runtime State Machine
+
+```
+         send_event
+    ┌──────────────────┐
+    │                  ▼
+  idle ────────────► running
+    ▲                  │
+    │                  │ {pause, Reason, State}
+    │                  ▼
+    │              paused ◄─── waiting for external input
+    │                  │
+    │                  │ resume(Pid, Data)
+    │                  ▼
+    └──────────────────┘
+```
+
+### Example: Human-in-the-Loop Step
+
+```erlang
+-module(human_input_step).
+-behaviour(beamai_step_behaviour).
+-export([init/1, can_activate/2, on_activate/3, on_resume/3]).
+
+init(Config) ->
+    {ok, #{prompt => maps:get(prompt, Config, <<"Please confirm">>)}}.
+
+can_activate(#{input := _}, _State) -> true;
+can_activate(_, _) -> false.
+
+%% First activation - pause and wait for user
+on_activate(#{input := Data}, #{prompt := Prompt} = State, _Context) ->
+    io:format("~s~n", [Prompt]),
+    {pause, {waiting_for_user, Data}, State}.
+
+%% Resume after user responds
+on_resume(UserResponse, State, _Context) ->
+    Events = [beamai_process_event:new(user_responded, UserResponse)],
+    {ok, #{events => Events, state => State#{response => UserResponse}}}.
+```
+
+### Paused State Behavior
+
+- New events sent via `send_event/2` are **queued** (not lost)
+- Events are processed after `resume/2` is called
+- `get_status/1` returns `paused` state with pause reason
+- `snapshot/1` can capture paused state for persistence
+
+### External Input API Summary
+
+| Function | Description |
+|----------|-------------|
+| `send_event(Pid, Event)` | Send event to running/paused process |
+| `resume(Pid, Data)` | Resume paused process with data |
+| `get_status(Pid)` | Check process state (idle/running/paused/completed/failed) |
+| `snapshot(Pid)` | Get serializable state snapshot |
+
+### Comparison with C# SK
+
+| External Input | C# SK Process | BeamAI Process |
+|----------------|---------------|----------------|
+| Runtime event | `SendEventAsync` | `send_event/2` |
+| Wait for user | Human-in-the-loop | `{pause, Reason, State}` |
+| Resume execution | Resume | `resume/2` + `on_resume/3` |
+| Queue events while paused | - | Supported |
+
 ## Related Modules
 
 - `beamai_process_event` - Event and binding types
 - `beamai_process_step` - Step activation and execution
 - `beamai_process_builder` - Process construction
 - `beamai_process_runtime` - Event-driven execution (gen_statem)
+- `beamai_step_behaviour` - Step callback definitions
