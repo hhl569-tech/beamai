@@ -1,8 +1,12 @@
 # BeamAI - Erlang Agent Framework
 
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Erlang/OTP](https://img.shields.io/badge/Erlang%2FOTP-26%2B-red.svg)](https://www.erlang.org/)
+[![Build](https://img.shields.io/badge/build-rebar3-brightgreen.svg)](https://rebar3.org/)
+
 [English](README_EN.md) | 中文
 
-基于 Erlang/OTP 的高性能 AI Agent 应用框架。
+基于 Erlang/OTP 的高性能 AI Agent 应用框架，提供完整的 Agent 开发工具链。
 
 ## 特性
 
@@ -499,10 +503,26 @@ rebar3 shell
 
 ## 项目统计
 
-- **应用数量**: 10 个
-- **源代码文件**: ~180 个模块
-- **代码行数**: ~62,000 行
-- **测试覆盖**: 持续改进中
+| 指标 | 数量 |
+|------|------|
+| **OTP 应用** | 10 个 |
+| **源代码模块** | 186 个 |
+| **测试文件** | 49 个 |
+| **代码行数** | ~63,000 行 |
+| **单元测试** | 722+ 个 |
+
+### 测试运行
+
+```bash
+# 运行所有测试
+rebar3 eunit
+
+# 运行特定应用的测试
+rebar3 eunit --app=beamai_llm
+
+# 运行代码检查
+rebar3 dialyzer
+```
 
 ## 性能
 

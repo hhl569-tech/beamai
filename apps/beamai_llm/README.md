@@ -26,6 +26,7 @@
 ### 提供商
 
 - **llm_provider_behaviour** - 提供商行为定义
+- **llm_provider_common** - 提供商公共函数（URL 构建、认证头、事件累加等）
 - **llm_provider_openai** - OpenAI 实现
 - **llm_provider_anthropic** - Anthropic 实现
 - **llm_provider_deepseek** - DeepSeek 实现 (OpenAI 兼容 API)
@@ -357,6 +358,57 @@ DeepSeek API 完全兼容 OpenAI API 格式，使用相同的请求/响应结构
 **流式输出：**
 - 请求头：`X-DashScope-SSE: enable`
 - 参数：`parameters.incremental_output: true`
+
+## 架构说明
+
+### Provider 公共模块 (llm_provider_common)
+
+所有 Provider 共享的通用函数已抽取到 `llm_provider_common` 模块：
+
+```erlang
+%% URL 构建
+llm_provider_common:build_url(Config, DefaultEndpoint, DefaultBaseUrl) -> URL.
+
+%% Bearer 认证头
+llm_provider_common:build_bearer_auth_headers(Config) -> Headers.
+
+%% 可选参数处理
+llm_provider_common:maybe_add_stream(Body, Request) -> NewBody.
+llm_provider_common:maybe_add_tools(Body, Request) -> NewBody.
+llm_provider_common:maybe_add_top_p(Body, Request) -> NewBody.
+
+%% OpenAI 格式事件累加（流式响应）
+llm_provider_common:accumulate_openai_event(Event, Acc) -> NewAcc.
+
+%% 工具调用解析
+llm_provider_common:parse_tool_calls(Message) -> [ToolCall].
+llm_provider_common:parse_single_tool_call(Call) -> ToolCall.
+
+%% 使用统计解析
+llm_provider_common:parse_usage(Usage) -> #{prompt_tokens, completion_tokens, total_tokens}.
+```
+
+### 响应适配器 (llm_response_adapter)
+
+统一的响应解析，将不同 LLM Provider 的响应格式转换为标准化的内部格式：
+
+```erlang
+%% 解析 OpenAI 格式响应（GPT、DeepSeek、智谱、Ollama）
+{ok, Response} = llm_response_adapter:parse_openai(RawResponse).
+
+%% 解析 Anthropic 格式响应（Claude）
+{ok, Response} = llm_response_adapter:parse_anthropic(RawResponse).
+
+%% 标准化响应格式
+#{
+    id => binary(),           %% 请求 ID
+    model => binary(),        %% 模型名称
+    content => binary(),      %% 响应内容
+    tool_calls => [map()],    %% 工具调用（可选）
+    finish_reason => binary(),%% 结束原因
+    usage => #{...}           %% Token 统计
+}
+```
 
 ## 依赖
 

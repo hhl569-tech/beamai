@@ -611,6 +611,33 @@ llm_client:provider_info(Provider).
 | `bailian` | llm_provider_bailian | DashScope 原生 | 聊天、流式、工具调用、联网搜索 |
 | `ollama` | llm_provider_ollama | OpenAI 兼容 | 聊天、流式 |
 
+### Provider 公共模块 (llm_provider_common)
+
+所有 Provider 共享的通用函数：
+
+```erlang
+%% URL 构建
+llm_provider_common:build_url(Config, DefaultEndpoint, DefaultBaseUrl) -> binary().
+
+%% Bearer 认证头构建
+llm_provider_common:build_bearer_auth_headers(Config) -> [{binary(), binary()}].
+
+%% 可选参数添加
+llm_provider_common:maybe_add_stream(Body, Request) -> map().
+llm_provider_common:maybe_add_tools(Body, Request) -> map().
+llm_provider_common:maybe_add_top_p(Body, Request) -> map().
+
+%% OpenAI 格式流式事件累加
+llm_provider_common:accumulate_openai_event(Event, Acc) -> map().
+
+%% 工具调用解析
+llm_provider_common:parse_tool_calls(Message) -> [map()].
+llm_provider_common:parse_single_tool_call(Call) -> map().
+
+%% 使用统计解析
+llm_provider_common:parse_usage(Usage) -> #{prompt_tokens, completion_tokens, total_tokens}.
+```
+
 ### DeepSeek 详细说明
 
 DeepSeek Provider 使用 OpenAI 兼容 API，支持 `deepseek-chat` 和 `deepseek-reasoner` 模型。
