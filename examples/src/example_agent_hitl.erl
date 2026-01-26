@@ -35,7 +35,7 @@ demo_interrupt_tool() ->
 
     %% 创建带 interrupt tool 的 agent
     {ok, Agent} = beamai_agent:new(#{
-        llm => {mock, #{}},  %% 实际使用时替换为 {zhipu, #{model => <<"glm-4">>}}
+        llm => {mock, #{}},  %% 实际使用时替换为 example_llm_config:anthropic()
         system_prompt => <<"You are a file management assistant. "
                           "Before performing any destructive operation, "
                           "always call ask_human to confirm with the user.">>,

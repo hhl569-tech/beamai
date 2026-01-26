@@ -23,7 +23,7 @@ build_chat_opts_with_tools_test() ->
     K0 = beamai_kernel:new(),
     Func = beamai_tool:new(<<"test_func">>, fun(_) -> {ok, <<"ok">>} end,
         #{description => <<"desc">>, parameters => #{}}),
-    K1 = beamai_kernel:add_plugin(K0, <<"test_plugin">>, [Func]),
+    K1 = beamai_kernel:add_tools(K0, [Func]),
     Opts = beamai_agent_utils:build_chat_opts(K1, #{}),
     ?assert(maps:is_key(tools, Opts)),
     ?assertEqual(auto, maps:get(tool_choice, Opts)).
@@ -117,7 +117,7 @@ tool_step_executes_tools_test() ->
         fun(#{<<"msg">> := Msg}) -> {ok, Msg} end,
         #{description => <<"echo input">>,
           parameters => #{msg => #{type => string}}}),
-    K1 = beamai_kernel:add_plugin(K0, <<"test">>, [Func]),
+    K1 = beamai_kernel:add_tools(K0, [Func]),
     Context = beamai_context:with_kernel(beamai_context:new(), K1),
 
     {ok, State} = beamai_process_agent_tool_step:init(#{}),
@@ -148,7 +148,7 @@ tool_step_pause_on_hook_test() ->
         fun(_) -> {ok, <<"done">>} end,
         #{description => <<"dangerous op">>,
           parameters => #{}}),
-    K1 = beamai_kernel:add_plugin(K0, <<"test">>, [Func]),
+    K1 = beamai_kernel:add_tools(K0, [Func]),
     Context = beamai_context:with_kernel(beamai_context:new(), K1),
 
     Hook = fun(<<"danger">>, _Args) -> {pause, needs_approval};
@@ -187,7 +187,7 @@ build_basic_config_test() ->
 
 build_with_llm_config_test() ->
     Config = #{
-        llm => {zhipu, #{model => <<"glm-4-flash">>}},
+        llm => {anthropic, #{model => <<"glm-4.7">>, base_url => <<"https://open.bigmodel.cn/api/anthropic">>}},
         system_prompt => <<"test">>
     },
     {ok, {_ProcessDef, Context}} = beamai_process_agent:build(Config),

@@ -33,13 +33,13 @@
 %% 示例 1：配备内置插件的深度代理
 %%====================================================================
 
-%% @doc 使用内置文件和 Shell 插件执行任务
+%% @doc 使用内置文件和 Shell 工具执行任务
 %%
-%% DeepAgent 默认会检测系统中可用的插件模块
-%% （beamai_plugin_file, beamai_plugin_shell, beamai_plugin_todo），
+%% DeepAgent 默认会检测系统中可用的工具模块
+%% （beamai_tool_file, beamai_tool_shell, beamai_tool_todo），
 %% 但也可以显式指定 plugins 列表。
 %%
-%% 此示例让 DeepAgent 使用文件插件读取并分析一个文件。
+%% 此示例让 DeepAgent 使用文件工具读取并分析一个文件。
 -spec run_with_plugins_live() -> ok.
 run_with_plugins_live() ->
     io:format("=== DeepAgent: Built-in Plugins (Live) ===~n~n"),
@@ -194,9 +194,9 @@ create_live_llm() ->
             {ok, LLM}
     end.
 
-%% @doc 获取系统中可用的工具插件列表
+%% @doc 获取系统中可用的工具模块列表
 available_plugins() ->
-    Candidates = [beamai_plugin_file, beamai_plugin_shell, beamai_plugin_todo],
+    Candidates = [beamai_tool_file, beamai_tool_shell, beamai_tool_todo],
     [M || M <- Candidates, code:ensure_loaded(M) =:= {module, M}].
 
 %% @doc 打印运行结果摘要

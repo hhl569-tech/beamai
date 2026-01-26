@@ -35,17 +35,18 @@ plan_steps_to_maps_test() ->
 %%====================================================================
 
 plan_plugin_info_test() ->
-    Info = beamai_deepagent_plan_plugin:plugin_info(),
-    ?assertEqual(<<"deepagent_plan">>, maps:get(name, Info)).
+    Info = beamai_deepagent_plan_plugin:tool_info(),
+    ?assert(maps:is_key(description, Info)),
+    ?assert(maps:is_key(tags, Info)).
 
 plan_plugin_functions_test() ->
-    Fns = beamai_deepagent_plan_plugin:functions(),
+    Fns = beamai_deepagent_plan_plugin:tools(),
     ?assertEqual(1, length(Fns)),
     [FnDef] = Fns,
     ?assertEqual(<<"create_plan">>, maps:get(name, FnDef)).
 
 plan_plugin_handler_test() ->
-    Fns = beamai_deepagent_plan_plugin:functions(),
+    Fns = beamai_deepagent_plan_plugin:tools(),
     [FnDef] = Fns,
     Args = #{
         <<"goal">> => <<"Test goal">>,
@@ -61,7 +62,7 @@ plan_plugin_handler_test() ->
     ?assertEqual(2, maps:get(<<"step_count">>, Result)).
 
 plan_plugin_handler_missing_args_test() ->
-    Fns = beamai_deepagent_plan_plugin:functions(),
+    Fns = beamai_deepagent_plan_plugin:tools(),
     [FnDef] = Fns,
     {error, _} = beamai_tool:invoke(FnDef, #{}).
 

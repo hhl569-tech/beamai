@@ -144,7 +144,7 @@ run_with_tool_calls_test() ->
     Kernel0 = beamai_kernel:new(),
     LlmConfig = beamai_chat_completion:create(mock, #{}),
     K1 = beamai_kernel:add_service(Kernel0, LlmConfig),
-    K2 = beamai_kernel:add_plugin(K1, <<"test">>, [
+    K2 = beamai_kernel:add_tools(K1, [
         #{name => <<"test_tool">>,
           description => <<"A test tool">>,
           parameters => #{},
@@ -180,7 +180,7 @@ max_tool_iterations_test() ->
     Kernel0 = beamai_kernel:new(),
     LlmConfig = beamai_chat_completion:create(mock, #{}),
     K1 = beamai_kernel:add_service(Kernel0, LlmConfig),
-    K2 = beamai_kernel:add_plugin(K1, <<"test">>, [
+    K2 = beamai_kernel:add_tools(K1, [
         #{name => <<"loop_tool">>,
           description => <<"loops">>,
           parameters => #{},
@@ -286,7 +286,7 @@ callback_filter_on_tool_call_test() ->
     Kernel0 = beamai_kernel:new(),
     LlmConfig = beamai_chat_completion:create(mock, #{}),
     K1 = beamai_kernel:add_service(Kernel0, LlmConfig),
-    K2 = beamai_kernel:add_plugin(K1, <<"test">>, [
+    K2 = beamai_kernel:add_tools(K1, [
         #{name => <<"my_tool">>,
           description => <<"test">>,
           parameters => #{},

@@ -8,7 +8,7 @@
         jsx,
         beamai_core,
         beamai_agent,
-        beamai_plugin
+        beamai_tools
     ]},
     {optional_applications, [beamai_llm]},
     {env, [

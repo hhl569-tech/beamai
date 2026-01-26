@@ -88,7 +88,7 @@ run_invoke() ->
 %% @doc 演示 Chat 过滤器（需要 LLM）
 -spec run_chat() -> ok.
 run_chat() ->
-    LLMConfig = example_llm_config:zhipu(),
+    LLMConfig = example_llm_config:anthropic(),
     run_chat(LLMConfig).
 
 %% @doc 演示 Chat 过滤器

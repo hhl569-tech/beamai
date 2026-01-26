@@ -7,7 +7,7 @@
 
 tool_schema_full_test() ->
     K = beamai_kernel:new(),
-    K1 = beamai_kernel:add_plugin(K, <<"tools">>, [
+    K1 = beamai_kernel:add_tools(K, [
         beamai_tool:new(<<"get_weather">>,
             fun(#{location := L}) -> {ok, #{location => L, temp => 22}} end,
             #{
@@ -21,14 +21,14 @@ tool_schema_full_test() ->
     [Schema] = beamai_kernel:get_tool_schemas(K1, openai),
     ?assertEqual(<<"function">>, maps:get(<<"type">>, Schema)),
     Func = maps:get(<<"function">>, Schema),
-    ?assertEqual(<<"tools.get_weather">>, maps:get(<<"name">>, Func)),
+    ?assertEqual(<<"get_weather">>, maps:get(<<"name">>, Func)),
     Params = maps:get(<<"parameters">>, Func),
     Props = maps:get(properties, Params),
     ?assert(maps:is_key(<<"location">>, Props)).
 
 tool_schema_anthropic_format_test() ->
     K = beamai_kernel:new(),
-    K1 = beamai_kernel:add_plugin(K, <<"tools">>, [
+    K1 = beamai_kernel:add_tools(K, [
         beamai_tool:new(<<"search">>,
             fun(_) -> {ok, []} end,
             #{
@@ -39,7 +39,7 @@ tool_schema_anthropic_format_test() ->
             })
     ]),
     [Schema] = beamai_kernel:get_tool_schemas(K1, anthropic),
-    ?assertEqual(<<"tools.search">>, maps:get(<<"name">>, Schema)),
+    ?assertEqual(<<"search">>, maps:get(<<"name">>, Schema)),
     ?assertEqual(<<"Search the web">>, maps:get(<<"description">>, Schema)),
     ?assert(maps:is_key(<<"input_schema">>, Schema)).
 

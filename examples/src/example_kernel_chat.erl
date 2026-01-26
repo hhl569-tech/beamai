@@ -25,10 +25,10 @@
 %% API
 %%====================================================================
 
-%% @doc 运行单轮对话示例（使用 Zhipu GLM-4.6）
+%% @doc 运行单轮对话示例（使用 GLM-4.7 via Anthropic provider）
 -spec run() -> ok.
 run() ->
-    LLMConfig = example_llm_config:zhipu(),
+    LLMConfig = example_llm_config:anthropic(),
     run(LLMConfig).
 
 %% @doc 运行单轮对话示例（使用指定 LLM 配置）
@@ -72,9 +72,10 @@ run_inline() ->
 
     %% 直接用 beamai:add_llm/3 传入 provider + 选项
     ApiKey = list_to_binary(os:getenv("ZHIPU_API_KEY")),
-    Kernel = beamai:add_llm(beamai:kernel(), zhipu, #{
+    Kernel = beamai:add_llm(beamai:kernel(), anthropic, #{
         api_key => ApiKey,
-        model => <<"glm-4.6">>,
+        base_url => <<"https://open.bigmodel.cn/api/anthropic">>,
+        model => <<"glm-4.7">>,
         max_tokens => 1024
     }),
 
@@ -92,10 +93,10 @@ run_inline() ->
     end,
     ok.
 
-%% @doc 运行多轮对话示例（使用 Zhipu GLM-4.6）
+%% @doc 运行多轮对话示例（使用 GLM-4.7 via Anthropic provider）
 -spec multi_turn() -> ok.
 multi_turn() ->
-    LLMConfig = example_llm_config:zhipu(),
+    LLMConfig = example_llm_config:anthropic(),
     multi_turn(LLMConfig).
 
 %% @doc 运行多轮对话示例

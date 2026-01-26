@@ -238,11 +238,11 @@ add_llm(Kernel, Config) ->
 
 %% @private 加载工具模块到 kernel
 %%
-%% 遍历 plugins 列表中的模块，逐个调用 beamai_plugins:load 加载。
+%% 遍历 tools 列表中的模块，逐个调用 beamai_tools:load 加载。
 %% 每个模块需实现 beamai_tool_behaviour 回调。
 add_plugins(Kernel, Config) ->
     Plugins = maps:get(plugins, Config, []),
-    beamai_plugins:load_all(Kernel, Plugins).
+    beamai_tools:load_all(Kernel, Plugins).
 
 %% @private 添加 middlewares 到 kernel
 %%
@@ -251,5 +251,5 @@ add_plugins(Kernel, Config) ->
 add_middlewares(Kernel, Config) ->
     case maps:get(middlewares, Config, []) of
         [] -> Kernel;
-        Middlewares -> beamai_plugins:with_middleware(Kernel, Middlewares)
+        Middlewares -> beamai_tools:with_middleware(Kernel, Middlewares)
     end.

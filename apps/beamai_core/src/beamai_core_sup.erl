@@ -4,6 +4,7 @@
 %%% 管理 beamai_core 的核心进程：
 %%% - beamai_http_pool: HTTP 连接池（仅当使用 Gun 后端时）
 %%% - beamai_process_pool: Process step worker 池（poolboy）
+%%% - beamai_dispatch_pool: Pregel dispatch worker 池（poolboy）
 %%% - beamai_process_sup: Process runtime 动态 supervisor
 %%%
 %%% @end
@@ -49,16 +50,27 @@ init([]) ->
 
 %% @private 获取子进程规格
 get_children() ->
-    HttpChildren = case should_start_pool() of
+    HttpChildren = case should_start_http_pool() of
         true -> [http_pool_spec()];
         false -> []
     end,
-    ProcessChildren = [process_pool_spec(), process_sup_spec()],
-    HttpChildren ++ ProcessChildren.
+    ProcessChildren = case should_start_process_pool() of
+        true -> [process_pool_spec()];
+        false -> []
+    end,
+    DispatchChildren = case should_start_dispatch_pool() of
+        true -> [dispatch_pool_spec()];
+        false -> []
+    end,
+    HttpChildren ++ ProcessChildren ++ DispatchChildren ++ [process_sup_spec()].
 
-%% @private 判断是否需要启动连接池
+%% @private 默认池大小计算（CPU * 2）
+default_pool_size() ->
+    erlang:system_info(schedulers) * 2.
+
+%% @private 判断是否需要启动 HTTP 连接池
 %% 当配置使用 Gun 后端或者 Gun 可用时启动
-should_start_pool() ->
+should_start_http_pool() ->
     Backend = application:get_env(beamai_core, http_backend, beamai_http_gun),
     case Backend of
         beamai_http_gun ->
@@ -69,6 +81,20 @@ should_start_pool() ->
             end;
         _ ->
             false
+    end.
+
+%% @private 判断是否需要启动 Process pool
+should_start_process_pool() ->
+    case application:get_env(beamai_core, process_pool_enabled, true) of
+        false -> false;
+        true -> code:which(poolboy) =/= non_existing
+    end.
+
+%% @private 判断是否需要启动 Dispatch pool
+should_start_dispatch_pool() ->
+    case application:get_env(beamai_core, dispatch_pool_enabled, true) of
+        false -> false;
+        true -> code:which(poolboy) =/= non_existing
     end.
 
 %% @private HTTP 连接池子进程规格
@@ -85,15 +111,32 @@ http_pool_spec() ->
 
 %% @private Process worker pool 规格 (poolboy)
 process_pool_spec() ->
-    PoolSize = application:get_env(beamai_core, process_pool_size, 10),
-    MaxOverflow = application:get_env(beamai_core, process_pool_max_overflow, 20),
+    DefaultSize = default_pool_size(),
+    PoolSize = application:get_env(beamai_core, process_pool_size, DefaultSize),
+    MaxOverflow = application:get_env(beamai_core, process_pool_max_overflow, DefaultSize * 2),
     PoolArgs = [
         {name, {local, beamai_process_pool}},
         {worker_module, beamai_process_worker},
         {size, PoolSize},
-        {max_overflow, MaxOverflow}
+        {max_overflow, MaxOverflow},
+        {strategy, fifo}
     ],
     poolboy:child_spec(beamai_process_pool, PoolArgs, []).
+
+%% @private Dispatch worker pool 规格 (poolboy)
+dispatch_pool_spec() ->
+    PoolConfig = application:get_env(beamai_core, dispatch_pool, #{}),
+    DefaultSize = default_pool_size(),
+    Size = maps:get(size, PoolConfig, DefaultSize),
+    MaxOverflow = maps:get(max_overflow, PoolConfig, DefaultSize * 2),
+    PoolArgs = [
+        {name, {local, beamai_dispatch_pool}},
+        {worker_module, pregel_dispatch_worker},
+        {size, Size},
+        {max_overflow, MaxOverflow},
+        {strategy, fifo}
+    ],
+    poolboy:child_spec(beamai_dispatch_pool, PoolArgs, []).
 
 %% @private Process runtime supervisor 规格
 process_sup_spec() ->

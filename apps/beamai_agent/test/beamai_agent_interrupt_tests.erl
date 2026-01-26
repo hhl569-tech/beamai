@@ -209,7 +209,7 @@ callback_triggers_interrupt_test() ->
     Kernel0 = beamai_kernel:new(),
     LlmConfig = beamai_chat_completion:create(mock, #{}),
     K1 = beamai_kernel:add_service(Kernel0, LlmConfig),
-    K2 = beamai_kernel:add_plugin(K1, <<"db">>, [
+    K2 = beamai_kernel:add_tools(K1, [
         #{name => <<"execute_sql">>,
           description => <<"Execute SQL">>,
           parameters => #{},

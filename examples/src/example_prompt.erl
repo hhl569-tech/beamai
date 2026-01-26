@@ -92,7 +92,7 @@ run_parser() ->
 %% @doc 结合 LLM 获取结构化输出（需要 LLM）
 -spec run_structured() -> ok.
 run_structured() ->
-    LLMConfig = example_llm_config:zhipu(),
+    LLMConfig = example_llm_config:anthropic(),
     run_structured(LLMConfig).
 
 %% @doc 结合 LLM 获取结构化 JSON 输出

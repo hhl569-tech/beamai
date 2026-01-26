@@ -31,7 +31,7 @@
   - 支持并行子任务执行
   - Coordinator 多 Agent 协调
 
-- **Graph 引擎**: 基于 LangGraph 的图计算
+- **Graph 引擎**: 基于 LangGraph 的图计算（已整合到 beamai_core）
   - Graph Builder/DSL 构建器
   - Pregel 分布式计算模型
   - 状态快照和条件边
@@ -239,17 +239,14 @@ apps/
 │   │                  # beamai_http_pool
 │   ├── Behaviours     # beamai_llm_behaviour, beamai_http_behaviour,
 │   │                  # beamai_step_behaviour, beamai_process_store_behaviour
+│   ├── Graph          # graph, graph_node, graph_edge, graph_builder, graph_dsl,
+│   │                  # graph_runner, graph_snapshot, graph_state, graph_command
+│   ├── Pregel         # pregel, pregel_master, pregel_worker, pregel_vertex,
+│   │                  # pregel_dispatch_worker
 │   └── Utils          # beamai_id, beamai_jsonrpc, beamai_sse, beamai_utils
 │
-├── beamai_graph/       # Graph 计算引擎
-│   ├── Core           # graph, graph_node, graph_edge
-│   ├── Builder        # graph_builder, graph_dsl
-│   ├── Runner         # graph_runner, graph_snapshot
-│   ├── State          # graph_state, graph_state_reducer, graph_command
-│   └── Pregel         # pregel, pregel_master, pregel_worker, pregel_vertex
-│
-├── beamai_plugin/      # 工具和中间件系统
-│   ├── Core           # beamai_plugins, beamai_tool_behaviour
+├── beamai_tools/       # 工具和中间件系统
+│   ├── Core           # beamai_tools, beamai_tool_behaviour
 │   ├── Middleware     # beamai_middleware, beamai_middleware_runner,
 │   │                  # middleware_call_limit, middleware_tool_retry
 │   ├── Security       # beamai_tool_security
@@ -304,14 +301,13 @@ apps/
                  │
 ┌────────────────┴────────────────────┐
 │   服务层                             │
-│  (beamai_llm, beamai_plugin,        │
+│  (beamai_llm, beamai_tools,         │
 │   beamai_rag, beamai_a2a, beamai_mcp)│
 └────────────────┬────────────────────┘
                  │
 ┌────────────────┴────────────────────┐
 │   核心层                             │
-│  (beamai_core, beamai_graph,        │
-│   beamai_memory)                     │
+│  (beamai_core, beamai_memory)        │
 └─────────────────────────────────────┘
 ```
 
@@ -367,7 +363,7 @@ Process1 = beamai_process_builder:add_step(Process, <<"step1">>, #{
 
 ### 3. Graph 执行引擎
 
-基于 LangGraph 理念的图计算引擎（位于 beamai_graph 应用）：
+基于 LangGraph 理念的图计算引擎（已整合到 beamai_core）：
 
 ```erlang
 %% 创建图
@@ -492,9 +488,8 @@ BeamAI 支持 Gun 和 Hackney 两种 HTTP 后端，默认使用 Gun（支持 HTT
 
 | 模块 | 说明 | 文档 |
 |------|------|------|
-| **beamai_core** | 核心框架：Kernel、Process Framework、HTTP、Behaviours | [README](apps/beamai_core/README.md) |
-| **beamai_graph** | Graph 引擎：图构建、执行、Pregel 分布式计算 | [README](apps/beamai_graph/README.md) |
-| **beamai_plugin** | 工具和中间件系统：Tool 模块、Middleware、安全验证 | [README](apps/beamai_plugin/README.md) |
+| **beamai_core** | 核心框架：Kernel、Process Framework、Graph 引擎、HTTP、Behaviours | [README](apps/beamai_core/README.md) |
+| **beamai_tools** | 工具和中间件系统：Tool 模块、Middleware、安全验证 | [README](apps/beamai_tools/README.md) |
 | **beamai_llm** | LLM 客户端：支持 OpenAI、Anthropic、DeepSeek、Zhipu、Bailian、Ollama | [README](apps/beamai_llm/README.md) |
 | **beamai_agent** | Agent 实现：ReAct 模式、回调系统、Process Agent | [README](apps/beamai_agent/README.md) |
 | **beamai_deepagent** | Deep Agent：SubAgent 编排、任务规划、并行执行、自我反思 | [README](apps/beamai_deepagent/README.md) |
@@ -517,7 +512,7 @@ rebar3 shell
 
 | 指标 | 数量 |
 |------|------|
-| **OTP 应用** | 10 个 |
+| **OTP 应用** | 9 个 |
 | **源代码模块** | 186 个 |
 | **测试文件** | 49 个 |
 | **代码行数** | ~63,000 行 |

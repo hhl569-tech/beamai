@@ -21,10 +21,10 @@
 %% API
 %%====================================================================
 
-%% @doc 运行流式对话示例（使用 Zhipu GLM-4.6）
+%% @doc 运行流式对话示例（使用 GLM-4.7 via Anthropic provider）
 -spec run() -> ok.
 run() ->
-    LLMConfig = example_llm_config:zhipu(),
+    LLMConfig = example_llm_config:anthropic(),
     run(LLMConfig).
 
 %% @doc 运行流式对话示例（使用指定 LLM 配置）

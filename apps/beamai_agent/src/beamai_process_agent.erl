@@ -29,7 +29,7 @@
 %%% ```
 %%% Config = #{
 %%%     system_prompt => <<"你是一个助手"/utf8>>,
-%%%     llm => {zhipu, #{model => <<"glm-4-flash">>}},
+%%%     llm => {anthropic, #{model => <<"glm-4.7">>, base_url => <<"https://open.bigmodel.cn/api/anthropic">>}},
 %%%     plugins => [my_tools_plugin]
 %%% },
 %%% {ok, Result} = beamai_process_agent:run_sync(Config, <<"你好"/utf8>>).
