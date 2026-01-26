@@ -38,7 +38,9 @@
 
 - **llm_message_adapter** - 消息格式适配
 - **llm_tool_adapter** - 工具格式适配
-- **llm_response_adapter** - 响应格式适配
+- **llm_response_adapter** - 响应格式适配（兼容层）
+
+> **注意**: 核心响应结构 `llm_response` 已移至 `beamai_core`，提供统一的 LLM 响应访问接口。
 
 ## API 文档
 
@@ -388,25 +390,37 @@ llm_provider_common:parse_single_tool_call(Call) -> ToolCall.
 llm_provider_common:parse_usage(Usage) -> #{prompt_tokens, completion_tokens, total_tokens}.
 ```
 
-### 响应适配器 (llm_response_adapter)
+### LLM 响应结构 (llm_response)
 
-统一的响应解析，将不同 LLM Provider 的响应格式转换为标准化的内部格式：
+> **注意**: `llm_response` 模块已移至 `beamai_core`，作为核心数据结构被 Kernel 层消费。
+
+统一的 LLM 响应结构，抽象不同 Provider 的响应差异：
 
 ```erlang
-%% 解析 OpenAI 格式响应（GPT、DeepSeek、智谱、Ollama）
-{ok, Response} = llm_response_adapter:parse_openai(RawResponse).
+%% 通过 Parser 函数解析响应（由 llm_http_client 内部使用）
+llm_response:parser_openai()      %% OpenAI/DeepSeek/Zhipu 格式
+llm_response:parser_anthropic()   %% Anthropic 格式
+llm_response:parser_dashscope()   %% 阿里云百炼 DashScope 格式
+llm_response:parser_ollama()      %% Ollama 格式
+llm_response:parser_zhipu()       %% 智谱特定格式（含 reasoning_content）
 
-%% 解析 Anthropic 格式响应（Claude）
-{ok, Response} = llm_response_adapter:parse_anthropic(RawResponse).
+%% 统一访问接口
+Content = llm_response:content(Response),
+ToolCalls = llm_response:tool_calls(Response),
+HasTools = llm_response:has_tool_calls(Response),
+Usage = llm_response:usage(Response),
 
 %% 标准化响应格式
 #{
-    id => binary(),           %% 请求 ID
-    model => binary(),        %% 模型名称
-    content => binary(),      %% 响应内容
-    tool_calls => [map()],    %% 工具调用（可选）
-    finish_reason => binary(),%% 结束原因
-    usage => #{...}           %% Token 统计
+    id => binary(),              %% 请求 ID
+    model => binary(),           %% 模型名称
+    provider => atom(),          %% Provider 类型
+    content => binary() | null,  %% 响应内容
+    tool_calls => [map()],       %% 工具调用列表
+    finish_reason => atom(),     %% 结束原因
+    usage => #{...},             %% Token 统计
+    metadata => #{...},          %% Provider 特有信息
+    raw => map()                 %% 原始响应
 }
 ```
 

@@ -88,7 +88,7 @@ chat(Config, Request) ->
     Headers = build_headers(Config, false),
     Body = build_request_body(Config, Request),
     Opts = build_request_opts(Config),
-    llm_http_client:request(Url, Headers, Body, Opts, fun parse_response/1).
+    llm_http_client:request(Url, Headers, Body, Opts, llm_response:parser_dashscope()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->
@@ -214,63 +214,6 @@ maybe_add_tool_choice_param(Params, _) ->
     Params.
 
 %%====================================================================
-%% 响应解析（DashScope 原生格式）
-%%====================================================================
-
-%% @private 解析响应 - DashScope 原生格式
-%% 响应格式: {output: {choices: [...]}, usage: {...}, request_id: "..."}
-parse_response(#{<<"output">> := Output} = Resp) ->
-    parse_output(Output, Resp);
-
-parse_response(#{<<"error">> := Error}) ->
-    {error, {api_error, Error}};
-
-parse_response(#{<<"code">> := Code, <<"message">> := Message}) ->
-    %% DashScope 错误格式
-    {error, {api_error, #{code => Code, message => Message}}};
-
-parse_response(Response) ->
-    {error, {invalid_response, Response}}.
-
-%% @private 解析 output 对象
-parse_output(#{<<"choices">> := [Choice | _]}, Resp) ->
-    Message = maps:get(<<"message">>, Choice, #{}),
-    {ok, #{
-        id => maps:get(<<"request_id">>, Resp, <<>>),
-        model => <<>>,  %% DashScope 响应不包含 model
-        content => maps:get(<<"content">>, Message, null),
-        tool_calls => parse_tool_calls(Message),
-        finish_reason => maps:get(<<"finish_reason">>, Choice, <<>>),
-        usage => parse_usage(maps:get(<<"usage">>, Resp, #{}))
-    }};
-
-%% 兼容旧格式（text + finish_reason 直接在 output 下）
-parse_output(#{<<"text">> := Text, <<"finish_reason">> := FinishReason}, Resp) ->
-    {ok, #{
-        id => maps:get(<<"request_id">>, Resp, <<>>),
-        model => <<>>,
-        content => Text,
-        tool_calls => [],
-        finish_reason => FinishReason,
-        usage => parse_usage(maps:get(<<"usage">>, Resp, #{}))
-    }};
-
-parse_output(Output, _Resp) ->
-    {error, {invalid_output, Output}}.
-
-%% @private 解析工具调用（使用公共模块）
-parse_tool_calls(Message) ->
-    llm_provider_common:parse_tool_calls(Message).
-
-%% @private 解析使用统计 - DashScope 使用 input_tokens/output_tokens
-parse_usage(Usage) ->
-    #{
-        prompt_tokens => maps:get(<<"input_tokens">>, Usage, 0),
-        completion_tokens => maps:get(<<"output_tokens">>, Usage, 0),
-        total_tokens => maps:get(<<"total_tokens">>, Usage, 0)
-    }.
-
-%%====================================================================
 %% 流式事件累加（DashScope 原生格式）
 %%====================================================================
 
@@ -379,6 +322,11 @@ extract_finish_reason_openai(_, Acc) ->
 
 %% @private 提取 usage
 extract_usage(#{<<"usage">> := Usage}, _Acc) ->
-    parse_usage(Usage);
+    %% DashScope 使用 input_tokens/output_tokens
+    #{
+        prompt_tokens => maps:get(<<"input_tokens">>, Usage, 0),
+        completion_tokens => maps:get(<<"output_tokens">>, Usage, 0),
+        total_tokens => maps:get(<<"total_tokens">>, Usage, 0)
+    };
 extract_usage(_, Acc) ->
     maps:get(usage, Acc, #{}).

@@ -61,7 +61,7 @@ chat(Config, Request) ->
     Headers = build_headers(Config),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?DEEPSEEK_TIMEOUT)},
-    llm_http_client:request(Url, Headers, Body, Opts, fun llm_response_adapter:parse_openai/1).
+    llm_http_client:request(Url, Headers, Body, Opts, llm_response:parser_openai()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->

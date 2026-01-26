@@ -231,7 +231,8 @@ Parser = beamai_output_parser:json(#{
 apps/
 ├── beamai_core/        # 核心框架
 │   ├── Kernel         # beamai_kernel, beamai_tool, beamai_context,
-│   │                  # beamai_filter, beamai_prompt, beamai_result
+│   │                  # beamai_filter, beamai_prompt, beamai_result,
+│   │                  # llm_response (统一 LLM 响应结构)
 │   ├── Process        # beamai_process, beamai_process_builder,
 │   │                  # beamai_process_runtime, beamai_process_step,
 │   │                  # beamai_process_executor, beamai_process_event
@@ -257,6 +258,7 @@ apps/
 │   ├── Chat           # beamai_chat_completion
 │   ├── Parser         # beamai_output_parser, beamai_parser_json
 │   ├── Adapters       # llm_message_adapter, llm_response_adapter, llm_tool_adapter
+│   │                  # (llm_response 已移至 beamai_core)
 │   └── Providers      # OpenAI, Anthropic, DeepSeek, Zhipu, Bailian, Ollama
 │
 ├── beamai_agent/       # Agent 实现

@@ -17,6 +17,7 @@ BeamAI 框架的核心模块，提供 Kernel 架构、Process Framework、Graph 
 - **beamai_filter** - 过滤器，用于工具调用前后的拦截
 - **beamai_prompt** - 提示词模板管理
 - **beamai_result** - 工具调用结果类型
+- **llm_response** - LLM 统一响应结构，抽象不同 Provider 的响应差异
 
 ### Process Framework 子系统
 

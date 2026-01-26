@@ -23,14 +23,15 @@
 
 %% @doc 从 LLM 响应中提取文本内容
 %%
-%% 处理三种情况：
-%%   - content 为 binary: 直接返回
-%%   - content 为 null: 返回空二进制（tool_calls 响应时常见）
-%%   - 其他情况: 返回空二进制
+%% 使用 llm_response 访问器统一提取内容。
+%% 处理 content 为 null 或不存在的情况，返回空二进制。
 -spec extract_content(map()) -> binary().
-extract_content(#{content := Content}) when is_binary(Content) -> Content;
-extract_content(#{content := null}) -> <<>>;
-extract_content(#{}) -> <<>>.
+extract_content(Response) ->
+    case llm_response:content(Response) of
+        null -> <<>>;
+        Content when is_binary(Content) -> Content;
+        _ -> <<>>
+    end.
 
 %% @doc 从 Kernel 构建 chat 选项
 %%

@@ -30,6 +30,7 @@
         beamai_filter,
         beamai_result,
         beamai_prompt,
+        llm_response,
         %% 行为接口
         beamai_llm_behaviour,
         beamai_http_behaviour,

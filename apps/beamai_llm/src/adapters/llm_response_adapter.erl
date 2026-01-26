@@ -1,15 +1,28 @@
 %%%-------------------------------------------------------------------
-%%% @doc LLM 响应适配器模块
+%%% @doc LLM 响应适配器模块（向后兼容层）
 %%%
 %%% 提供统一的响应解析功能，将不同 LLM Provider 的响应格式
 %%% 转换为标准化的内部格式。
+%%%
+%%% == 注意 ==
+%%%
+%%% 此模块保留用于向后兼容。新代码建议使用 llm_response 模块，
+%%% 它提供更完整的统一响应结构和原始数据访问能力。
+%%%
+%%% ```erlang
+%%% %% 新方式（推荐）
+%%% {ok, Resp} = llm_response:from_openai(RawResponse),
+%%% Content = llm_response:content(Resp),
+%%% ToolCalls = llm_response:tool_calls(Resp),
+%%% Raw = llm_response:raw(Resp).  %% 访问原始数据
+%%% ```
 %%%
 %%% == 支持的响应格式 ==
 %%%
 %%% - OpenAI 格式：GPT 系列、DeepSeek、智谱 GLM、Ollama（兼容模式）
 %%% - Anthropic 格式：Claude 系列
 %%%
-%%% == 标准化响应格式 ==
+%%% == 标准化响应格式（旧格式，保留兼容）==
 %%%
 %%% ```erlang
 %%% #{
@@ -24,18 +37,6 @@
 %%%         total_tokens => integer()
 %%%     }
 %%% }
-%%% ```
-%%%
-%%% == 使用示例 ==
-%%%
-%%% ```erlang
-%%% %% 解析 OpenAI 格式响应
-%%% {ok, Response} = llm_response_adapter:parse_openai(RawResponse),
-%%% Content = maps:get(content, Response),
-%%% ToolCalls = maps:get(tool_calls, Response),
-%%%
-%%% %% 解析 Anthropic 格式响应
-%%% {ok, Response} = llm_response_adapter:parse_anthropic(RawResponse).
 %%% ```
 %%%
 %%% @end

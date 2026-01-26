@@ -302,18 +302,27 @@ tool_calling_loop(Kernel, LlmConfig, Msgs, Opts, Context, SysPrompts, N) ->
     %% 每次调用 LLM 时，将 system_prompts 拼在最前面
     LlmMsgs = SysPrompts ++ Msgs,
     case beamai_chat_completion:chat(LlmConfig, LlmMsgs, Opts) of
-        {ok, #{tool_calls := TCs} = _Response} when is_list(TCs), TCs =/= [] ->
-            AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
-            Ctx1 = track_message(Context, AssistantMsg),
-            {ToolResults, Ctx2} = execute_tool_calls(Kernel, TCs, Ctx1),
-            NewMsgs = Msgs ++ [AssistantMsg | ToolResults],
-            tool_calling_loop(Kernel, LlmConfig, NewMsgs, Opts, Ctx2, SysPrompts, N - 1);
-        {ok, #{content := Content} = Response} ->
-            FinalMsg = #{role => assistant, content => Content},
-            FinalCtx = track_message(Context, FinalMsg),
-            {ok, Response, FinalCtx};
         {ok, Response} ->
-            {ok, Response, Context};
+            %% 使用 llm_response 访问器统一处理响应
+            case llm_response:has_tool_calls(Response) of
+                true ->
+                    TCs = llm_response:tool_calls(Response),
+                    AssistantMsg = #{role => assistant, content => null, tool_calls => TCs},
+                    Ctx1 = track_message(Context, AssistantMsg),
+                    {ToolResults, Ctx2} = execute_tool_calls(Kernel, TCs, Ctx1),
+                    NewMsgs = Msgs ++ [AssistantMsg | ToolResults],
+                    tool_calling_loop(Kernel, LlmConfig, NewMsgs, Opts, Ctx2, SysPrompts, N - 1);
+                false ->
+                    Content = llm_response:content(Response),
+                    case Content of
+                        null ->
+                            {ok, Response, Context};
+                        _ ->
+                            FinalMsg = #{role => assistant, content => Content},
+                            FinalCtx = track_message(Context, FinalMsg),
+                            {ok, Response, FinalCtx}
+                    end
+            end;
         {error, _} = Err ->
             Err
     end.

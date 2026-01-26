@@ -63,7 +63,7 @@ chat(Config, Request) ->
     Headers = build_headers(),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?OLLAMA_TIMEOUT)},
-    llm_http_client:request(Url, Headers, Body, Opts, fun parse_response/1).
+    llm_http_client:request(Url, Headers, Body, Opts, llm_response:parser_ollama()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->
@@ -125,39 +125,6 @@ build_options(Config) ->
 %% @private 添加工具定义（使用公共模块）
 maybe_add_tools(Body, Request) ->
     llm_provider_common:maybe_add_tools(Body, Request).
-
-%%====================================================================
-%% 响应解析（支持两种格式）
-%%====================================================================
-
-%% @private 解析响应（支持 Ollama 原生格式和 OpenAI 兼容格式）
-parse_response(#{<<"message">> := Message} = Resp) ->
-    %% Ollama 原生格式
-    {ok, #{
-        id => maps:get(<<"created_at">>, Resp, <<>>),
-        model => maps:get(<<"model">>, Resp, <<>>),
-        content => maps:get(<<"content">>, Message, <<>>),
-        tool_calls => llm_response_adapter:parse_tool_calls_openai(Message),
-        finish_reason => maps:get(<<"done_reason">>, Resp, <<"stop">>),
-        usage => parse_usage(Resp)
-    }};
-parse_response(#{<<"choices">> := _} = Resp) ->
-    %% OpenAI 兼容格式
-    llm_response_adapter:parse_openai(Resp);
-parse_response(#{<<"error">> := Error}) ->
-    {error, {api_error, Error}};
-parse_response(_) ->
-    {error, invalid_response}.
-
-%% @private 解析使用统计（Ollama 格式）
-parse_usage(Resp) ->
-    PromptTokens = maps:get(<<"prompt_eval_count">>, Resp, 0),
-    CompletionTokens = maps:get(<<"eval_count">>, Resp, 0),
-    #{
-        prompt_tokens => PromptTokens,
-        completion_tokens => CompletionTokens,
-        total_tokens => PromptTokens + CompletionTokens
-    }.
 
 %%====================================================================
 %% 流式事件累加（支持两种格式）
