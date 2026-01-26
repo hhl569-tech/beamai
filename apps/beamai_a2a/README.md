@@ -34,9 +34,11 @@ Agent-to-Agent（A2A）协议实现，支持 Agent 间的标准化通信。
 
 - **beamai_a2a_card** - Agent Card 生成
 - **beamai_a2a_card_cache** - Agent Card 缓存
-- **beamai_a2a_push** - Push 通知
+- **beamai_a2a_push** - Push 通知（使用安全的事件白名单）
 - **beamai_a2a_auth** - API Key 认证
 - **beamai_a2a_rate_limit** - 限流
+- **beamai_a2a_utils** - 公共工具函数（错误格式化、ID 生成、时间戳）
+- **beamai_a2a_types** - 类型定义和安全转换函数
 
 ### 协议模块
 
@@ -260,6 +262,64 @@ submitted -> working -> completed
                 +----> failed
 
                 +----> canceled
+```
+
+## 安全特性
+
+### Atom 安全
+
+A2A 模块使用预定义的白名单来防止 atom 表耗尽攻击：
+
+```erlang
+%% 安全的事件名称转换（使用白名单）
+Event = beamai_a2a_types:binary_to_push_event(<<"completed">>),
+%% => completed
+
+%% 无效事件返回 undefined（不会创建新 atom）
+Invalid = beamai_a2a_types:binary_to_push_event(<<"malicious">>),
+%% => undefined
+
+%% 验证事件是否有效
+true = beamai_a2a_types:is_valid_push_event(completed),
+false = beamai_a2a_types:is_valid_push_event(unknown_event).
+```
+
+**支持的 Push 事件：**
+- `submitted` - 任务已提交
+- `working` - 任务执行中
+- `input_required` / `input-required` - 需要用户输入
+- `auth_required` / `auth-required` - 需要认证
+- `completed` - 任务完成
+- `failed` - 任务失败
+- `canceled` - 任务取消
+- `rejected` - 任务拒绝
+- `all` - 订阅所有事件
+
+### 公共工具模块 (beamai_a2a_utils)
+
+提供常用的工具函数：
+
+```erlang
+%% 格式化错误为 binary
+beamai_a2a_utils:format_error(not_found) -> <<"not_found">>.
+beamai_a2a_utils:format_error(<<"error">>) -> <<"error">>.
+beamai_a2a_utils:format_error({http_error, 500, "Error"}) -> <<"{http_error,...}">>.
+
+%% 生成 UUID
+Id = beamai_a2a_utils:generate_id(),
+%% => <<"a1b2c3d4-e5f6-7890-abcd-ef1234567890">>
+
+%% 带前缀的 ID
+TaskId = beamai_a2a_utils:generate_id(<<"task_">>),
+%% => <<"task_a1b2c3d4-e5f6-7890-abcd-ef1234567890">>
+
+%% 毫秒时间戳
+Ts = beamai_a2a_utils:timestamp(),
+%% => 1706200000000
+
+%% ISO 8601 格式时间戳
+IsoTs = beamai_a2a_utils:timestamp_iso8601(),
+%% => <<"2024-01-25T12:00:00.000Z">>
 ```
 
 ## 依赖
