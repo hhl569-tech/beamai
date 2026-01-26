@@ -231,8 +231,8 @@ Parser = beamai_output_parser:json(#{
 apps/
 ├── beamai_core/        # 核心框架
 │   ├── Kernel         # beamai_kernel, beamai_tool, beamai_context,
-│   │                  # beamai_filter, beamai_prompt, beamai_result,
-│   │                  # llm_response (统一 LLM 响应结构)
+│   │                  # beamai_filter, beamai_prompt, beamai_result
+│   ├── LLM            # llm_response (统一 LLM 响应访问器)
 │   ├── Process        # beamai_process, beamai_process_builder,
 │   │                  # beamai_process_runtime, beamai_process_step,
 │   │                  # beamai_process_executor, beamai_process_event

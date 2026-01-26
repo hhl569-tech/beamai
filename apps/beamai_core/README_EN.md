@@ -18,6 +18,12 @@ Core abstraction based on Semantic Kernel concepts, managing Tool registration a
 - **beamai_prompt** - Prompt template management
 - **beamai_result** - Function call result types
 
+### LLM Subsystem
+
+Unified abstraction layer for LLM responses:
+
+- **llm_response** - Unified LLM response accessors (content, tool_calls, usage, etc.)
+
 ### Process Framework Subsystem
 
 Orchestratable process engine supporting step definitions, conditional branching, parallel execution, and time travel:

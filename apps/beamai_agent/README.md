@@ -37,6 +37,27 @@ Agent 实现模块，提供基于工具循环的 ReAct Agent 和基于 Process F
 
 - **beamai_agent_utils** - Agent 工具函数
 
+## LLM 响应处理
+
+Agent 模块使用 `llm_response` 访问器（位于 beamai_core）统一处理 LLM 响应：
+
+```erlang
+%% 使用 llm_response 访问器
+case llm_response:has_tool_calls(Response) of
+    true ->
+        TCs = llm_response:tool_calls(Response),
+        %% 处理工具调用
+        ...;
+    false ->
+        Content = llm_response:content(Response),
+        FinishReason = llm_response:finish_reason(Response),
+        %% 处理文本响应
+        ...
+end.
+```
+
+这种统一的访问器模式确保了跨多个 LLM 提供商的兼容性。
+
 ## API 文档
 
 ### beamai_agent

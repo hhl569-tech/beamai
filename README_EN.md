@@ -236,6 +236,7 @@ apps/
 ├── beamai_core/        # Core framework
 │   ├── Kernel         # beamai_kernel, beamai_function, beamai_context,
 │   │                  # beamai_filter, beamai_prompt, beamai_result
+│   ├── LLM            # llm_response (unified LLM response accessors)
 │   ├── Process        # beamai_process, beamai_process_builder,
 │   │                  # beamai_process_runtime, beamai_process_step,
 │   │                  # beamai_process_executor, beamai_process_event

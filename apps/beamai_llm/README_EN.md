@@ -39,6 +39,8 @@ Large Language Model (LLM) client layer with support for multiple LLM providers.
 - **llm_tool_adapter** - Tool format adaptation
 - **llm_response_adapter** - Response format adaptation
 
+> **Note:** The `llm_response` module (unified LLM response accessors) has been moved to `beamai_core` for better architectural layering. All provider response parsing functions remain in this module.
+
 ## API Documentation
 
 ### llm_client
