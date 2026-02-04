@@ -39,7 +39,8 @@
     search_result/0,
     put_opts/0,
     search_opts/0,
-    list_opts/0
+    list_opts/0,
+    batch_op/0
 ]).
 
 %% 核心 CRUD API
