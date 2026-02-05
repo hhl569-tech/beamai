@@ -14,9 +14,9 @@ Core abstraction based on Semantic Kernel concepts, managing Tool registration a
 - **beamai_tool** - Tool definitions, wraps callable tool functions
 - **beamai_tool_behaviour** - Tool module behavior interface
 - **beamai_context** - Context management, passes execution environment info
-- **beamai_filter** - Filters for pre/post function call interception
+- **beamai_filter** - Filters for pre/post tool call interception
 - **beamai_prompt** - Prompt template management
-- **beamai_result** - Function call result types
+- **beamai_result** - Tool call result types
 
 ### LLM Subsystem
 
@@ -113,16 +113,19 @@ beamai_kernel:add_tool_module(Kernel, Module) -> kernel().
 beamai_kernel:add_service(Kernel, Service) -> kernel().
 beamai_kernel:add_filter(Kernel, Filter) -> kernel().
 
-%% Invoke functions
-beamai_kernel:invoke(Kernel, FunctionName, Args) -> {ok, Result} | {error, Reason}.
-beamai_kernel:invoke_tool(Kernel, ToolName, Args, Context) -> {ok, Result} | {error, Reason}.
-beamai_kernel:invoke_chat(Kernel, Messages, Opts) -> {ok, Response} | {error, Reason}.
+%% Invoke API
+beamai_kernel:invoke(Kernel, Messages, Opts) -> {ok, Response, Context} | {error, Reason}.
+beamai_kernel:invoke_tool(Kernel, ToolName, Args, Context) -> {ok, Result, Context} | {error, Reason}.
+beamai_kernel:invoke_chat(Kernel, Messages, Opts) -> {ok, Response, Context} | {error, Reason}.
 
-%% Query functions
-beamai_kernel:get_function(Kernel, Name) -> {ok, Function} | error.
-beamai_kernel:list_functions(Kernel) -> [Function].
+%% Query API
+beamai_kernel:get_tool(Kernel, Name) -> {ok, Tool} | error.
+beamai_kernel:list_tools(Kernel) -> [Tool].
+beamai_kernel:get_tools_by_tag(Kernel, Tag) -> [Tool].
 beamai_kernel:get_tool_specs(Kernel) -> [ToolSpec].
 beamai_kernel:get_tool_schemas(Kernel) -> [Schema].
+beamai_kernel:get_tool_schemas(Kernel, Provider) -> [Schema].
+beamai_kernel:get_service(Kernel) -> {ok, Service} | error.
 ```
 
 ### beamai_tool
