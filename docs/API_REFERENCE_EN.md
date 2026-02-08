@@ -1,798 +1,32 @@
-# API Reference
+# API 参考文档
 
-English | [中文](API_REFERENCE.md)
+[English](API_REFERENCE_EN.md) | 中文
 
-This document provides the main API reference for each module of the BeamAI Framework.
+本文档提供 BeamAI Framework 核心模块的主要 API 参考。
 
-## Table of Contents
+## 目录
 
-- [beamai_agent - Simple Agent](#beamai_agent---simple-agent)
-- [beamai_coordinator - Multi-Agent Coordinator](#beamai_coordinator---multi-agent-coordinator)
-- [Middleware System](#middleware-system)
-- [beamai_deepagent - Deep Agent](#beamai_deepagent---deep-agent)
-- [beamai_llm - LLM Client](#beamai_llm---llm-client)
-- [beamai_memory - Memory Management](#beamai_memory---memory-management)
-- [beamai_tools - Tool Library](#beamai_tools---tool-library)
-- [beamai_core - Core Module](#beamai_core---core-module)
-  - [HTTP Client](#http-client)
-  - [HTTP Backend Configuration](#http-backend-configuration)
-- [beamai_a2a - A2A Protocol](#beamai_a2a---a2a-protocol)
-- [beamai_mcp - MCP Protocol](#beamai_mcp---mcp-protocol)
-- [beamai_rag - RAG Functionality](#beamai_rag---rag-functionality)
+- [beamai_core - 核心模块](#beamai_core---核心模块)
+  - [HTTP 客户端](#http-客户端)
+  - [HTTP 后端配置](#http-后端配置)
+- [beamai_llm - LLM 客户端](#beamai_llm---llm-客户端)
+- [beamai_memory - 记忆管理](#beamai_memory---记忆管理)
 
 ---
 
-## beamai_agent - Simple Agent
+## beamai_core - 核心模块
 
-Simple Agent implementation using the ReAct pattern.
-
-### Lifecycle Management
+### Graph 执行引擎
 
 ```erlang
-%% Start Agent (process mode)
--spec start_link(binary(), map()) -> {ok, pid()} | {error, term()}.
-beamai_agent:start_link(AgentId, Config).
-
-%% Stop Agent
--spec stop(pid()) -> ok.
-beamai_agent:stop(Agent).
-```
-
-### Execution API
-
-```erlang
-%% Run Agent (process mode)
--spec run(pid(), binary()) -> {ok, map()} | {error, term()}.
-beamai_agent:run(Agent, Input).
-
-%% Single execution (pure function mode)
--spec run_once(map(), binary()) -> {ok, map()} | {error, term()}.
-beamai_agent:run_once(Config, Input).
-
-%% Execute with state
--spec run_with_state(state(), binary(), map()) -> {ok, map(), state()} | {error, term()}.
-beamai_agent:run_with_state(State, Input, Opts).
-```
-
-### State Management
-
-```erlang
-%% Create state
--spec create_state(map()) -> {ok, state()}.
--spec create_state(binary(), map()) -> {ok, state()}.
-beamai_agent:create_state(Config).
-beamai_agent:create_state(AgentId, Config).
-
-%% Export/Import state
--spec export_state(state()) -> map().
--spec import_state(map(), map()) -> {ok, state()}.
-beamai_agent:export_state(State).
-beamai_agent:import_state(ExportedData, Config).
-```
-
-### Checkpoint Management
-
-```erlang
-%% Save checkpoint
--spec save_checkpoint(pid()) -> {ok, binary()} | {error, term()}.
--spec save_checkpoint(pid(), map()) -> {ok, binary()} | {error, term()}.
-beamai_agent:save_checkpoint(Agent).
-beamai_agent:save_checkpoint(Agent, Metadata).
-
-%% Load checkpoint
--spec load_checkpoint(pid(), binary()) -> {ok, map()} | {error, term()}.
--spec load_latest_checkpoint(pid()) -> {ok, map()} | {error, term()}.
-beamai_agent:load_checkpoint(Agent, CheckpointId).
-beamai_agent:load_latest_checkpoint(Agent).
-
-%% Restore from checkpoint
--spec restore_from_checkpoint(pid(), binary()) -> ok | {error, term()}.
-beamai_agent:restore_from_checkpoint(Agent, CheckpointId).
-
-%% List checkpoints
--spec list_checkpoints(pid()) -> {ok, [map()]} | {error, term()}.
-beamai_agent:list_checkpoints(Agent).
-```
-
-### Callback Management
-
-```erlang
-%% Get/Set callbacks
--spec get_callbacks(pid()) -> map().
--spec set_callbacks(pid(), map()) -> ok.
-beamai_agent:get_callbacks(Agent).
-beamai_agent:set_callbacks(Agent, Callbacks).
-
-%% Emit custom event
--spec emit_custom_event(pid(), atom(), map()) -> ok.
-beamai_agent:emit_custom_event(Agent, EventName, Data).
-```
-
-### Context API (User-defined Context)
-
-Context is used to store user-defined data, which participates in conversations and checkpoint persistence.
-
-```erlang
-%% Get complete Context
--spec get_context(pid()) -> map().
-beamai_agent:get_context(Agent).
-
-%% Get Context value
--spec get_context(pid(), atom() | binary()) -> term() | undefined.
--spec get_context(pid(), atom() | binary(), term()) -> term().
-beamai_agent:get_context(Agent, Key).
-beamai_agent:get_context(Agent, Key, Default).
-
-%% Set Context
--spec set_context(pid(), map()) -> ok.
--spec update_context(pid(), map()) -> ok.
--spec put_context(pid(), atom() | binary(), term()) -> ok.
-beamai_agent:set_context(Agent, NewContext).
-beamai_agent:update_context(Agent, Updates).
-beamai_agent:put_context(Agent, Key, Value).
-```
-
-### Meta API (Process-level Metadata)
-
-Meta is used to store process-level metadata, **does not participate in conversations**, suitable for storing coordinator information and other runtime data.
-
-```erlang
-%% Get complete Meta
--spec get_meta(pid()) -> map().
-beamai_agent:get_meta(Agent).
-
-%% Get Meta value
--spec get_meta(pid(), atom() | binary()) -> term() | undefined.
--spec get_meta(pid(), atom() | binary(), term()) -> term().
-beamai_agent:get_meta(Agent, Key).
-beamai_agent:get_meta(Agent, Key, Default).
-
-%% Set Meta
--spec set_meta(pid(), map()) -> ok.
--spec put_meta(pid(), atom() | binary(), term()) -> ok.
-beamai_agent:set_meta(Agent, NewMeta).
-beamai_agent:put_meta(Agent, Key, Value).
-```
-
-**Context vs Meta Comparison:**
-
-| Feature | Context | Meta |
-|---------|---------|------|
-| Participates in conversation | Yes | No |
-| Checkpoint persistence | Yes | No |
-| Typical use cases | User data, conversation state | Coordinator info, runtime config |
-
-### Configuration Options
-
-```erlang
-Config = #{
-    system_prompt => binary(),           %% System prompt
-    tools => [tool_def()],               %% Tool list
-    llm => llm_config(),                 %% LLM configuration
-    max_iterations => integer(),         %% Maximum iterations, default 10
-    storage => beamai_memory(),          %% Optional: storage instance
-    callbacks => callback_map(),         %% Optional: callback functions
-    middleware => [middleware_spec()],   %% Optional: middleware
-    context => map(),                    %% Optional: user context initial values
-    context_reducers => field_reducers() %% Optional: context field reducer configuration
-}.
-```
-
-### Context Reducers Configuration
-
-Context Reducers allow configuring custom merge strategies for user context fields.
-
-```erlang
-%% Reducer types
--type field_reducer() ::
-    fun((Old :: term(), New :: term()) -> Merged :: term())  %% Normal reducer
-    | {transform, TargetKey :: binary(), ReducerFun :: function()}.  %% Transform reducer
-
-%% Configuration example
-context_reducers => #{
-    %% Normal reducer: items field uses append strategy
-    <<"items">> => fun graph_state_reducer:append_reducer/2,
-
-    %% Transform reducer: counter_incr accumulates to counter, counter_incr not retained
-    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
-}.
-```
-
-**Built-in Reducers:**
-
-| Reducer | Behavior |
-|---------|----------|
-| `append_reducer` | List append |
-| `merge_reducer` | Deep map merge |
-| `increment_reducer` | Numeric accumulation |
-| `last_write_win_reducer` | New value overwrites old (default) |
-
----
-
-## beamai_coordinator - Multi-Agent Coordinator
-
-The coordinator is used to manage multiple Agents working together, supporting two modes: Pipeline (sequential execution) and Orchestrator (orchestrated execution).
-
-**Important Change (v2.1):** Coordinator API parameters changed from using `Id` to using `CoordinatorPid`. Coordinator metadata is now stored in the Agent's `meta` field, solving the original ETS table process ownership issue.
-
-### Starting Coordinator
-
-```erlang
-%% Generic start interface
--spec start_link(binary(), map()) -> {ok, pid()} | {error, term()}.
-beamai_coordinator:start_link(Id, Opts).
-
-%% Pipeline mode: tasks are passed sequentially between workers
--spec start_pipeline(binary(), map()) -> {ok, pid()} | {error, term()}.
-beamai_coordinator:start_pipeline(Id, Opts).
-
-%% Orchestrator mode: coordinator orchestrates multiple workers
--spec start_orchestrator(binary(), map()) -> {ok, pid()} | {error, term()}.
-beamai_coordinator:start_orchestrator(Id, Opts).
-```
-
-### Configuration Options
-
-```erlang
-Opts = #{
-    agents => [agent_def()],           %% Worker Agent definition list
-    llm => llm_config(),               %% LLM configuration
-    system_prompt => binary(),         %% Optional: coordinator system prompt
-    max_iterations => integer()        %% Optional: maximum iterations, default 10
-}.
-
-%% Agent definition
-agent_def() = #{
-    name := binary(),                  %% Worker name (required)
-    system_prompt := binary()          %% Worker system prompt (required)
-}.
-```
-
-### Stopping Coordinator
-
-```erlang
-%% Stop coordinator and all its workers
--spec stop(pid()) -> ok | {error, term()}.
-beamai_coordinator:stop(CoordinatorPid).
-```
-
-### Workers Management
-
-```erlang
-%% Get all workers
--spec get_workers(pid()) -> {ok, #{binary() => pid()}} | {error, term()}.
-beamai_coordinator:get_workers(CoordinatorPid).
-
-%% Get specific worker
--spec get_worker(pid(), binary()) -> {ok, pid()} | {error, term()}.
-beamai_coordinator:get_worker(CoordinatorPid, WorkerName).
-```
-
-### Task Delegation
-
-```erlang
-%% Delegate task to specific worker
--spec delegate(pid(), binary(), binary()) -> {ok, binary()} | {error, term()}.
-beamai_coordinator:delegate(CoordinatorPid, WorkerName, Task).
-
-%% Delegate task to multiple workers in parallel
--spec delegate_parallel(pid(), [binary()], binary()) -> {ok, map()} | {error, term()}.
-beamai_coordinator:delegate_parallel(CoordinatorPid, WorkerNames, Task).
-%% Returns: {ok, #{WorkerName => {ok, Result} | {error, Reason}}}
-```
-
-### Usage Examples
-
-```erlang
-%% Pipeline example: Translation pipeline
-LLM = llm_client:create(bailian, #{model => <<"qwen-plus">>, api_key => ApiKey}),
-
-{ok, Pipeline} = beamai_coordinator:start_pipeline(<<"translator">>, #{
-    agents => [
-        #{name => <<"cn_to_en">>, system_prompt => <<"Translate to English">>},
-        #{name => <<"polisher">>, system_prompt => <<"Polish the English">>}
-    ],
-    llm => LLM
-}),
-
-%% Call a specific worker directly
-{ok, Result} = beamai_coordinator:delegate(Pipeline, <<"cn_to_en">>, <<"Hello World">>),
-
-%% Stop
-beamai_coordinator:stop(Pipeline).
-```
-
-```erlang
-%% Orchestrator example: Multi-expert consultation
-{ok, Panel} = beamai_coordinator:start_orchestrator(<<"experts">>, #{
-    agents => [
-        #{name => <<"tech">>, system_prompt => <<"Technical expert">>},
-        #{name => <<"biz">>, system_prompt => <<"Business expert">>}
-    ],
-    llm => LLM
-}),
-
-%% Consult multiple experts in parallel
-{ok, Results} = beamai_coordinator:delegate_parallel(
-    Panel, [<<"tech">>, <<"biz">>], <<"Analyze AI trends">>
-),
-
-beamai_coordinator:stop(Panel).
-```
-
----
-
-## Middleware System
-
-Interceptor mechanism during Agent execution. The Middleware system is located in the `beamai_tools` module and is shared by `beamai_agent` and `beamai_deepagent`.
-
-Detailed documentation: [MIDDLEWARE.md](MIDDLEWARE.md)
-
-### beamai_middleware Behavior
-
-```erlang
-%% All callbacks are optional
--callback init(Opts :: map()) -> middleware_state().
--callback before_agent(State, MwState) -> middleware_result().
--callback after_agent(State, MwState) -> middleware_result().
--callback before_model(State, MwState) -> middleware_result().
--callback after_model(State, MwState) -> middleware_result().
--callback before_tools(State, MwState) -> middleware_result().
--callback after_tools(State, MwState) -> middleware_result().
-```
-
-### Return Value Types
-
-```erlang
--type middleware_result() ::
-    ok |                              %% No modification
-    {update, map()} |                 %% Update graph state
-    {goto, model | tools | '__end__'} |  %% Jump
-    {update_goto, map(), goto_target()} |  %% Update and jump
-    {halt, term()} |                  %% Halt execution
-    {interrupt, interrupt_action()}.  %% Interrupt waiting for confirmation
-```
-
-### beamai_middleware_runner
-
-```erlang
-%% Initialize Middleware chain
--spec init([middleware_spec()]) -> middleware_chain().
-beamai_middleware_runner:init(Specs).
-
-%% Middleware specification format
-Specs = [
-    {middleware_module, Opts},           %% Module + Options
-    {middleware_module, Opts, Priority}, %% Module + Options + Priority
-    middleware_module                    %% Module name only
-].
-
-%% Execute hook
--spec run_hook(hook_name(), graph_state(), middleware_chain()) -> run_result().
-beamai_middleware_runner:run_hook(HookName, State, Middlewares).
-
-%% Get Middleware state
--spec get_middleware_state(module(), middleware_chain()) -> {ok, state()} | {error, not_found}.
-beamai_middleware_runner:get_middleware_state(Module, Chain).
-```
-
-### beamai_middleware_presets
-
-```erlang
-%% Preset configurations
--spec default() -> [middleware_spec()].
--spec minimal() -> [middleware_spec()].
--spec production() -> [middleware_spec()].
--spec development() -> [middleware_spec()].
--spec human_in_loop() -> [middleware_spec()].
-
-%% Presets with options
--spec default(map()) -> [middleware_spec()].
-beamai_middleware_presets:default(#{
-    call_limit => #{max_model_calls => 30},
-    summarization => #{window_size => 25}
-}).
-
-%% Individual Middleware configuration
--spec call_limit(map()) -> middleware_spec().
--spec summarization(map()) -> middleware_spec().
--spec human_approval(map()) -> middleware_spec().
--spec tool_retry(map()) -> middleware_spec().
-```
-
-### Built-in Middleware
-
-| Middleware | Module | Main Configuration |
-|------------|--------|-------------------|
-| Call Limit | `middleware_call_limit` | `max_model_calls`, `max_tool_calls`, `max_iterations` |
-| Context Summarization | `middleware_summarization` | `window_size`, `max_tokens`, `summarize` |
-| Human Approval | `middleware_human_approval` | `mode`, `timeout`, `tools` |
-| Tool Retry | `middleware_tool_retry` | `max_retries`, `backoff` |
-| Model Retry | `middleware_model_retry` | `max_retries`, `retryable_errors` |
-| Model Fallback | `middleware_model_fallback` | `fallback_models`, `trigger_errors` |
-| PII Detection | `middleware_pii_detection` | `action`, `types` |
-| Tool Selection | `middleware_tool_selector` | `strategy`, `whitelist` |
-
-### Custom Middleware Example
-
-```erlang
--module(my_logging_middleware).
--behaviour(beamai_middleware).
-
--export([init/1, before_model/2, after_model/2]).
-
-init(Opts) ->
-    #{log_level => maps:get(log_level, Opts, info)}.
-
-before_model(State, #{log_level := Level}) ->
-    Messages = graph_state:get(State, messages, []),
-    log(Level, "LLM Request: ~p messages", [length(Messages)]),
-    {update, #{request_start => erlang:system_time(millisecond)}}.
-
-after_model(State, #{log_level := Level}) ->
-    Start = graph_state:get(State, request_start, 0),
-    Duration = erlang:system_time(millisecond) - Start,
-    log(Level, "LLM Response: ~pms", [Duration]),
-    ok.
-
-log(info, Fmt, Args) -> logger:info(Fmt, Args);
-log(debug, Fmt, Args) -> logger:debug(Fmt, Args).
-```
-
----
-
-## beamai_deepagent - Deep Agent
-
-Deep Agent supporting planning and parallel execution.
-
-### Creation and Execution
-
-```erlang
-%% Create configuration
--spec new() -> config().
--spec new(map()) -> config().
-beamai_deepagent:new().
-beamai_deepagent:new(Opts).
-
-%% Run Agent
--spec run(config(), binary()) -> {ok, result()} | {error, term()}.
-beamai_deepagent:run(Config, Task).
-```
-
-### Result Queries
-
-```erlang
-%% Get plan
--spec get_plan(result()) -> plan() | undefined.
-beamai_deepagent:get_plan(Result).
-
-%% Get execution trace
--spec get_trace(result()) -> trace().
-beamai_deepagent:get_trace(Result).
-```
-
-### Configuration Options
-
-```erlang
-Config = #{
-    llm => llm_config(),                 %% LLM configuration
-    tools => [tool_def()],               %% Custom tools
-    system_prompt => binary(),           %% System prompt
-    max_depth => integer(),              %% Maximum recursion depth, default 3
-    max_iterations => integer(),         %% Maximum iterations, default 50
-    planning_enabled => boolean(),       %% Enable planning, default true
-    planning_mode => full | simple,      %% Planning mode, default full
-    reflection_enabled => boolean(),     %% Enable reflection, default true
-    filesystem_enabled => boolean(),     %% Enable filesystem tools
-    filesystem => filesystem_config(),   %% Filesystem configuration
-    human_in_loop => #{enabled => boolean()}  %% Human-in-loop configuration
-}.
-```
-
-### Tool Provider
-
-DeepAgent provides tools through `beamai_deepagent_tool_provider`, implementing the `beamai_tool_provider` behavior.
-
-```erlang
-%% Get tools via beamai_tool_registry
-Config = #{depth => 0, planning_mode => full},
-Tools = beamai_tool_registry:from_config(#{
-    providers => [{beamai_deepagent_tool_provider, Config}]
-}).
-
-%% Direct access to tool collections
-beamai_deepagent_tool_provider:base_tools().       %% Base tools
-beamai_deepagent_tool_provider:plan_tools().       %% Plan tools
-beamai_deepagent_tool_provider:subtask_tools().    %% Subtask tools
-beamai_deepagent_tool_provider:reflect_tools().    %% Reflect tools
-beamai_deepagent_tool_provider:filesystem_tools(). %% Filesystem tools
-beamai_deepagent_tool_provider:todo_tools().       %% TodoList tools
-beamai_deepagent_tool_provider:human_tools().      %% Human interaction tools
-
-%% Provider interface
-beamai_deepagent_tool_provider:info().             %% Get Provider info
-beamai_deepagent_tool_provider:available().        %% Check if available
-beamai_deepagent_tool_provider:list_tools(Opts).   %% Get tool list
-beamai_deepagent_tool_provider:find_tool(Name, Opts). %% Find tool
-```
-
-### Tool Condition Judgment
-
-| Tool Set | Condition |
-|----------|-----------|
-| Base tools | Always available |
-| Plan tools | `planning_mode=full` and `depth=0` |
-| TodoList tools | `planning_mode=simple` |
-| Subtask tools | `depth < max_depth` |
-| Reflect tools | `reflection_enabled=true` |
-| Filesystem tools | `filesystem_enabled=true` or has `filesystem` config |
-| Human tools | `human_in_loop.enabled=true` |
-
----
-
-## beamai_llm - LLM Client
-
-LLM client with multi-provider support.
-
-### LLM Configuration Management
-
-LLM configuration must be created using `llm_client:create/2`, achieving separation of configuration from Agent:
-
-```erlang
-%% Create LLM configuration (must use llm_client:create/2)
-LLM = llm_client:create(anthropic, #{
-    model => <<"glm-4.7">>,
-    api_key => list_to_binary(os:getenv("ZHIPU_API_KEY")),
-    base_url => <<"https://open.bigmodel.cn/api/anthropic">>,
-    temperature => 0.7
-}).
-
-%% Configuration reuse: multiple Agents share the same configuration
-{ok, Agent1} = beamai_agent:start_link(<<"agent1">>, #{llm => LLM, ...}),
-{ok, Agent2} = beamai_agent:start_link(<<"agent2">>, #{llm => LLM, ...}).
-
-%% Configuration merging: create new configuration based on existing one
-HighTempLLM = llm_client:merge_config(LLM, #{temperature => 0.9}).
-
-%% Validate configuration
-true = llm_client:is_valid_config(LLM).
-```
-
-**Advantages:**
-- Configuration reuse: multiple Agents share the same LLM configuration
-- Centralized management: API Key, model parameters unified configuration
-- Type safety: Agent validates configuration at startup
-- Easy testing: LLM configuration can be validated independently
-
-### Configuration and Chat
-
-```erlang
-%% Create configuration
--spec create(provider(), map()) -> llm_config().
-llm_client:create(Provider, Opts).
-
-%% Validate configuration
--spec is_valid_config(term()) -> boolean().
-llm_client:is_valid_config(Config).
-
-%% Chat
--spec chat(llm_config(), [message()]) -> {ok, response()} | {error, term()}.
-llm_client:chat(Config, Messages).
-
-%% Streaming chat
--spec stream_chat(llm_config(), [message()], callback()) -> {ok, response()} | {error, term()}.
-llm_client:stream_chat(Config, Messages, Callback).
-
-%% Chat with tools
--spec with_tools(llm_config(), [message()], [tool()]) -> {ok, response()} | {error, term()}.
-llm_client:with_tools(Config, Messages, Tools).
-```
-
-### Provider Management
-
-```erlang
-%% List Providers
--spec list_providers() -> [atom()].
-llm_client:list_providers().
-
-%% Provider info
--spec provider_info(atom()) -> map().
-llm_client:provider_info(Provider).
-```
-
-### Supported Providers
-
-| Provider | Module | API Mode | Features |
-|----------|--------|----------|----------|
-| `openai` | llm_provider_openai | OpenAI | Chat, streaming, tool calling |
-| `anthropic` | llm_provider_anthropic | Anthropic | Chat, streaming, tool calling |
-| `deepseek` | llm_provider_deepseek | OpenAI compatible | Chat, streaming, tool calling |
-| `zhipu` | llm_provider_zhipu | OpenAI compatible | Chat, streaming, tool calling, async |
-| `bailian` | llm_provider_bailian | DashScope native | Chat, streaming, tool calling, web search |
-| `ollama` | llm_provider_ollama | OpenAI compatible | Chat, streaming |
-
-### DeepSeek Detailed Description
-
-DeepSeek Provider uses OpenAI compatible API, supporting `deepseek-chat` and `deepseek-reasoner` models.
-
-**Supported Models:**
-- `deepseek-chat`: General conversation model (default)
-- `deepseek-reasoner`: Reasoning enhanced model
-
-**Configuration Example:**
-```erlang
-LLM = llm_client:create(deepseek, #{
-    model => <<"deepseek-chat">>,
-    api_key => list_to_binary(os:getenv("DEEPSEEK_API_KEY")),
-    max_tokens => 4096,
-    temperature => 1.0
-}).
-```
-
-### Alibaba Cloud Bailian (DashScope) Detailed Description
-
-Bailian Provider uses DashScope native API, automatically selecting endpoints based on model type:
-- **Text generation models** (`qwen-plus`, `qwen-max`, `qwen-turbo`): Use `/api/v1/services/aigc/text-generation/generation`
-- **Multimodal models** (`qwen-vl-plus`, `qwen-audio`, etc.): Use `/api/v1/services/aigc/multimodal-generation/generation`
-
-**Unique Parameters:**
-- `enable_search => true`: Enable web search functionality
-- `tool_choice => <<"required">>`: Force tool calling
-
-**Streaming Output:**
-- Request header: `X-DashScope-SSE: enable`
-- Parameter: `parameters.incremental_output: true`
-
-### LLM Configuration Parameters
-
-`llm_client:create/2` supports the following parameters:
-
-```erlang
-LLM = llm_client:create(Provider, #{
-    model => binary(),                   %% Model name (required)
-    api_key => binary(),                 %% API Key (required, except ollama)
-    base_url => binary(),                %% Optional: custom URL
-    timeout => integer(),                %% Optional: timeout (milliseconds)
-    max_tokens => integer(),             %% Optional: maximum tokens
-    temperature => float()               %% Optional: temperature parameter (0.0 - 2.0)
-}).
-```
-
-**Provider Types:** `openai | anthropic | deepseek | zhipu | bailian | ollama`
-
----
-
-## beamai_memory - Memory Management
-
-Unified memory and checkpoint management system.
-
-### Creation and Configuration
-
-```erlang
-%% Create Memory instance
--spec new(map()) -> {ok, memory()} | {error, term()}.
-beamai_memory:new(Config).
-
-Config = #{
-    checkpointer => #{backend => ets | sqlite},
-    store => #{backend => ets | sqlite},
-    context_store => {module(), term()}
-}.
-```
-
-### Checkpoint Operations
-
-```erlang
-%% Save checkpoint
--spec save_checkpoint(memory(), config(), state_data()) -> {ok, memory()}.
-beamai_memory:save_checkpoint(Memory, Config, StateData).
-
-%% Load checkpoint
--spec load_checkpoint(memory(), config()) -> {ok, state_data()} | {error, not_found}.
--spec load_latest_checkpoint(memory(), config()) -> {ok, state_data()} | {error, not_found}.
-beamai_memory:load_checkpoint(Memory, Config).
-beamai_memory:load_latest_checkpoint(Memory, Config).
-
-%% List checkpoints
--spec list_checkpoints(memory(), config()) -> {ok, [checkpoint_info()]}.
-beamai_memory:list_checkpoints(Memory, Config).
-
-%% Checkpoint count
--spec checkpoint_count(memory(), config()) -> non_neg_integer().
-beamai_memory:checkpoint_count(Memory, Config).
-```
-
-### Store Operations
-
-```erlang
-%% Store data
--spec put(memory(), namespace(), key(), value()) -> {ok, memory()}.
-beamai_memory:put(Memory, Namespace, Key, Value).
-
-%% Search data
--spec search(memory(), namespace(), filter()) -> {ok, [item()]}.
-beamai_memory:search(Memory, Namespace, Filter).
-```
-
----
-
-## beamai_tools - Tool Library and Middleware System
-
-Unified tool definition and management, as well as Agent execution middleware system.
-
-beamai_tools contains two core functionalities:
-- **Tool System**: Tool definition, registration, Provider mechanism
-- **Middleware System**: Agent execution interception, enhancement, and control (see [Middleware System](#middleware-system))
-
-### Tool Retrieval
-
-```erlang
-%% Get tools
--spec get_tools(category() | [category()]) -> [tool_def()].
--spec get_tools(category(), map()) -> [tool_def()].
-beamai_tools:get_tools(Categories).
-beamai_tools:get_tools(Categories, Opts).
-
-%% Get all tools
--spec get_all_tools() -> [tool_def()].
-beamai_tools:get_all_tools().
-
-%% Find tool
--spec find_tool(binary()) -> {ok, tool_def()} | {error, not_found}.
-beamai_tools:find_tool(Name).
-```
-
-### Tool Execution
-
-```erlang
-%% Execute tool
--spec execute(binary(), map()) -> {ok, term()} | {error, term()}.
--spec execute(binary(), map(), map()) -> {ok, term()} | {error, term()}.
-beamai_tools:execute(ToolName, Args).
-beamai_tools:execute(ToolName, Args, Opts).
-```
-
-### Tool Conversion
-
-```erlang
-%% Convert to LLM format
--spec to_llm_spec(tool_def()) -> map().
--spec to_llm_specs([tool_def()]) -> [map()].
-beamai_tools:to_llm_spec(Tool).
-beamai_tools:to_llm_specs(Tools).
-```
-
-### Tool Registry
-
-```erlang
-%% Build tool list
-Registry = beamai_tool_registry:new(),
-R1 = beamai_tool_registry:add_tools(Registry, Tools),
-R2 = beamai_tool_registry:add_provider(R1, Provider),
-Tools = beamai_tool_registry:build(R2).
-
-%% Convenience function
-Tools = beamai_tool_registry:from_config(#{
-    tools => [Tool1, Tool2],
-    providers => [Provider1, Provider2]
-}).
-```
-
----
-
-## beamai_core - Core Module
-
-### Graph Execution Engine
-
-```erlang
-%% Build Graph
+%% 构建 Graph
 Graph = graph_builder:new()
     |> graph_builder:add_node(NodeName, {Module, Opts})
     |> graph_builder:add_edge(From, To, Condition)
     |> graph_builder:set_entry(EntryNode)
     |> graph_builder:build().
 
-%% Execute Graph
+%% 执行 Graph
 -spec run(graph(), state()) -> {ok, state()} | {error, term()}.
 graph_runner:run(Graph, InitialState).
 
@@ -807,17 +41,17 @@ Graph = graph_dsl:compile(#{
 ### Graph State
 
 ```erlang
-%% Create state
+%% 创建状态
 -spec new(map()) -> state().
 graph_state:new(Data).
 
-%% Read/Write state
+%% 读写状态
 -spec get(state(), key()) -> value().
 -spec set(state(), key(), value()) -> state().
 graph_state:get(State, Key).
 graph_state:set(State, Key, Value).
 
-%% User context operations
+%% 用户上下文操作
 -spec get_context(state()) -> map().
 -spec get_context(state(), key()) -> value() | undefined.
 -spec set_context(state(), map()) -> state().
@@ -830,278 +64,368 @@ graph_state:update_context(State, Updates).
 
 ### Graph State Reducer
 
-Field-level reducers for merging node-returned deltas into global state.
+字段级 Reducer，用于合并节点返回的 delta 到全局状态。
 
 ```erlang
-%% Apply delta
+%% 应用 delta
 -spec apply_delta(state(), delta(), field_reducers()) -> state().
 -spec apply_deltas(state(), [delta()], field_reducers()) -> state().
 graph_state_reducer:apply_delta(State, Delta, FieldReducers).
 graph_state_reducer:apply_deltas(State, Deltas, FieldReducers).
 
-%% Built-in Reducers
+%% 内置 Reducer
 graph_state_reducer:append_reducer(Old, New) -> list().
 graph_state_reducer:merge_reducer(Old, New) -> map().
 graph_state_reducer:increment_reducer(Old, Delta) -> number().
 graph_state_reducer:last_write_win_reducer(Old, New) -> term().
 ```
 
-**Reducer Configuration Format:**
+**Reducer 配置格式：**
 
 ```erlang
 FieldReducers = #{
-    %% Normal reducer
+    %% 普通 reducer
     <<"messages">> => fun graph_state_reducer:append_reducer/2,
 
-    %% Transform reducer: accumulate counter_incr to counter
+    %% 转换型 reducer：从 counter_incr 累加到 counter
     <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
 }.
 ```
 
-### Pregel Distributed Computing
+### Pregel 分布式计算
 
 ```erlang
-%% Create Pregel graph
+%% 创建 Pregel 图
 {ok, Graph} = pregel_graph:new(Config).
 
-%% Add vertices and edges
+%% 添加顶点和边
 pregel_graph:add_vertex(Graph, VertexId, Data).
 pregel_graph:add_edge(Graph, From, To, Weight).
 
-%% Run computation
+%% 运行计算
 {ok, Result} = pregel:run(Graph, ComputeFn, MaxIterations).
 ```
 
-### HTTP Client
+### HTTP 客户端
 
-BeamAI provides a unified HTTP client interface, supporting both Gun and Hackney backends.
+BeamAI 提供统一的 HTTP 客户端接口，支持 Gun 和 Hackney 两种后端。
 
 ```erlang
-%% Send request (automatically uses configured backend)
+%% 发送请求（自动使用配置的后端）
 -spec request(method(), url(), headers(), body(), opts()) -> {ok, response()} | {error, term()}.
 beamai_http:request(Method, Url, Headers, Body, Opts).
 
-%% Convenience functions
+%% 便捷函数
 -spec get(url(), headers()) -> {ok, response()} | {error, term()}.
 -spec post(url(), headers(), body()) -> {ok, response()} | {error, term()}.
 beamai_http:get(Url, Headers).
 beamai_http:post(Url, Headers, Body).
 
-%% Streaming request (SSE)
+%% 流式请求（SSE）
 -spec stream_request(url(), headers(), body(), callback(), opts()) -> {ok, term()} | {error, term()}.
 beamai_http:stream_request(Url, Headers, Body, Callback, Opts).
 ```
 
-### HTTP Backend Configuration
+### HTTP 后端配置
 
 ```erlang
-%% Application configuration (sys.config)
+%% 应用配置（sys.config）
 {beamai_core, [
-    %% Select HTTP backend: beamai_http_gun (default) or beamai_http_hackney
+    %% 选择 HTTP 后端：beamai_http_gun（默认）或 beamai_http_hackney
     {http_backend, beamai_http_gun},
 
-    %% Gun connection pool configuration
+    %% Gun 连接池配置
     {http_pool, #{
-        max_connections => 100,        %% Maximum connections
-        connection_timeout => 30000,   %% Connection timeout (milliseconds)
-        idle_timeout => 60000          %% Idle timeout (milliseconds)
+        max_connections => 100,        %% 最大连接数
+        connection_timeout => 30000,   %% 连接超时（毫秒）
+        idle_timeout => 60000          %% 空闲超时（毫秒）
     }}
 ]}.
 ```
 
-**Backend Comparison:**
+**后端对比：**
 
-| Feature | Gun (default) | Hackney |
-|---------|---------------|---------|
-| HTTP/2 | Supported | Not supported |
-| Connection pool | beamai_http_pool | hackney built-in pool |
-| TLS | Automatically uses system CA certificates (OTP 25+) | hackney default config |
-| Dependency | gun 2.1.0 | hackney |
-| Recommended scenario | Production, needs HTTP/2 | Legacy system compatibility |
+| 特性 | Gun（默认） | Hackney |
+|------|-------------|---------|
+| HTTP/2 | 支持 | 不支持 |
+| 连接池 | beamai_http_pool | hackney 内置池 |
+| TLS | 自动使用系统 CA 证书（OTP 25+） | hackney 默认配置 |
+| 依赖 | gun 2.1.0 | hackney |
+| 推荐场景 | 生产环境、需要 HTTP/2 | 兼容旧系统 |
 
-### HTTP Connection Pool (Gun Backend)
+### HTTP 连接池 (Gun 后端)
 
-When using the Gun backend, beamai_http_pool is automatically started as a child process of the beamai_core application.
+当使用 Gun 后端时，beamai_http_pool 会作为 beamai_core 应用的子进程自动启动。
 
 ```erlang
-%% Connection pool API
+%% 连接池 API
 -spec checkout(host(), port(), protocol()) -> {ok, connection()} | {error, term()}.
 beamai_http_pool:checkout(Host, Port, Protocol).
 
 -spec checkin(connection()) -> ok.
 beamai_http_pool:checkin(Conn).
 
-%% View connection pool status
+%% 查看连接池状态
 -spec get_stats() -> map().
 beamai_http_pool:get_stats().
 ```
 
 ---
 
-## beamai_a2a - A2A Protocol
+## beamai_llm - LLM 客户端
 
-Agent-to-Agent communication protocol implementation.
+多 Provider 支持的 LLM 客户端。
 
-### Server
+### LLM 配置管理
 
-```erlang
-%% Start server
--spec start_link(map()) -> {ok, pid()}.
-beamai_a2a_server:start_link(Config).
-
-Config = #{
-    handler => module(),                 %% Request handler
-    port => integer(),                   %% HTTP port
-    auth => auth_config()                %% Authentication configuration
-}.
-```
-
-### Client
+LLM 配置必须使用 `llm_client:create/2` 创建，实现配置与 Agent 分离：
 
 ```erlang
-%% Discover Agent
--spec discover(binary()) -> {ok, agent_card()} | {error, term()}.
-beamai_a2a_client:discover(AgentUrl).
-
-%% Send message
--spec send_message(binary(), message()) -> {ok, response()} | {error, term()}.
-beamai_a2a_client:send_message(AgentUrl, Message).
-```
-
-### Agent Card
-
-```erlang
-%% Create Card
--spec new(map()) -> agent_card().
-beamai_a2a_card:new(#{
-    name => binary(),
-    description => binary(),
-    url => binary(),
-    capabilities => [binary()]
+%% 创建 LLM 配置（必须使用 llm_client:create/2）
+LLM = llm_client:create(anthropic, #{
+    model => <<"glm-4.7">>,
+    api_key => list_to_binary(os:getenv("ZHIPU_API_KEY")),
+    base_url => <<"https://open.bigmodel.cn/api/anthropic">>,
+    temperature => 0.7
 }).
 
-%% Validate Card
--spec validate(agent_card()) -> ok | {error, term()}.
-beamai_a2a_card:validate(Card).
+%% 配置复用：多个 Agent 共享同一配置
+{ok, Agent1} = beamai_agent:start_link(<<"agent1">>, #{llm => LLM, ...}),
+{ok, Agent2} = beamai_agent:start_link(<<"agent2">>, #{llm => LLM, ...}).
+
+%% 配置合并：基于现有配置创建新配置
+HighTempLLM = llm_client:merge_config(LLM, #{temperature => 0.9}).
+
+%% 验证配置有效性
+true = llm_client:is_valid_config(LLM).
 ```
+
+**优势：**
+- 配置复用：多个 Agent 共享同一 LLM 配置
+- 集中管理：API Key、模型参数统一配置
+- 类型安全：Agent 启动时验证配置有效性
+- 易于测试：可独立验证 LLM 配置
+
+### 配置和聊天
+
+```erlang
+%% 创建配置
+-spec create(provider(), map()) -> llm_config().
+llm_client:create(Provider, Opts).
+
+%% 验证配置
+-spec is_valid_config(term()) -> boolean().
+llm_client:is_valid_config(Config).
+
+%% 聊天
+-spec chat(llm_config(), [message()]) -> {ok, response()} | {error, term()}.
+llm_client:chat(Config, Messages).
+
+%% 流式聊天
+-spec stream_chat(llm_config(), [message()], callback()) -> {ok, response()} | {error, term()}.
+llm_client:stream_chat(Config, Messages, Callback).
+
+%% 带工具的聊天
+-spec with_tools(llm_config(), [message()], [tool()]) -> {ok, response()} | {error, term()}.
+llm_client:with_tools(Config, Messages, Tools).
+```
+
+### Provider 管理
+
+```erlang
+%% 列出 Provider
+-spec list_providers() -> [atom()].
+llm_client:list_providers().
+
+%% Provider 信息
+-spec provider_info(atom()) -> map().
+llm_client:provider_info(Provider).
+```
+
+### 支持的 Provider
+
+| Provider | 模块 | API 模式 | 特性 |
+|----------|------|----------|------|
+| `openai` | llm_provider_openai | OpenAI | 聊天、流式、工具调用 |
+| `anthropic` | llm_provider_anthropic | Anthropic | 聊天、流式、工具调用 |
+| `deepseek` | llm_provider_deepseek | OpenAI 兼容 | 聊天、流式、工具调用 |
+| `zhipu` | llm_provider_zhipu | OpenAI 兼容 | 聊天、流式、工具调用、异步 |
+| `bailian` | llm_provider_bailian | DashScope 原生 | 聊天、流式、工具调用、联网搜索 |
+| `ollama` | llm_provider_ollama | OpenAI 兼容 | 聊天、流式 |
+
+### Provider 公共模块 (llm_provider_common)
+
+所有 Provider 共享的通用函数：
+
+```erlang
+%% URL 构建
+llm_provider_common:build_url(Config, DefaultEndpoint, DefaultBaseUrl) -> binary().
+
+%% Bearer 认证头构建
+llm_provider_common:build_bearer_auth_headers(Config) -> [{binary(), binary()}].
+
+%% 可选参数添加
+llm_provider_common:maybe_add_stream(Body, Request) -> map().
+llm_provider_common:maybe_add_tools(Body, Request) -> map().
+llm_provider_common:maybe_add_top_p(Body, Request) -> map().
+
+%% OpenAI 格式流式事件累加
+llm_provider_common:accumulate_openai_event(Event, Acc) -> map().
+
+%% 工具调用解析
+llm_provider_common:parse_tool_calls(Message) -> [map()].
+llm_provider_common:parse_single_tool_call(Call) -> map().
+
+%% 使用统计解析
+llm_provider_common:parse_usage(Usage) -> #{prompt_tokens, completion_tokens, total_tokens}.
+```
+
+### DeepSeek 详细说明
+
+DeepSeek Provider 使用 OpenAI 兼容 API，支持 `deepseek-chat` 和 `deepseek-reasoner` 模型。
+
+**支持的模型：**
+- `deepseek-chat`：通用对话模型（默认）
+- `deepseek-reasoner`：推理增强模型
+
+**配置示例：**
+```erlang
+LLM = llm_client:create(deepseek, #{
+    model => <<"deepseek-chat">>,
+    api_key => list_to_binary(os:getenv("DEEPSEEK_API_KEY")),
+    max_tokens => 4096,
+    temperature => 1.0
+}).
+```
+
+### 阿里云百炼 (DashScope) 详细说明
+
+百炼 Provider 使用 DashScope 原生 API，自动根据模型类型选择端点：
+- **文本生成模型** (`qwen-plus`, `qwen-max`, `qwen-turbo`)：使用 `/api/v1/services/aigc/text-generation/generation`
+- **多模态模型** (`qwen-vl-plus`, `qwen-audio` 等)：使用 `/api/v1/services/aigc/multimodal-generation/generation`
+
+**特有参数：**
+- `enable_search => true`：启用联网搜索功能
+- `tool_choice => <<"required">>`：强制工具调用
+
+**流式输出：**
+- 请求头：`X-DashScope-SSE: enable`
+- 参数：`parameters.incremental_output: true`
+
+### LLM 配置参数
+
+`llm_client:create/2` 支持以下参数：
+
+```erlang
+LLM = llm_client:create(Provider, #{
+    model => binary(),                   %% 模型名称（必需）
+    api_key => binary(),                 %% API Key（必需，ollama 除外）
+    base_url => binary(),                %% 可选：自定义 URL
+    timeout => integer(),                %% 可选：超时时间（毫秒）
+    max_tokens => integer(),             %% 可选：最大 token
+    temperature => float()               %% 可选：温度参数 (0.0 - 2.0)
+}).
+```
+
+**Provider 类型：** `openai | anthropic | deepseek | zhipu | bailian | ollama`
 
 ---
 
-## beamai_mcp - MCP Protocol
+## beamai_memory - 记忆管理
 
-Model Context Protocol implementation.
+统一的记忆和检查点管理系统。
 
-### Client
+### 创建和配置
 
 ```erlang
-%% Connect to MCP server
--spec connect(config()) -> {ok, client()} | {error, term()}.
-beamai_mcp_client:connect(Config).
+%% 创建 Memory 实例
+-spec new(map()) -> {ok, memory()} | {error, term()}.
+beamai_memory:new(Config).
 
 Config = #{
-    transport => stdio | http | sse,
-    command => binary(),                 %% stdio: command
-    url => binary()                      %% http/sse: URL
+    checkpointer => #{backend => ets | sqlite},
+    store => #{backend => ets | sqlite},
+    context_store => {module(), term()}
 }.
-
-%% List tools
--spec list_tools(client()) -> {ok, [tool()]} | {error, term()}.
-beamai_mcp_client:list_tools(Client).
-
-%% Call tool
--spec call_tool(client(), binary(), map()) -> {ok, result()} | {error, term()}.
-beamai_mcp_client:call_tool(Client, ToolName, Args).
-
-%% List resources
--spec list_resources(client()) -> {ok, [resource()]} | {error, term()}.
-beamai_mcp_client:list_resources(Client).
 ```
 
-### Server
+### Checkpoint 操作
 
 ```erlang
-%% Start server
--spec start_link(config()) -> {ok, pid()}.
-beamai_mcp_server:start_link(Config).
+%% 保存检查点
+-spec save_checkpoint(memory(), config(), state_data()) -> {ok, memory()}.
+beamai_memory:save_checkpoint(Memory, Config, StateData).
 
-%% Register tool
--spec register_tool(pid(), tool_def()) -> ok.
-beamai_mcp_server:register_tool(Server, Tool).
+%% 加载检查点
+-spec load_checkpoint(memory(), config()) -> {ok, state_data()} | {error, not_found}.
+-spec load_latest_checkpoint(memory(), config()) -> {ok, state_data()} | {error, not_found}.
+beamai_memory:load_checkpoint(Memory, Config).
+beamai_memory:load_latest_checkpoint(Memory, Config).
 
-%% Register resource
--spec register_resource(pid(), resource_def()) -> ok.
-beamai_mcp_server:register_resource(Server, Resource).
+%% 列出检查点
+-spec list_checkpoints(memory(), config()) -> {ok, [checkpoint_info()]}.
+beamai_memory:list_checkpoints(Memory, Config).
+
+%% 检查点计数
+-spec checkpoint_count(memory(), config()) -> non_neg_integer().
+beamai_memory:checkpoint_count(Memory, Config).
+```
+
+### Store 操作
+
+```erlang
+%% 存储数据
+-spec put(memory(), namespace(), key(), value()) -> {ok, memory()}.
+beamai_memory:put(Memory, Namespace, Key, Value).
+
+%% 搜索数据
+-spec search(memory(), namespace(), filter()) -> {ok, [item()]}.
+beamai_memory:search(Memory, Namespace, Filter).
 ```
 
 ---
 
-## beamai_rag - RAG Functionality
+## 通用类型
 
-Retrieval Augmented Generation module.
-
-### Vector Embeddings
+### 工具定义（tool_spec）
 
 ```erlang
-%% Generate embeddings
--spec embed(binary(), config()) -> {ok, [float()]} | {error, term()}.
--spec embed_batch([binary()], config()) -> {ok, [[float()]]} | {error, term()}.
-beamai_embeddings:embed(Text, Config).
-beamai_embeddings:embed_batch(Texts, Config).
-```
+-type tool_spec() :: #{
+    name := binary(),                    % 必填：工具名称
+    handler := handler(),                % 必填：处理器
+    description => binary(),             % 可选：描述（供 LLM 理解）
+    parameters => parameters_schema(),   % 可选：参数定义
+    tag => binary() | [binary()],        % 可选：分类标签
+    timeout => pos_integer(),            % 可选：超时时间（毫秒）
+    retry => #{max => integer(), delay => integer()},  % 可选：重试策略
+    metadata => map()                    % 可选：自定义元数据
+}.
 
-### Vector Store
+-type handler() ::
+    fun((args()) -> tool_result())                        % fun/1：仅接收参数
+    | fun((args(), beamai_context:t()) -> tool_result())  % fun/2：参数 + 上下文
+    | {module(), atom()}                                  % {M, F}：模块函数
+    | {module(), atom(), [term()]}.                       % {M, F, ExtraArgs}
 
-```erlang
-%% Create store
--spec new(config()) -> {ok, store()}.
-beamai_vector_store:new(Config).
+-type tool_result() ::
+    {ok, term()}                          % 成功，返回结果
+    | {ok, term(), beamai_context:t()}    % 成功，返回结果和更新的上下文
+    | {error, term()}.                    % 失败
 
-%% Add vector
--spec add(store(), binary(), [float()], map()) -> {ok, store()}.
-beamai_vector_store:add(Store, Id, Vector, Metadata).
-
-%% Similarity search
--spec search(store(), [float()], integer()) -> {ok, [result()]}.
-beamai_vector_store:search(Store, QueryVector, TopK).
-```
-
-### RAG Workflow
-
-```erlang
-%% Initialize
--spec init(config()) -> {ok, rag_state()}.
-beamai_rag:init(Config).
-
-%% Add documents
--spec add_documents(rag_state(), [document()]) -> {ok, rag_state()}.
-beamai_rag:add_documents(State, Documents).
-
-%% Retrieve
--spec retrieve(rag_state(), binary(), integer()) -> {ok, [chunk()]}.
-beamai_rag:retrieve(State, Query, TopK).
-
-%% RAG query (retrieve + generate)
--spec query(rag_state(), binary()) -> {ok, response()}.
-beamai_rag:query(State, Question).
-```
-
----
-
-## Common Types
-
-### Tool Definition
-
-```erlang
--type tool_def() :: #{
-    name := binary(),
-    description := binary(),
-    parameters := json_schema(),
-    handler := fun((map()) -> {ok, term()} | {error, term()})
-                | fun((map(), map()) -> {ok, term()} | {error, term()})
+-type parameters_schema() :: #{
+    atom() | binary() => #{
+        type := string | integer | float | boolean | array | object,
+        description => binary(),
+        required => boolean(),
+        default => term(),
+        enum => [term()],
+        items => param_spec(),           % array 元素类型
+        properties => parameters_schema() % object 嵌套属性
+    }
 }.
 ```
 
-### Message Types
+### 消息类型
 
 ```erlang
 -type message() :: #{
@@ -1112,7 +436,7 @@ beamai_rag:query(State, Question).
 }.
 ```
 
-### LLM Response
+### LLM 响应
 
 ```erlang
 -type llm_response() :: #{
@@ -1127,32 +451,26 @@ beamai_rag:query(State, Question).
 
 ---
 
-## Error Handling
+## 错误处理
 
-All APIs return `{ok, Result}` or `{error, Reason}` format. Common error types:
+所有 API 返回 `{ok, Result}` 或 `{error, Reason}` 格式。常见错误类型：
 
-| Error | Description |
-|-------|-------------|
-| `{error, missing_api_key}` | API Key not configured |
-| `{error, timeout}` | Request timeout |
-| `{error, {http_error, Code, Body}}` | HTTP error |
-| `{error, {api_error, Details}}` | API returned error |
-| `{error, not_found}` | Resource not found |
-| `{error, storage_not_enabled}` | Storage not enabled |
+| 错误 | 说明 |
+|------|------|
+| `{error, missing_api_key}` | API Key 未配置 |
+| `{error, timeout}` | 请求超时 |
+| `{error, {http_error, Code, Body}}` | HTTP 错误 |
+| `{error, {api_error, Details}}` | API 返回错误 |
+| `{error, not_found}` | 资源未找到 |
+| `{error, storage_not_enabled}` | 存储未启用 |
 
 ---
 
-## More Documentation
+## 更多文档
 
-- [README.md](../README.md) - Project overview
-- [ARCHITECTURE.md](ARCHITECTURE.md) - Architecture design
-- Module READMEs:
+- [README.md](../README.md) - 项目概述
+- [ARCHITECTURE.md](ARCHITECTURE.md) - 架构设计
+- 各模块 README：
   - [beamai_core](../apps/beamai_core/README.md)
   - [beamai_llm](../apps/beamai_llm/README.md)
-  - [beamai_agent](../apps/beamai_agent/README.md)
-  - [beamai_deepagent](../apps/beamai_deepagent/README.md)
   - [beamai_memory](../apps/beamai_memory/README.md)
-  - [beamai_tools](../apps/beamai_tools/README.md)
-  - [beamai_a2a](../apps/beamai_a2a/README.md)
-  - [beamai_mcp](../apps/beamai_mcp/README.md)
-  - [beamai_rag](../apps/beamai_rag/README.md)

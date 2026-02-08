@@ -6,7 +6,27 @@
 
 English | [中文](README.md)
 
-A high-performance AI Agent application framework based on Erlang/OTP, providing a complete Agent development toolkit.
+A high-performance AI Agent framework core library based on Erlang/OTP, providing foundational capabilities for building Agents.
+
+> **Note**: This project is the core library of the BeamAI framework, providing Kernel, Process Framework, Graph Engine, LLM Client, and Memory Management core features.
+>
+> Advanced features (Simple Agent, Deep Agent, Tools Library, RAG, A2A/MCP protocols, etc.) have been moved to the [beamai_extra](https://github.com/TTalkPro/beamai_extra) extension project.
+
+## Core vs Extension
+
+### Core Project (This Repository)
+Foundational infrastructure for building AI Agents:
+- **beamai_core** - Kernel/Tool architecture, Process Framework, Graph Engine, HTTP client
+- **beamai_llm** - Unified LLM client (supports OpenAI, Anthropic, DeepSeek, Zhipu, Bailian, Ollama)
+- **beamai_memory** - State persistence, snapshots, time travel
+
+### Extension Project ([beamai_extra](https://github.com/TTalkPro/beamai_extra))
+Advanced features built on top of the core library:
+- **Simple Agent** - ReAct pattern conversational Agent
+- **Deep Agent** - Recursive planning Agent based on SubAgent architecture
+- **Tools Library** - Common tools like File, Shell, HTTP, etc.
+- **RAG** - Retrieval-Augmented Generation
+- **Protocol Support** - A2A (Agent-to-Agent), MCP (Model Context Protocol)
 
 ## Features
 
@@ -20,17 +40,6 @@ A high-performance AI Agent application framework based on Erlang/OTP, providing
   - Time travel and branch rollback
   - Event-driven with state snapshots
 
-- **Simple Agent**: ReAct Agent based on tool loop
-  - Custom tools and system prompts
-  - Built-in Memory persistence
-  - Complete callback system
-  - Interrupt and resume support
-
-- **Deep Agent**: Recursive planning Agent based on SubAgent architecture
-  - Planner → Executor → Reflector pipeline
-  - Parallel subtask execution
-  - Coordinator multi-Agent orchestration
-
 - **Graph Engine**: Graph computation based on LangGraph
   - Graph Builder/DSL
   - Pregel distributed computation model
@@ -39,14 +48,6 @@ A high-performance AI Agent application framework based on Erlang/OTP, providing
 - **Output Parser**: Structured output
   - JSON/XML/CSV parsing
   - Automatic retry mechanism
-
-- **Protocol Support**: A2A and MCP
-  - Agent-to-Agent communication protocol
-  - Model Context Protocol integration
-
-- **RAG**: Retrieval-Augmented Generation
-  - Vector embeddings and similarity search
-  - Text splitting
 
 ## Quick Start
 
@@ -234,9 +235,8 @@ Parser = beamai_output_parser:json(#{
 ```
 apps/
 ├── beamai_core/        # Core framework
-│   ├── Kernel         # beamai_kernel, beamai_function, beamai_context,
+│   ├── Kernel         # beamai_kernel, beamai_tool, beamai_context,
 │   │                  # beamai_filter, beamai_prompt, beamai_result
-│   ├── LLM            # llm_response (unified LLM response accessors)
 │   ├── Process        # beamai_process, beamai_process_builder,
 │   │                  # beamai_process_runtime, beamai_process_step,
 │   │                  # beamai_process_executor, beamai_process_event
@@ -244,19 +244,11 @@ apps/
 │   │                  # beamai_http_pool
 │   ├── Behaviours     # beamai_llm_behaviour, beamai_http_behaviour,
 │   │                  # beamai_step_behaviour, beamai_process_store_behaviour
-│   └── Utils          # beamai_id, beamai_jsonrpc, beamai_sse, beamai_utils
-│
 │   ├── Graph          # graph, graph_node, graph_edge, graph_builder, graph_dsl,
-│   │                  # graph_runner, graph_snapshot, graph_state, graph_state_reducer
-│   └── Pregel         # pregel, pregel_master, pregel_worker, pregel_vertex
-│
-├── beamai_tools/       # Tool system
-│   ├── Core           # beamai_tools, beamai_tool_behaviour
-│   ├── Middleware     # beamai_middleware, beamai_middleware_runner,
-│   │                  # middleware_call_limit, middleware_tool_retry
-│   ├── Security       # beamai_tool_security
-│   └── Tools          # beamai_tool_file, beamai_tool_shell,
-│                      # beamai_tool_human, beamai_tool_todo
+│   │                  # graph_runner, graph_snapshot, graph_state, graph_command
+│   ├── Pregel         # pregel, pregel_master, pregel_worker, pregel_vertex,
+│   │                  # pregel_dispatch_worker
+│   └── Utils          # beamai_id, beamai_jsonrpc, beamai_sse, beamai_utils
 │
 ├── beamai_llm/         # LLM client
 │   ├── Chat           # beamai_chat_completion
@@ -264,50 +256,18 @@ apps/
 │   ├── Adapters       # llm_message_adapter, llm_response_adapter, llm_tool_adapter
 │   └── Providers      # OpenAI, Anthropic, DeepSeek, Zhipu, Bailian, Ollama
 │
-├── beamai_agent/       # Agent implementation
-│   ├── Core           # beamai_agent, beamai_agent_state, beamai_agent_callbacks
-│   ├── Memory         # beamai_agent_memory
-│   ├── Execution      # beamai_agent_tool_loop, beamai_agent_interrupt
-│   └── Process Agent  # beamai_process_agent, beamai_process_agent_llm_step,
-│                      # beamai_process_agent_tool_step
-│
-├── beamai_deepagent/   # Deep Agent (SubAgent architecture)
-│   ├── Core           # beamai_deepagent, beamai_deepagent_plan,
-│   │                  # beamai_deepagent_dependencies, beamai_deepagent_trace
-│   └── SubAgents      # beamai_deepagent_planner, beamai_deepagent_executor,
-│                      # beamai_deepagent_reflector, beamai_deepagent_parallel,
-│                      # beamai_deepagent_coordinator
-│
-├── beamai_memory/      # Memory and context storage
-│   ├── Context        # Context management
-│   ├── Store          # ETS/SQLite storage backends
-│   └── Snapshot       # Snapshots, branching, time travel
-│
-├── beamai_a2a/         # A2A protocol implementation
-│   ├── Server         # A2A server
-│   └── Client         # A2A client
-│
-├── beamai_mcp/         # MCP protocol implementation
-│   ├── Server         # MCP server
-│   └── Client         # MCP client
-│
-└── beamai_rag/         # RAG functionality
-    ├── Embeddings     # Vector embeddings
-    └── Vector Store   # Vector storage
+└── beamai_memory/      # Memory and context storage
+    ├── Context        # Context management
+    ├── Store          # ETS/SQLite storage backends
+    └── Snapshot       # Snapshots, branching, time travel
 ```
 
 ### Dependency Relationships
 
 ```
 ┌─────────────────────────────────────┐
-│   Agent Implementation Layer         │
-│  (beamai_agent, beamai_deepagent)   │
-└────────────────┬────────────────────┘
-                 │
-┌────────────────┴────────────────────┐
 │   Services Layer                     │
-│  (beamai_llm, beamai_tools,         │
-│   beamai_rag, beamai_a2a, beamai_mcp)│
+│  (beamai_llm)                        │
 └────────────────┬────────────────────┘
                  │
 ┌────────────────┴────────────────────┐
@@ -481,14 +441,8 @@ BeamAI supports both Gun and Hackney HTTP backends, with Gun as the default (sup
 | Module | Description | Documentation |
 |--------|-------------|---------------|
 | **beamai_core** | Core framework: Kernel, Process Framework, Graph Engine, HTTP, Behaviours | [README](apps/beamai_core/README_EN.md) |
-| **beamai_tools** | Tool system: tool management, Middleware, security validation | [README](apps/beamai_tools/README.md) |
 | **beamai_llm** | LLM client: supports OpenAI, Anthropic, DeepSeek, Zhipu, Bailian, Ollama | [README](apps/beamai_llm/README_EN.md) |
-| **beamai_agent** | Agent implementation: ReAct pattern, callback system, Process Agent | [README](apps/beamai_agent/README.md) |
-| **beamai_deepagent** | Deep Agent: SubAgent orchestration, task planning, parallel execution, self-reflection | [README](apps/beamai_deepagent/README_EN.md) |
 | **beamai_memory** | Memory management: Checkpoint, Store, time travel, branching | [README](apps/beamai_memory/README_EN.md) |
-| **beamai_a2a** | A2A protocol: inter-Agent communication, server/client | [README](apps/beamai_a2a/README_EN.md) |
-| **beamai_mcp** | MCP protocol: Model Context Protocol implementation | [README](apps/beamai_mcp/README_EN.md) |
-| **beamai_rag** | RAG functionality: vector embeddings, similarity search | [README](apps/beamai_rag/README_EN.md) |
 
 ## Running Examples
 
@@ -504,11 +458,11 @@ rebar3 shell
 
 | Metric | Count |
 |--------|-------|
-| **OTP Applications** | 10 |
-| **Source Modules** | 186 |
-| **Test Files** | 49 |
-| **Lines of Code** | ~63,000 |
-| **Unit Tests** | 722+ |
+| **OTP Applications** | 3 |
+| **Source Modules** | ~60 |
+| **Test Files** | ~20 |
+| **Lines of Code** | ~20,000 |
+| **Unit Tests** | ~200 |
 
 ### Running Tests
 
