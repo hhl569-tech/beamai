@@ -79,15 +79,15 @@ halt_non_start(Graph) ->
 %% 简单的计算函数：将 counter 加 1（使用 graph_state API）
 increment_fun() ->
     fun(State, _Input) ->
-        Counter = beamai_graph_engine:state_get(State, counter, 0),
-        {ok, beamai_graph_engine:state_set(State, counter, Counter + 1)}
+        Counter = beamai_context:get(State, counter, 0),
+        {ok, beamai_context:set(State, counter, Counter + 1)}
     end.
 
 %% 追加节点名到列表的计算函数（使用 graph_state API）
 append_node_fun(NodeName) ->
     fun(State, _Input) ->
-        Visited = beamai_graph_engine:state_get(State, visited, []),
-        {ok, beamai_graph_engine:state_set(State, visited, Visited ++ [NodeName])}
+        Visited = beamai_context:get(State, visited, []),
+        {ok, beamai_context:set(State, visited, Visited ++ [NodeName])}
     end.
 
 %% 总是失败的计算函数
@@ -99,7 +99,7 @@ failing_fun() ->
 %% 中断的计算函数（使用 graph_state API）
 interrupt_fun(Reason) ->
     fun(State, _Input) ->
-        {interrupt, Reason, beamai_graph_engine:state_set(State, interrupted, true)}
+        {interrupt, Reason, beamai_context:set(State, interrupted, true)}
     end.
 
 %%====================================================================
@@ -110,34 +110,34 @@ interrupt_fun(Reason) ->
 single_node_run_test() ->
     Graph = build_single_node_graph(increment_fun()),
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{counter => 0}),
-    Result = beamai_graph_engine:execute(Graph, ComputeFn, #{global_state => InitialState}),
+    InitialState = beamai_context:new(#{counter => 0}),
+    Result = beamai_graph_engine:execute(Graph, ComputeFn, #{context => InitialState}),
 
     ?assertEqual(completed, maps:get(status, Result)),
-    FinalState = maps:get(global_state, Result),
-    ?assertEqual(1, beamai_graph_engine:state_get(FinalState, counter)).
+    FinalState = maps:get(context, Result),
+    ?assertEqual(1, beamai_context:get(FinalState, counter)).
 
 %% 测试：顺序图执行（两个节点都递增 counter）
 sequential_run_test() ->
     Graph = build_sequential_graph(increment_fun(), increment_fun()),
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{counter => 0}),
-    Result = beamai_graph_engine:execute(Graph, ComputeFn, #{global_state => InitialState}),
+    InitialState = beamai_context:new(#{counter => 0}),
+    Result = beamai_graph_engine:execute(Graph, ComputeFn, #{context => InitialState}),
 
     ?assertEqual(completed, maps:get(status, Result)),
-    FinalState = maps:get(global_state, Result),
-    ?assertEqual(2, beamai_graph_engine:state_get(FinalState, counter)).
+    FinalState = maps:get(context, Result),
+    ?assertEqual(2, beamai_context:get(FinalState, counter)).
 
 %% 测试：追踪节点执行顺序
 execution_order_test() ->
     Graph = build_sequential_graph(append_node_fun(a), append_node_fun(b)),
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{visited => []}),
-    Result = beamai_graph_engine:execute(Graph, ComputeFn, #{global_state => InitialState}),
+    InitialState = beamai_context:new(#{visited => []}),
+    Result = beamai_graph_engine:execute(Graph, ComputeFn, #{context => InitialState}),
 
     ?assertEqual(completed, maps:get(status, Result)),
-    FinalState = maps:get(global_state, Result),
-    ?assertEqual([a, b], beamai_graph_engine:state_get(FinalState, visited)).
+    FinalState = maps:get(context, Result),
+    ?assertEqual([a, b], beamai_context:get(FinalState, visited)).
 
 %%====================================================================
 %% 条件路由测试
@@ -146,7 +146,7 @@ execution_order_test() ->
 %% 测试：条件路由根据状态选择不同路径
 conditional_routing_test() ->
     RouterFun = fun(State) ->
-        case beamai_graph_engine:state_get(State, route) of
+        case beamai_context:get(State, route) of
             left -> left_node;
             right -> right_node
         end
@@ -170,16 +170,16 @@ conditional_routing_test() ->
     ComputeFn = beamai_graph_compute:compute_fn(),
 
     %% 路由到左边
-    InitialLeft = beamai_graph_engine:state_new(#{route => left, visited => []}),
-    ResultLeft = beamai_graph_engine:execute(Graph, ComputeFn, #{global_state => InitialLeft}),
-    FinalLeft = maps:get(global_state, ResultLeft),
-    ?assertEqual([left], beamai_graph_engine:state_get(FinalLeft, visited)),
+    InitialLeft = beamai_context:new(#{route => left, visited => []}),
+    ResultLeft = beamai_graph_engine:execute(Graph, ComputeFn, #{context => InitialLeft}),
+    FinalLeft = maps:get(context, ResultLeft),
+    ?assertEqual([left], beamai_context:get(FinalLeft, visited)),
 
     %% 路由到右边
-    InitialRight = beamai_graph_engine:state_new(#{route => right, visited => []}),
-    ResultRight = beamai_graph_engine:execute(Graph, ComputeFn, #{global_state => InitialRight}),
-    FinalRight = maps:get(global_state, ResultRight),
-    ?assertEqual([right], beamai_graph_engine:state_get(FinalRight, visited)).
+    InitialRight = beamai_context:new(#{route => right, visited => []}),
+    ResultRight = beamai_graph_engine:execute(Graph, ComputeFn, #{context => InitialRight}),
+    FinalRight = maps:get(context, ResultRight),
+    ?assertEqual([right], beamai_context:get(FinalRight, visited)).
 
 %%====================================================================
 %% 循环执行测试
@@ -188,11 +188,11 @@ conditional_routing_test() ->
 %% 测试：循环执行直到条件满足
 loop_execution_test() ->
     LoopFun = fun(State, _Input) ->
-        Counter = beamai_graph_engine:state_get(State, counter, 0),
-        {ok, beamai_graph_engine:state_set(State, counter, Counter + 1)}
+        Counter = beamai_context:get(State, counter, 0),
+        {ok, beamai_context:set(State, counter, Counter + 1)}
     end,
     LoopRouter = fun(State) ->
-        case beamai_graph_engine:state_get(State, counter) >= 3 of
+        case beamai_context:get(State, counter) >= 3 of
             true -> '__end__';
             false -> loop_node
         end
@@ -207,15 +207,15 @@ loop_execution_test() ->
     Graph = halt_non_start(G3),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{counter => 0}),
+    InitialState = beamai_context:new(#{counter => 0}),
     Result = beamai_graph_engine:execute(Graph, ComputeFn, #{
-        global_state => InitialState,
+        context => InitialState,
         max_supersteps => 20
     }),
 
     ?assertEqual(completed, maps:get(status, Result)),
-    FinalState = maps:get(global_state, Result),
-    ?assertEqual(3, beamai_graph_engine:state_get(FinalState, counter)).
+    FinalState = maps:get(context, Result),
+    ?assertEqual(3, beamai_context:get(FinalState, counter)).
 
 %%====================================================================
 %% 静态扇出测试
@@ -241,15 +241,15 @@ fanout_test() ->
         Graph = halt_non_start(G6),
 
         ComputeFn = beamai_graph_compute:compute_fn(),
-        InitialState = beamai_graph_engine:state_new(#{counter => 0}),
+        InitialState = beamai_context:new(#{counter => 0}),
 
         %% 三个 worker 并行执行，每个都读 counter=0 并写 counter=1
         %% 没有 field_reducer 时最后一个 delta 覆盖前面的
-        Result = beamai_graph_engine:execute(Graph, ComputeFn, #{global_state => InitialState}),
+        Result = beamai_graph_engine:execute(Graph, ComputeFn, #{context => InitialState}),
 
         ?assertEqual(completed, maps:get(status, Result)),
-        FinalState = maps:get(global_state, Result),
-        ?assertEqual(1, beamai_graph_engine:state_get(FinalState, counter))
+        FinalState = maps:get(context, Result),
+        ?assertEqual(1, beamai_context:get(FinalState, counter))
     after
         stop_test_pool(PoolPid)
     end.
@@ -274,20 +274,20 @@ fanout_with_reducer_test() ->
         Graph = halt_non_start(G6),
 
         ComputeFn = beamai_graph_compute:compute_fn(),
-        InitialState = beamai_graph_engine:state_new(#{counter => 0}),
+        InitialState = beamai_context:new(#{counter => 0}),
 
         %% 使用加法 reducer：三个 worker 各返回 delta #{<<"counter">> => 1}
         %% reducer 将累加: 0 + 1 + 1 + 1 = 3
         %% field_reducers 使用 binary key 匹配 graph_state 的 binary keys
         AddReducer = fun(Old, New) -> Old + New end,
         Result = beamai_graph_engine:execute(Graph, ComputeFn, #{
-            global_state => InitialState,
+            context => InitialState,
             field_reducers => #{<<"counter">> => AddReducer}
         }),
 
         ?assertEqual(completed, maps:get(status, Result)),
-        FinalState = maps:get(global_state, Result),
-        ?assertEqual(3, beamai_graph_engine:state_get(FinalState, counter))
+        FinalState = maps:get(context, Result),
+        ?assertEqual(3, beamai_context:get(FinalState, counter))
     after
         stop_test_pool(PoolPid)
     end.
@@ -309,9 +309,9 @@ max_supersteps_test() ->
     Graph = halt_non_start(G3),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{}),
+    InitialState = beamai_context:new(#{}),
     Result = beamai_graph_engine:execute(Graph, ComputeFn, #{
-        global_state => InitialState,
+        context => InitialState,
         max_supersteps => 5
     }),
 
@@ -325,10 +325,10 @@ max_supersteps_test() ->
 step_by_step_test() ->
     Graph = build_single_node_graph(increment_fun()),
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{counter => 0}),
+    InitialState = beamai_context:new(#{counter => 0}),
 
     {ok, E0} = beamai_graph_engine:new(Graph, ComputeFn,
-        #{global_state => InitialState}),
+        #{context => InitialState}),
 
     %% 第一步：返回 initial snapshot
     {{continue, Info0}, E1} = beamai_graph_engine:do_step(E0),
@@ -355,10 +355,10 @@ step_by_step_test() ->
 snapshot_data_test() ->
     Graph = build_single_node_graph(increment_fun()),
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{counter => 0}),
+    InitialState = beamai_context:new(#{counter => 0}),
 
     {ok, E0} = beamai_graph_engine:new(Graph, ComputeFn,
-        #{global_state => InitialState}),
+        #{context => InitialState}),
 
     %% 初始 step
     {{continue, _}, E1} = beamai_graph_engine:do_step(E0),
@@ -367,12 +367,12 @@ snapshot_data_test() ->
     Snapshot = beamai_graph_engine:extract_snapshot_data(E1),
     ?assert(is_map(Snapshot)),
     ?assert(maps:is_key(superstep, Snapshot)),
-    ?assert(maps:is_key(global_state, Snapshot)),
+    ?assert(maps:is_key(context, Snapshot)),
     ?assert(maps:is_key(vertices, Snapshot)),
 
-    %% 获取 global_state
-    GlobalState = beamai_graph_engine:global_state(E1),
-    ?assertEqual(0, beamai_graph_engine:state_get(GlobalState, counter)).
+    %% 获取 context
+    GlobalState = beamai_graph_engine:context(E1),
+    ?assertEqual(0, beamai_context:get(GlobalState, counter)).
 
 %%====================================================================
 %% 错误处理和单顶点失败隔离测试
@@ -382,9 +382,9 @@ snapshot_data_test() ->
 error_early_termination_test() ->
     Graph = build_single_node_graph(failing_fun()),
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{counter => 0}),
+    InitialState = beamai_context:new(#{counter => 0}),
 
-    Result = beamai_graph_engine:execute(Graph, ComputeFn, #{global_state => InitialState}),
+    Result = beamai_graph_engine:execute(Graph, ComputeFn, #{context => InitialState}),
 
     %% run_loop 在 error 时提前终止
     ?assert(maps:get(failed_count, Result, 0) > 0).
@@ -393,10 +393,10 @@ error_early_termination_test() ->
 error_step_returns_continue_test() ->
     Graph = build_single_node_graph(failing_fun()),
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{}),
+    InitialState = beamai_context:new(#{}),
 
     {ok, E0} = beamai_graph_engine:new(Graph, ComputeFn,
-        #{global_state => InitialState}),
+        #{context => InitialState}),
 
     %% initial step
     {{continue, _}, E1} = beamai_graph_engine:do_step(E0),
@@ -415,10 +415,10 @@ error_step_returns_continue_test() ->
 interrupt_test() ->
     Graph = build_single_node_graph(interrupt_fun(need_user_input)),
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{interrupted => false}),
+    InitialState = beamai_context:new(#{interrupted => false}),
 
     {ok, E0} = beamai_graph_engine:new(Graph, ComputeFn,
-        #{global_state => InitialState}),
+        #{context => InitialState}),
 
     %% initial step
     {{continue, _}, E1} = beamai_graph_engine:do_step(E0),
@@ -440,16 +440,16 @@ retry_after_error_test() ->
         Count = atomics:add_get(CounterRef, 1, 1),
         case Count of
             1 -> {error, first_attempt_fails};
-            _ -> {ok, beamai_graph_engine:state_set(State, retried, true)}
+            _ -> {ok, beamai_context:set(State, retried, true)}
         end
     end,
 
     Graph = build_single_node_graph(RetryFun),
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{retried => false}),
+    InitialState = beamai_context:new(#{retried => false}),
 
     {ok, E0} = beamai_graph_engine:new(Graph, ComputeFn,
-        #{global_state => InitialState}),
+        #{context => InitialState}),
 
     %% initial
     {{continue, _}, E1} = beamai_graph_engine:do_step(E0),
@@ -487,13 +487,13 @@ command_goto_test() ->
     Graph = halt_non_start(G5),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{visited => []}),
-    Result = beamai_graph_engine:execute(Graph, ComputeFn, #{global_state => InitialState}),
+    InitialState = beamai_context:new(#{visited => []}),
+    Result = beamai_graph_engine:execute(Graph, ComputeFn, #{context => InitialState}),
 
     ?assertEqual(completed, maps:get(status, Result)),
-    FinalState = maps:get(global_state, Result),
-    ?assertEqual([c], beamai_graph_engine:state_get(FinalState, visited)),
-    ?assertEqual(command_used, beamai_graph_engine:state_get(FinalState, step)).
+    FinalState = maps:get(context, Result),
+    ?assertEqual([c], beamai_context:get(FinalState, visited)),
+    ?assertEqual(command_used, beamai_context:get(FinalState, step)).
 
 %%====================================================================
 %% 恢复（Restore）测试
@@ -507,7 +507,7 @@ restore_from_snapshot_test() ->
         ComputeFn = beamai_graph_compute:compute_fn(),
 
         %% 模拟从 superstep 2 恢复，counter 已经是 5
-        RestoredState = beamai_graph_engine:state_new(#{counter => 5}),
+        RestoredState = beamai_context:new(#{counter => 5}),
 
         %% 恢复所有顶点状态为 halted（模拟真实场景）
         Vertices = maps:from_list([
@@ -519,7 +519,7 @@ restore_from_snapshot_test() ->
         %% 恢复时指定 pending_activations 为 __end__ (即将完成)
         RestoreOpts = #{
             superstep => 2,
-            global_state => RestoredState,
+            context => RestoredState,
             pending_activations => ['__end__'],
             vertices => Vertices
         },
@@ -535,8 +535,8 @@ restore_from_snapshot_test() ->
 
         %% 验证最终状态保持了恢复的 counter
         Result = beamai_graph_engine:build_result(E2),
-        FinalState = maps:get(global_state, Result),
-        ?assertEqual(5, beamai_graph_engine:state_get(FinalState, counter))
+        FinalState = maps:get(context, Result),
+        ?assertEqual(5, beamai_context:get(FinalState, counter))
     after
         stop_test_pool(PoolPid)
     end.
@@ -549,10 +549,10 @@ restore_from_snapshot_test() ->
 engine_state_before_halted_test() ->
     Graph = build_single_node_graph(increment_fun()),
     ComputeFn = beamai_graph_compute:compute_fn(),
-    InitialState = beamai_graph_engine:state_new(#{counter => 0}),
+    InitialState = beamai_context:new(#{counter => 0}),
 
     {ok, E0} = beamai_graph_engine:new(Graph, ComputeFn,
-        #{global_state => InitialState}),
+        #{context => InitialState}),
 
     {{continue, _}, E1} = beamai_graph_engine:do_step(E0),
     %% 引擎状态为 running（new/3 设置）

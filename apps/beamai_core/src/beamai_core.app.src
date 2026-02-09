@@ -68,7 +68,7 @@
         beamai_graph_builder,
         beamai_graph_dsl,
         %% Graph State
-        beamai_graph_state_reducer,
+        beamai_context_reducer,
         beamai_graph_command,
         beamai_graph_dispatch,
         %% Graph Engine + Runtime + Supervisor

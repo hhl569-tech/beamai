@@ -41,7 +41,7 @@
 %%====================================================================
 
 %% @doc 启动图运行时进程
--spec start_link(beamai_graph_builder:graph(), beamai_graph_engine:state(), map()) ->
+-spec start_link(beamai_graph_builder:graph(), beamai_context:t(), map()) ->
     {ok, pid()} | {error, term()}.
 start_link(Graph, InitialState, Opts) ->
     gen_server:start_link(?MODULE, {Graph, InitialState, Opts}, []).
@@ -156,7 +156,7 @@ init_fresh(Graph, InitialState, Opts) ->
 
     EngineOpts = #{
         max_supersteps => maps:get(max_supersteps, Opts, 100),
-        global_state => InitialState,
+        context => InitialState,
         field_reducers => FieldReducers
     },
 
@@ -213,8 +213,8 @@ handle_step_result({continue, _Info}, S) ->
 
 handle_step_result({done, _Reason, _Info}, #state{engine = Engine} = S) ->
     S1 = maybe_snapshot(completed, S),
-    FinalState = beamai_graph_engine:global_state(Engine),
-    notify_caller({graph_completed, self(), FinalState}, S1),
+    FinalCtx = beamai_graph_engine:context(Engine),
+    notify_caller({graph_completed, self(), FinalCtx}, S1),
     {noreply, S1#state{runtime_state = completed}}.
 
 %%====================================================================

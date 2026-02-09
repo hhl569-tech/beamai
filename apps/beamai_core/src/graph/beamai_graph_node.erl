@@ -29,16 +29,16 @@
 
 %% 类型定义
 -type node_id() :: atom().
--type node_fun() :: fun((beamai_graph_engine:state(), map() | undefined) -> node_result())
-                  | fun((beamai_graph_engine:state(), map() | undefined, term() | undefined) -> node_result()).
+-type node_fun() :: fun((beamai_context:t(), map() | undefined) -> node_result())
+                  | fun((beamai_context:t(), map() | undefined, term() | undefined) -> node_result()).
 %% 节点返回值类型：
 %% - {ok, State}: 执行成功
 %% - {error, Reason}: 执行失败
 %% - {interrupt, Reason, State}: 请求中断（human-in-the-loop）
 %% - {command, Command}: Command 模式（同时指定 delta 和路由）
--type node_result() :: {ok, beamai_graph_engine:state()}
+-type node_result() :: {ok, beamai_context:t()}
                      | {error, term()}
-                     | {interrupt, term(), beamai_graph_engine:state()}
+                     | {interrupt, term(), beamai_context:t()}
                      | {command, beamai_graph_command:command()}.
 -type metadata() :: #{
     description => binary(),
@@ -100,7 +100,7 @@ metadata(#{metadata := Meta}) -> Meta.
 %%====================================================================
 
 %% @doc 执行节点，返回新状态或错误
--spec execute(graph_node(), beamai_graph_engine:state()) -> node_result().
+-spec execute(graph_node(), beamai_context:t()) -> node_result().
 execute(#{id := ?END_NODE}, State) ->
     %% 终止节点直接传递状态
     {ok, State};
@@ -112,7 +112,7 @@ execute(#{fun_ := Fun} = Node, State) ->
 
 %% @doc 安全执行节点函数
 %% 捕获所有异常并包装为错误
--spec try_execute(graph_node(), node_fun(), beamai_graph_engine:state()) -> node_result().
+-spec try_execute(graph_node(), node_fun(), beamai_context:t()) -> node_result().
 try_execute(Node, Fun, State) ->
     try call_node_fun(Fun, State, undefined, undefined) of
         {ok, NewState} when is_map(NewState) ->

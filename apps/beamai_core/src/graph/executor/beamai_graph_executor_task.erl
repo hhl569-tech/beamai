@@ -13,7 +13,7 @@
 -type vertex_id() :: beamai_graph_engine:vertex_id().
 -type vertex() :: beamai_pregel_vertex:vertex().
 -type compute_fn() :: beamai_graph_engine:compute_fn().
--type context() :: beamai_graph_engine:context().
+-type context() :: beamai_graph_engine:compute_context().
 -type compute_result() :: beamai_graph_engine:compute_result().
 -type delta() :: beamai_graph_engine:delta().
 
@@ -22,20 +22,20 @@
 %%====================================================================
 
 %% @doc 创建计算上下文
--spec make_context(vertex_id(), vertex(), beamai_graph_engine:state(),
+-spec make_context(vertex_id(), vertex(), beamai_context:t(),
                    map() | undefined, non_neg_integer(), non_neg_integer()) -> context().
-make_context(VertexId, Vertex, GlobalState, VertexInput, Superstep, NumVertices) ->
-    make_context(VertexId, Vertex, GlobalState, VertexInput, Superstep, NumVertices, undefined).
+make_context(VertexId, Vertex, Context, VertexInput, Superstep, NumVertices) ->
+    make_context(VertexId, Vertex, Context, VertexInput, Superstep, NumVertices, undefined).
 
 %% @doc 创建计算上下文（含 resume_data）
--spec make_context(vertex_id(), vertex(), beamai_graph_engine:state(),
+-spec make_context(vertex_id(), vertex(), beamai_context:t(),
                    map() | undefined, non_neg_integer(), non_neg_integer(),
                    term() | undefined) -> context().
-make_context(VertexId, Vertex, GlobalState, VertexInput, Superstep, NumVertices, ResumeData) ->
+make_context(VertexId, Vertex, Context, VertexInput, Superstep, NumVertices, ResumeData) ->
     #{
         vertex_id => VertexId,
         vertex => Vertex,
-        global_state => GlobalState,
+        context => Context,
         vertex_input => VertexInput,
         superstep => Superstep,
         num_vertices => NumVertices,
@@ -63,30 +63,30 @@ build_task_list(ActiveVertices, VertexInputs) ->
 %% @doc 执行任务列表（向后兼容，无 resume_data）
 -spec execute_tasks(
     [{vertex_id(), vertex(), map() | undefined}],
-    compute_fn(), beamai_graph_engine:state(), non_neg_integer(),
+    compute_fn(), beamai_context:t(), non_neg_integer(),
     non_neg_integer(), atom(), pos_integer()
 ) -> {[delta()], [vertex_id()], [{vertex_id(), term()}], [{vertex_id(), term()}]}.
-execute_tasks(Tasks, ComputeFn, GlobalState, Superstep, NumVertices, PoolName, PoolTimeout) ->
-    execute_tasks(Tasks, ComputeFn, GlobalState, Superstep, NumVertices, PoolName, PoolTimeout, #{}).
+execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices, PoolName, PoolTimeout) ->
+    execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices, PoolName, PoolTimeout, #{}).
 
 %% @doc 执行任务列表（含 resume_data）
 -spec execute_tasks(
     [{vertex_id(), vertex(), map() | undefined}],
-    compute_fn(), beamai_graph_engine:state(), non_neg_integer(),
+    compute_fn(), beamai_context:t(), non_neg_integer(),
     non_neg_integer(), atom(), pos_integer(),
     #{vertex_id() => term()}
 ) -> {[delta()], [vertex_id()], [{vertex_id(), term()}], [{vertex_id(), term()}]}.
-execute_tasks([], _ComputeFn, _GlobalState, _Superstep, _NumVertices, _PoolName, _PoolTimeout, _ResumeDataMap) ->
+execute_tasks([], _ComputeFn, _Context, _Superstep, _NumVertices, _PoolName, _PoolTimeout, _ResumeDataMap) ->
     {[], [], [], []};
-execute_tasks([{Id, Vertex, VertexInput}], ComputeFn, GlobalState, Superstep, NumVertices, _PoolName, _PoolTimeout, ResumeDataMap) ->
+execute_tasks([{Id, Vertex, VertexInput}], ComputeFn, Context, Superstep, NumVertices, _PoolName, _PoolTimeout, ResumeDataMap) ->
     %% 单任务：协调进程内直接执行（零开销优化）
     RD = maps:get(Id, ResumeDataMap, undefined),
-    Context = make_context(Id, Vertex, GlobalState, VertexInput, Superstep, NumVertices, RD),
-    Result = safe_compute(ComputeFn, Context),
+    ComputeCtx = make_context(Id, Vertex, Context, VertexInput, Superstep, NumVertices, RD),
+    Result = safe_compute(ComputeFn, ComputeCtx),
     process_compute_result(Id, Result, {[], [], [], []});
-execute_tasks(Tasks, ComputeFn, GlobalState, Superstep, NumVertices, PoolName, PoolTimeout, ResumeDataMap) ->
+execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices, PoolName, PoolTimeout, ResumeDataMap) ->
     %% 多任务：并行执行
-    execute_parallel_tasks(Tasks, ComputeFn, GlobalState, Superstep, NumVertices,
+    execute_parallel_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
                            PoolName, PoolTimeout, ResumeDataMap).
 
 %% @doc 处理单个顶点的计算结果
@@ -129,11 +129,11 @@ safe_compute(ComputeFn, Context) ->
 %% @private 并行执行任务
 -spec execute_parallel_tasks(
     [{vertex_id(), vertex(), map() | undefined}],
-    compute_fn(), beamai_graph_engine:state(), non_neg_integer(),
+    compute_fn(), beamai_context:t(), non_neg_integer(),
     non_neg_integer(), atom(), pos_integer(),
     #{vertex_id() => term()}
 ) -> {[delta()], [vertex_id()], [{vertex_id(), term()}], [{vertex_id(), term()}]}.
-execute_parallel_tasks(Tasks, ComputeFn, GlobalState, Superstep, NumVertices,
+execute_parallel_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
                        PoolName, PoolTimeout, ResumeDataMap) ->
     Parent = self(),
     Ref = make_ref(),
@@ -142,9 +142,9 @@ execute_parallel_tasks(Tasks, ComputeFn, GlobalState, Superstep, NumVertices,
     %% 全部 spawn，每个进程独立 poolboy:checkout 阻塞
     PidRefs = lists:map(fun({Id, Vertex, VertexInput}) ->
         RD = maps:get(Id, ResumeDataMap, undefined),
-        Context = make_context(Id, Vertex, GlobalState, VertexInput, Superstep, NumVertices, RD),
+        ComputeCtx = make_context(Id, Vertex, Context, VertexInput, Superstep, NumVertices, RD),
         spawn_monitor(fun() ->
-            Result = execute_in_pool(ComputeFn, Context, PoolName, PoolTimeout),
+            Result = execute_in_pool(ComputeFn, ComputeCtx, PoolName, PoolTimeout),
             Parent ! {task_result, Ref, self(), Id, Result}
         end)
     end, Tasks),

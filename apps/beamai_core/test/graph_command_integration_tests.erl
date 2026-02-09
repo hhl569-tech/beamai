@@ -20,7 +20,7 @@ command_goto_full_graph_test() ->
     %% 构建图：start -> decide -> (target_a | target_b) -> __end__
     %% decide 节点使用 Command 直接指定路由
     DecideFun = fun(State, _) ->
-        Value = beamai_graph_engine:state_get(State, value, 0),
+        Value = beamai_context:get(State, value, 0),
         Target = case Value > 5 of
             true -> target_a;
             false -> target_b
@@ -28,10 +28,10 @@ command_goto_full_graph_test() ->
         {command, beamai_graph_command:goto(Target, #{decided => true})}
     end,
     TargetAFun = fun(State, _) ->
-        {ok, beamai_graph_engine:state_set(State, result, <<"path_a">>)}
+        {ok, beamai_context:set(State, result, <<"path_a">>)}
     end,
     TargetBFun = fun(State, _) ->
-        {ok, beamai_graph_engine:state_set(State, result, <<"path_b">>)}
+        {ok, beamai_context:set(State, result, <<"path_b">>)}
     end,
 
     {ok, Graph} = beamai_graph:build([
@@ -44,33 +44,33 @@ command_goto_full_graph_test() ->
     ]),
 
     %% 测试路径 A（value > 5）
-    StateA = beamai_graph:state(#{value => 10}),
+    StateA = beamai_graph:context(#{value => 10}),
     ResultA = beamai_graph:run(Graph, StateA),
     ?assertEqual(completed, maps:get(status, ResultA)),
     FinalA = maps:get(final_state, ResultA),
-    ?assertEqual(<<"path_a">>, beamai_graph_engine:state_get(FinalA, result)),
-    ?assertEqual(true, beamai_graph_engine:state_get(FinalA, decided)),
+    ?assertEqual(<<"path_a">>, beamai_context:get(FinalA, result)),
+    ?assertEqual(true, beamai_context:get(FinalA, decided)),
 
     %% 测试路径 B（value <= 5）
-    StateB = beamai_graph:state(#{value => 3}),
+    StateB = beamai_graph:context(#{value => 3}),
     ResultB = beamai_graph:run(Graph, StateB),
     ?assertEqual(completed, maps:get(status, ResultB)),
     FinalB = maps:get(final_state, ResultB),
-    ?assertEqual(<<"path_b">>, beamai_graph_engine:state_get(FinalB, result)),
-    ?assertEqual(true, beamai_graph_engine:state_get(FinalB, decided)).
+    ?assertEqual(<<"path_b">>, beamai_context:get(FinalB, result)),
+    ?assertEqual(true, beamai_context:get(FinalB, decided)).
 
 %% 测试：Command update 正确合并到全局状态
 command_update_merges_to_state_test() ->
     %% 节点使用 Command update 设置多个字段
     ProcessFun = fun(State, _) ->
-        Count = beamai_graph_engine:state_get(State, count, 0),
+        Count = beamai_context:get(State, count, 0),
         {command, beamai_graph_command:new(#{
             update => #{count => Count + 1, last_node => process},
             goto => check
         })}
     end,
     CheckFun = fun(State, _) ->
-        Count = beamai_graph_engine:state_get(State, count, 0),
+        Count = beamai_context:get(State, count, 0),
         case Count >= 3 of
             true ->
                 {command, beamai_graph_command:goto('__end__', #{done => true})};
@@ -85,19 +85,19 @@ command_update_merges_to_state_test() ->
         {entry, process}
     ]),
 
-    InitialState = beamai_graph:state(#{count => 0}),
+    InitialState = beamai_graph:context(#{count => 0}),
     Result = beamai_graph:run(Graph, InitialState),
     ?assertEqual(completed, maps:get(status, Result)),
     FinalState = maps:get(final_state, Result),
-    ?assertEqual(3, beamai_graph_engine:state_get(FinalState, count)),
-    ?assertEqual(process, beamai_graph_engine:state_get(FinalState, last_node)),
-    ?assertEqual(true, beamai_graph_engine:state_get(FinalState, done)).
+    ?assertEqual(3, beamai_context:get(FinalState, count)),
+    ?assertEqual(process, beamai_context:get(FinalState, last_node)),
+    ?assertEqual(true, beamai_context:get(FinalState, done)).
 
 %% 测试：Command 与普通 {ok, State} 节点混合使用
 command_mixed_with_ok_nodes_test() ->
     %% start -> step1 (ok) -> step2 (command) -> step3 (ok) -> end
     Step1Fun = fun(State, _) ->
-        {ok, beamai_graph_engine:state_set(State, step1, done)}
+        {ok, beamai_context:set(State, step1, done)}
     end,
     Step2Fun = fun(_State, _) ->
         {command, beamai_graph_command:new(#{
@@ -106,7 +106,7 @@ command_mixed_with_ok_nodes_test() ->
         })}
     end,
     Step3Fun = fun(State, _) ->
-        {ok, beamai_graph_engine:state_set(State, step3, done)}
+        {ok, beamai_context:set(State, step3, done)}
     end,
 
     {ok, Graph} = beamai_graph:build([
@@ -118,13 +118,13 @@ command_mixed_with_ok_nodes_test() ->
         {entry, step1}
     ]),
 
-    InitialState = beamai_graph:state(#{}),
+    InitialState = beamai_graph:context(#{}),
     Result = beamai_graph:run(Graph, InitialState),
     ?assertEqual(completed, maps:get(status, Result)),
     FinalState = maps:get(final_state, Result),
-    ?assertEqual(done, beamai_graph_engine:state_get(FinalState, step1)),
-    ?assertEqual(done, beamai_graph_engine:state_get(FinalState, step2)),
-    ?assertEqual(done, beamai_graph_engine:state_get(FinalState, step3)).
+    ?assertEqual(done, beamai_context:get(FinalState, step1)),
+    ?assertEqual(done, beamai_context:get(FinalState, step2)),
+    ?assertEqual(done, beamai_context:get(FinalState, step3)).
 
 %% 测试：Command goto '__end__' 终止执行
 command_goto_end_terminates_test() ->
@@ -133,7 +133,7 @@ command_goto_end_terminates_test() ->
     end,
     %% 即使有边指向 next，Command 的 goto 应覆盖
     NextFun = fun(State, _) ->
-        {ok, beamai_graph_engine:state_set(State, should_not_reach, true)}
+        {ok, beamai_context:set(State, should_not_reach, true)}
     end,
 
     {ok, Graph} = beamai_graph:build([
@@ -144,23 +144,23 @@ command_goto_end_terminates_test() ->
         {entry, process}
     ]),
 
-    InitialState = beamai_graph:state(#{}),
+    InitialState = beamai_graph:context(#{}),
     Result = beamai_graph:run(Graph, InitialState),
     ?assertEqual(completed, maps:get(status, Result)),
     FinalState = maps:get(final_state, Result),
-    ?assertEqual(early, beamai_graph_engine:state_get(FinalState, terminated)),
+    ?assertEqual(early, beamai_context:get(FinalState, terminated)),
     %% next 节点不应该被执行
-    ?assertEqual(undefined, beamai_graph_engine:state_get(FinalState, should_not_reach)).
+    ?assertEqual(undefined, beamai_context:get(FinalState, should_not_reach)).
 
 %% 测试：Command 无 goto 时回退到边路由
 command_no_goto_uses_edge_routing_test() ->
     %% 节点使用 Command 但不指定 goto，依赖条件边路由
     ProcessFun = fun(State, _) ->
-        Count = beamai_graph_engine:state_get(State, count, 0),
+        Count = beamai_context:get(State, count, 0),
         {command, beamai_graph_command:update(#{count => Count + 1})}
     end,
     RouterFn = fun(State) ->
-        Count = beamai_graph_engine:state_get(State, count, 0),
+        Count = beamai_context:get(State, count, 0),
         case Count >= 2 of
             true -> '__end__';
             false -> process
@@ -173,11 +173,11 @@ command_no_goto_uses_edge_routing_test() ->
         {entry, process}
     ]),
 
-    InitialState = beamai_graph:state(#{count => 0}),
+    InitialState = beamai_graph:context(#{count => 0}),
     Result = beamai_graph:run(Graph, InitialState),
     ?assertEqual(completed, maps:get(status, Result)),
     FinalState = maps:get(final_state, Result),
-    ?assertEqual(2, beamai_graph_engine:state_get(FinalState, count)).
+    ?assertEqual(2, beamai_context:get(FinalState, count)).
 
 %% 测试：Command goto 多节点并行（需要 poolboy 池）
 command_goto_parallel_nodes_test() ->
@@ -199,10 +199,10 @@ command_goto_parallel_nodes_test() ->
             })}
         end,
         WorkerAFun = fun(State, _) ->
-            {ok, beamai_graph_engine:state_set(State, worker_a_done, true)}
+            {ok, beamai_context:set(State, worker_a_done, true)}
         end,
         WorkerBFun = fun(State, _) ->
-            {ok, beamai_graph_engine:state_set(State, worker_b_done, true)}
+            {ok, beamai_context:set(State, worker_b_done, true)}
         end,
 
         {ok, Graph} = beamai_graph:build([
@@ -214,13 +214,13 @@ command_goto_parallel_nodes_test() ->
             {entry, dispatch}
         ]),
 
-        InitialState = beamai_graph:state(#{}),
+        InitialState = beamai_graph:context(#{}),
         Result = beamai_graph:run(Graph, InitialState),
         ?assertEqual(completed, maps:get(status, Result)),
         FinalState = maps:get(final_state, Result),
-        ?assertEqual(true, beamai_graph_engine:state_get(FinalState, dispatched)),
-        ?assertEqual(true, beamai_graph_engine:state_get(FinalState, worker_a_done)),
-        ?assertEqual(true, beamai_graph_engine:state_get(FinalState, worker_b_done))
+        ?assertEqual(true, beamai_context:get(FinalState, dispatched)),
+        ?assertEqual(true, beamai_context:get(FinalState, worker_a_done)),
+        ?assertEqual(true, beamai_context:get(FinalState, worker_b_done))
     after
         gen_server:stop(PoolPid)
     end.
@@ -232,11 +232,11 @@ command_goto_parallel_nodes_test() ->
 %% 测试：纯 {ok, State} 图执行不受 Command 改动影响
 existing_ok_state_unaffected_test() ->
     ProcessFun = fun(State, _) ->
-        Count = beamai_graph_engine:state_get(State, count, 0),
-        {ok, beamai_graph_engine:state_set(State, count, Count + 1)}
+        Count = beamai_context:get(State, count, 0),
+        {ok, beamai_context:set(State, count, Count + 1)}
     end,
     RouterFn = fun(State) ->
-        case beamai_graph_engine:state_get(State, count, 0) >= 3 of
+        case beamai_context:get(State, count, 0) >= 3 of
             true -> '__end__';
             false -> process
         end
@@ -248,8 +248,8 @@ existing_ok_state_unaffected_test() ->
         {entry, process}
     ]),
 
-    InitialState = beamai_graph:state(#{count => 0}),
+    InitialState = beamai_graph:context(#{count => 0}),
     Result = beamai_graph:run(Graph, InitialState),
     ?assertEqual(completed, maps:get(status, Result)),
     FinalState = maps:get(final_state, Result),
-    ?assertEqual(3, beamai_graph_engine:state_get(FinalState, count)).
+    ?assertEqual(3, beamai_context:get(FinalState, count)).

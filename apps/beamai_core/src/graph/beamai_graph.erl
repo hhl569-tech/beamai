@@ -24,7 +24,7 @@
 %%%     {edge, process, '__end__'},
 %%%     {entry, process}
 %%% ]),
-%%% Result = graph:run(Graph, graph:state(#{input => Data})).
+%%% Result = graph:run(Graph, graph:context(#{input => Data})).
 %%% </pre>
 %%%
 %%% 方式二: 命令式 Builder
@@ -64,8 +64,8 @@
 -export([resume/2, retry/2]).
 -export([get_status/1, snapshot/1, stop/1]).
 
-%% 状态 API (便捷重导出)
--export([state/0, state/1]).
+%% Context API (便捷重导出)
+-export([context/0, context/1]).
 -export([get/2, get/3, set/3]).
 
 %% 便捷函数
@@ -74,7 +74,7 @@
 %% 类型定义
 -type graph() :: beamai_graph_builder:graph().
 -type builder() :: beamai_graph_builder:builder().
--type state() :: beamai_graph_engine:state().
+-type context() :: beamai_context:t().
 -type node_id() :: beamai_graph_node:node_id().
 -type node_fun() :: beamai_graph_node:node_fun().
 -type router_fun() :: beamai_graph_edge:router_fun().
@@ -82,7 +82,7 @@
 -type run_options() :: beamai_graph_engine:run_options().
 -type run_result() :: beamai_graph_engine:run_result().
 
--export_type([graph/0, builder/0, state/0, node_id/0, node_fun/0,
+-export_type([graph/0, builder/0, context/0, node_id/0, node_fun/0,
               router_fun/0, route_map/0, run_options/0, run_result/0]).
 
 %%====================================================================
@@ -164,12 +164,12 @@ compile(Builder) ->
 %%====================================================================
 
 %% @doc 运行图
--spec run(graph(), state()) -> run_result().
+-spec run(graph(), context()) -> run_result().
 run(Graph, InitialState) ->
     beamai_graph_engine:run_graph(Graph, InitialState).
 
 %% @doc 运行图，带选项
--spec run(graph(), state(), run_options()) -> run_result().
+-spec run(graph(), context(), run_options()) -> run_result().
 run(Graph, InitialState, Options) ->
     beamai_graph_engine:run_graph(Graph, InitialState, Options).
 
@@ -183,23 +183,23 @@ run(Graph, InitialState, Options) ->
 %% - {ok, FinalState}: 正常完成
 %% - {interrupted, InterruptedVertices, Snapshot}: 中断，可恢复
 %% - {error, Reason}: 错误
--spec run_sync(graph(), state()) ->
-    {ok, state()} | {interrupted, term(), beamai_graph_state:snapshot()} | {error, term()}.
+-spec run_sync(graph(), context()) ->
+    {ok, context()} | {interrupted, term(), beamai_graph_state:snapshot()} | {error, term()}.
 run_sync(Graph, InitialState) ->
     run_sync(Graph, InitialState, #{}).
 
 %% @doc 同步运行图（带选项），支持 HIL
 %%
 %% 恢复执行时传入 snapshot 和 resume_data：
-%%   run_sync(Graph, State, #{snapshot => Snapshot, resume_data => Data})
+%%   run_sync(Graph, Ctx, #{snapshot => Snapshot, resume_data => Data})
 %%
 %% Opts 支持的选项：
 %% - snapshot: 之前中断时返回的快照
 %% - resume_data: #{VertexId => Data}，恢复中断所需的数据
 %% - field_reducers: 字段 reducer 映射
 %% - max_supersteps: 最大超步数
--spec run_sync(graph(), state(), map()) ->
-    {ok, state()} | {interrupted, term(), beamai_graph_state:snapshot()} | {error, term()}.
+-spec run_sync(graph(), context(), map()) ->
+    {ok, context()} | {interrupted, term(), beamai_graph_state:snapshot()} | {error, term()}.
 run_sync(Graph, InitialState, Opts) ->
     case maps:get(snapshot, Opts, undefined) of
         undefined ->
@@ -214,7 +214,7 @@ run_sync(Graph, InitialState, Opts) ->
 %%====================================================================
 
 %% @doc 启动受监管的图执行进程
--spec start(graph(), state()) -> {ok, pid()} | {error, term()}.
+-spec start(graph(), context()) -> {ok, pid()} | {error, term()}.
 start(Graph, InitialState) ->
     start(Graph, InitialState, #{}).
 
@@ -226,7 +226,7 @@ start(Graph, InitialState) ->
 %% - snapshot_policy: map()，snapshot 策略配置
 %% - field_reducers: 字段 reducer 映射
 %% - max_supersteps: 最大超步数
--spec start(graph(), state(), map()) -> {ok, pid()} | {error, term()}.
+-spec start(graph(), context(), map()) -> {ok, pid()} | {error, term()}.
 start(Graph, InitialState, Opts) ->
     beamai_graph_sup:start_runtime(Graph, InitialState, Opts).
 
@@ -242,7 +242,7 @@ restore(Snapshot, Graph) ->
 restore(Snapshot, Graph, Opts) ->
     case beamai_graph_state:restore(Snapshot, Graph) of
         {ok, Restored} ->
-            beamai_graph_sup:start_runtime(Graph, beamai_graph_engine:state_new(),
+            beamai_graph_sup:start_runtime(Graph, beamai_context:new(),
                 Opts#{restore_from => Restored});
         {error, _} = Error ->
             Error
@@ -276,33 +276,33 @@ stop(Pid) ->
     beamai_graph_runtime:stop(Pid).
 
 %%====================================================================
-%% 状态 API (便捷重导出)
+%% Context API (便捷重导出)
 %%====================================================================
 
-%% @doc 创建空状态
--spec state() -> state().
-state() ->
-    beamai_graph_engine:state_new().
+%% @doc 创建空上下文
+-spec context() -> context().
+context() ->
+    beamai_context:new().
 
-%% @doc 从 Map 创建状态
--spec state(map()) -> state().
-state(Map) ->
-    beamai_graph_engine:state_new(Map).
+%% @doc 从 Map 创建上下文
+-spec context(map()) -> context().
+context(Map) ->
+    beamai_context:new(Map).
 
-%% @doc 获取状态值
--spec get(state(), atom()) -> term().
-get(State, Key) ->
-    beamai_graph_engine:state_get(State, Key).
+%% @doc 获取上下文值
+-spec get(context(), atom()) -> term().
+get(Ctx, Key) ->
+    beamai_context:get(Ctx, Key).
 
-%% @doc 获取状态值，带默认值
--spec get(state(), atom(), term()) -> term().
-get(State, Key, Default) ->
-    beamai_graph_engine:state_get(State, Key, Default).
+%% @doc 获取上下文值，带默认值
+-spec get(context(), atom(), term()) -> term().
+get(Ctx, Key, Default) ->
+    beamai_context:get(Ctx, Key, Default).
 
-%% @doc 设置状态值
--spec set(state(), atom(), term()) -> state().
-set(State, Key, Value) ->
-    beamai_graph_engine:state_set(State, Key, Value).
+%% @doc 设置上下文值
+-spec set(context(), atom(), term()) -> context().
+set(Ctx, Key, Value) ->
+    beamai_context:set(Ctx, Key, Value).
 
 %%====================================================================
 %% 便捷函数
@@ -330,7 +330,7 @@ run_sync_fresh(Graph, InitialState, Opts) ->
 
     EngineOpts = #{
         max_supersteps => maps:get(max_supersteps, Opts, 100),
-        global_state => InitialState,
+        context => InitialState,
         field_reducers => FieldReducers
     },
 
@@ -339,7 +339,7 @@ run_sync_fresh(Graph, InitialState, Opts) ->
 
 %% @private 从快照恢复并执行
 %%
-%% 将 resume_data 注入到 restore_opts 的 global_state 中，
+%% 将 resume_data 注入到 restore_opts 的 context 中，
 %% 并将 resume 的顶点加入 pending_activations，
 %% 这样引擎初始化后就能直接重新执行这些顶点。
 run_sync_resume(Graph, Snapshot, ResumeData, Opts) ->
@@ -389,7 +389,7 @@ run_sync_engine(Engine) ->
         {ok, Engine1} ->
             case beamai_graph_engine:current_state(Engine1) of
                 completed ->
-                    {ok, beamai_graph_engine:global_state(Engine1)};
+                    {ok, beamai_graph_engine:context(Engine1)};
                 interrupted ->
                     Info = beamai_graph_engine:last_info(Engine1),
                     Reason = maps:get(interrupted_vertices, Info, []),
@@ -399,7 +399,7 @@ run_sync_engine(Engine) ->
                     Info = beamai_graph_engine:last_info(Engine1),
                     {error, maps:get(failed_vertices, Info, [])};
                 idle ->
-                    {ok, beamai_graph_engine:global_state(Engine1)}
+                    {ok, beamai_graph_engine:context(Engine1)}
             end
     end.
 

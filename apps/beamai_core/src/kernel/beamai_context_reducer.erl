@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
-%%% @doc Graph State Reducer 模块
+%%% @doc Context Reducer 模块
 %%%
-%%% 提供字段级 Reducer 功能，用于合并 delta 到 global_state。
-%%% 在全局状态模式下，计算函数返回 delta，Master 使用此模块
-%%% 的 field_reducers 按字段合并 delta 到 global_state。
+%%% 提供字段级 Reducer 功能，用于合并 delta 到 context。
+%%% 在图执行中，计算函数返回 delta，引擎使用此模块
+%%% 的 field_reducers 按字段合并 delta 到 context。
 %%%
 %%% 内置 Reducer 策略：
 %%% - append_reducer: 列表追加
@@ -14,9 +14,9 @@
 %%% 使用方式：
 %%% %% 业务层定义字段 Reducer
 %%% FieldReducers = #{
-%%%     messages => fun graph_state_reducer:append_reducer/2,
-%%%     context => fun graph_state_reducer:merge_reducer/2,
-%%%     counter => fun graph_state_reducer:increment_reducer/2
+%%%     messages => fun beamai_context_reducer:append_reducer/2,
+%%%     context => fun beamai_context_reducer:merge_reducer/2,
+%%%     counter => fun beamai_context_reducer:increment_reducer/2
 %%% },
 %%% PregelOpts = #{
 %%%     field_reducers => FieldReducers
@@ -24,12 +24,19 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(beamai_graph_state_reducer).
+-module(beamai_context_reducer).
 
 %% API 导出
 -export([
     apply_delta/3,
     apply_deltas/3
+]).
+
+%% 默认 reducers 和管理 API
+-export([
+    default_reducers/0,
+    add_reducer/3,
+    add_reducers/2
 ]).
 
 %% 内置 Reducer 导出
@@ -62,9 +69,30 @@
 %% API
 %%====================================================================
 
-%% @doc 将单个 delta 应用到 global_state
+%% @doc 返回内部 __ctx_xxx__ 字段的默认 reducers
+-spec default_reducers() -> field_reducers().
+default_reducers() ->
+    #{
+        '__ctx_messages__' => fun last_write_win_reducer/2,
+        '__ctx_history__' => fun last_write_win_reducer/2,
+        '__ctx_kernel__' => fun last_write_win_reducer/2,
+        '__ctx_trace__' => fun last_write_win_reducer/2,
+        '__ctx_metadata__' => fun merge_reducer/2
+    }.
+
+%% @doc 添加单个字段 reducer
+-spec add_reducer(field_reducers(), atom() | binary(), field_reducer()) -> field_reducers().
+add_reducer(Reducers, Field, ReducerFun) ->
+    Reducers#{Field => ReducerFun}.
+
+%% @doc 批量添加 reducers
+-spec add_reducers(field_reducers(), field_reducers()) -> field_reducers().
+add_reducers(Base, New) ->
+    maps:merge(Base, New).
+
+%% @doc 将单个 delta 应用到 context
 %%
-%% 遍历 delta 的每个字段，使用对应的 field_reducer 合并到 state。
+%% 遍历 delta 的每个字段，使用对应的 field_reducer 合并到 context。
 %% 未配置 reducer 的字段使用 last_write_win_reducer。
 %%
 %% 支持两种 reducer 格式：
@@ -74,11 +102,11 @@
 %%    - 从 SourceKey 读取增量，应用到 TargetKey
 %%    - SourceKey 不会出现在最终状态
 %%
-%% @param State 当前全局状态
+%% @param State 当前 context
 %% @param Delta 要应用的增量 #{field => value}
 %% @param FieldReducers 字段 Reducer 配置
-%% @returns 更新后的全局状态
--spec apply_delta(beamai_graph_engine:state(), delta(), field_reducers()) -> beamai_graph_engine:state().
+%% @returns 更新后的 context
+-spec apply_delta(beamai_context:t(), delta(), field_reducers()) -> beamai_context:t().
 apply_delta(State, Delta, _FieldReducers) when map_size(Delta) == 0 ->
     State;
 apply_delta(State, Delta, FieldReducers) ->
@@ -87,29 +115,29 @@ apply_delta(State, Delta, FieldReducers) ->
             case get_field_reducer(Field, FieldReducers) of
                 %% 转换型 reducer：写入不同的目标键，源键不保留
                 {transform, TargetKey, Reducer} ->
-                    OldValue = beamai_graph_engine:state_get(AccState, TargetKey),
+                    OldValue = beamai_context:get(AccState, TargetKey),
                     MergedValue = apply_reducer(Reducer, OldValue, NewValue),
-                    beamai_graph_engine:state_set(AccState, TargetKey, MergedValue);
+                    beamai_context:set(AccState, TargetKey, MergedValue);
                 %% 普通 reducer：同键合并
                 Reducer ->
-                    OldValue = beamai_graph_engine:state_get(AccState, Field),
+                    OldValue = beamai_context:get(AccState, Field),
                     MergedValue = apply_reducer(Reducer, OldValue, NewValue),
-                    beamai_graph_engine:state_set(AccState, Field, MergedValue)
+                    beamai_context:set(AccState, Field, MergedValue)
             end
         end,
         State,
         Delta
     ).
 
-%% @doc 将多个 delta 批量应用到 global_state
+%% @doc 将多个 delta 批量应用到 context
 %%
-%% 按顺序将每个 delta 应用到 state。
+%% 按顺序将每个 delta 应用到 context。
 %%
-%% @param State 当前全局状态
+%% @param State 当前 context
 %% @param Deltas delta 列表
 %% @param FieldReducers 字段 Reducer 配置
-%% @returns 更新后的全局状态
--spec apply_deltas(beamai_graph_engine:state(), [delta()], field_reducers()) -> beamai_graph_engine:state().
+%% @returns 更新后的 context
+-spec apply_deltas(beamai_context:t(), [delta()], field_reducers()) -> beamai_context:t().
 apply_deltas(State, [], _FieldReducers) ->
     State;
 apply_deltas(State, Deltas, FieldReducers) ->

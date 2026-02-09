@@ -23,7 +23,7 @@
 -type snapshot() :: #{
     '__graph_snapshot__' := true,
     superstep := non_neg_integer(),
-    global_state := beamai_graph_engine:state(),
+    context := beamai_context:t(),
     vertices := #{vertex_id() => vertex_snapshot()},
     pending_deltas := [map()] | undefined,
     pending_activations := [vertex_id()] | undefined,
@@ -49,7 +49,7 @@ take(Engine) ->
 
     #{
         superstep := Superstep,
-        global_state := GlobalState,
+        context := Context,
         pending_deltas := PendingDeltas,
         pending_activations := PendingActivations,
         vertices := Vertices
@@ -68,7 +68,7 @@ take(Engine) ->
     Base = #{
         '__graph_snapshot__' => true,
         superstep => Superstep,
-        global_state => GlobalState,
+        context => Context,
         vertices => SerializedVertices,
         pending_deltas => PendingDeltas,
         pending_activations => PendingActivations,
@@ -89,14 +89,20 @@ take(Engine) ->
 %% 返回 restore_opts 格式的 map，可传给 beamai_graph_engine:new/3 的 restore_from。
 -spec restore(snapshot(), beamai_graph_builder:graph()) ->
     {ok, beamai_graph_engine:restore_opts()} | {error, term()}.
-restore(#{
-    '__graph_snapshot__' := true,
-    superstep := Superstep,
-    global_state := GlobalState,
-    vertices := SnapshotVertices,
-    pending_deltas := PendingDeltas,
-    pending_activations := PendingActivations
-} = Snapshot, Graph) ->
+restore(#{'__graph_snapshot__' := true} = Snapshot, Graph) ->
+    #{
+        superstep := Superstep,
+        vertices := SnapshotVertices,
+        pending_deltas := PendingDeltas,
+        pending_activations := PendingActivations
+    } = Snapshot,
+
+    %% 向后兼容：旧快照用 global_state，新快照用 context
+    Context = case maps:get(context, Snapshot, undefined) of
+        undefined -> maps:get(global_state, Snapshot, beamai_context:new());
+        C -> C
+    end,
+
     #{pregel_graph := PregelGraph} = Graph,
 
     %% 从 Graph 获取完整顶点（含 fun_ 和 routing_edges）
@@ -122,7 +128,7 @@ restore(#{
 
     RestoreOpts0 = #{
         superstep => Superstep,
-        global_state => GlobalState,
+        context => Context,
         vertices => RestoredVertices,
         pending_deltas => PendingDeltas,
         pending_activations => PendingActivations

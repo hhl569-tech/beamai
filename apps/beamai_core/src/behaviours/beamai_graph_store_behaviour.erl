@@ -16,7 +16,7 @@
 %%% | 维度 | Process | Graph |
 %%% |------|---------|-------|
 %%% | 触发时机 | Step 完成 | Superstep 完成 |
-%%% | 状态内容 | steps_state, event_queue | vertices, global_state, superstep |
+%%% | 状态内容 | steps_state, event_queue | vertices, context, superstep |
 %%% | 核心标识 | process_name + step_id | graph_name + run_id + superstep |
 %%%
 %%% == 使用示例 ==
@@ -60,7 +60,7 @@
 -type graph_snapshot() :: #{
     type := snapshot_type(),
     pregel_snapshot := beamai_graph_engine:snapshot_data(),
-    global_state := beamai_graph_engine:state(),
+    context := beamai_context:t(),
     iteration := non_neg_integer(),
     run_id := run_id(),
     active_vertices := [atom()],

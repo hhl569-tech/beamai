@@ -20,7 +20,7 @@
 make_test_context(VertexId, GlobalState) ->
     #{
         vertex_id => VertexId,
-        global_state => GlobalState,
+        context => GlobalState,
         vertex_input => undefined,
         superstep => 0,
         num_vertices => 1,
@@ -55,7 +55,7 @@ compute_fn_exception_returns_error_status_test() ->
     ThrowFun = fun(_State, _) -> throw(intentional_error) end,
     Ctx = #{
         vertex_id => test_node,
-        global_state => GlobalState,
+        context => GlobalState,
         vertex_input => undefined,
         superstep => 0,
         num_vertices => 1,
@@ -100,7 +100,7 @@ start_node_activated_at_superstep_0_test() ->
     GlobalState = #{messages => [], system_prompt => <<"test">>},
     Ctx = #{
         vertex_id => '__start__',
-        global_state => GlobalState,
+        context => GlobalState,
         vertex_input => undefined,
         superstep => 0,
         num_vertices => 3,
@@ -124,7 +124,7 @@ end_node_completes_on_activate_test() ->
     GlobalState = #{result => <<"final">>},
     Ctx = #{
         vertex_id => '__end__',
-        global_state => GlobalState,
+        context => GlobalState,
         vertex_input => undefined,
         superstep => 1,
         num_vertices => 3,
@@ -147,7 +147,7 @@ regular_node_activated_routes_test() ->
     GlobalState = #{},
     Ctx = #{
         vertex_id => regular_node,
-        global_state => GlobalState,
+        context => GlobalState,
         vertex_input => undefined,
         superstep => 1,
         num_vertices => 3,
@@ -172,7 +172,7 @@ regular_node_activated_routes_test() ->
 from_pregel_result_completed_test() ->
     Result = #{
         status => completed,
-        global_state => #{key => value, count => 42}
+        context => #{key => value, count => 42}
     },
 
     {ok, State} = beamai_graph_compute:from_pregel_result(Result),
@@ -184,7 +184,7 @@ from_pregel_result_completed_test() ->
 from_pregel_result_max_supersteps_test() ->
     Result = #{
         status => max_supersteps,
-        global_state => #{partial => result}
+        context => #{partial => result}
     },
 
     {error, {partial_result, State, max_iterations_exceeded}} =

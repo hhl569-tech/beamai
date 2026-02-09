@@ -141,7 +141,7 @@ new_invalid_goto_test() ->
 make_command_context(VertexId, GlobalState, Fun, RoutingEdges) ->
     #{
         vertex_id => VertexId,
-        global_state => GlobalState,
+        context => GlobalState,
         vertex_input => undefined,
         superstep => 1,
         num_vertices => 3,
@@ -156,7 +156,7 @@ command_goto_overrides_edge_routing_test() ->
         {command, beamai_graph_command:goto(target_b, #{result => done})}
     end,
     Edge = beamai_graph_edge:direct(test_node, target_a),
-    GlobalState = beamai_graph_engine:state_new(#{initial => true}),
+    GlobalState = beamai_context:new(#{initial => true}),
     Ctx = make_command_context(test_node, GlobalState, Fun, [Edge]),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
@@ -178,13 +178,13 @@ command_no_goto_falls_back_to_edge_routing_test() ->
     end,
     %% 条件边：根据 flag 值路由
     Router = fun(State) ->
-        case beamai_graph_engine:state_get(State, flag) of
+        case beamai_context:get(State, flag) of
             true -> route_a;
             _ -> route_b
         end
     end,
     Edge = beamai_graph_edge:conditional(test_node, Router),
-    GlobalState = beamai_graph_engine:state_new(#{}),
+    GlobalState = beamai_context:new(#{}),
     Ctx = make_command_context(test_node, GlobalState, Fun, [Edge]),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
@@ -205,7 +205,7 @@ command_goto_multiple_nodes_test() ->
             goto => [worker_a, worker_b, worker_c]
         })}
     end,
-    GlobalState = beamai_graph_engine:state_new(#{}),
+    GlobalState = beamai_context:new(#{}),
     Ctx = make_command_context(test_node, GlobalState, Fun, []),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
@@ -222,7 +222,7 @@ command_goto_end_test() ->
         {command, beamai_graph_command:goto('__end__', #{done => true})}
     end,
     Edge = beamai_graph_edge:direct(test_node, next_node),
-    GlobalState = beamai_graph_engine:state_new(#{}),
+    GlobalState = beamai_context:new(#{}),
     Ctx = make_command_context(test_node, GlobalState, Fun, [Edge]),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
@@ -242,7 +242,7 @@ command_goto_dispatch_list_test() ->
             goto => [D1, D2]
         })}
     end,
-    GlobalState = beamai_graph_engine:state_new(#{}),
+    GlobalState = beamai_context:new(#{}),
     Ctx = make_command_context(test_node, GlobalState, Fun, []),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
@@ -262,7 +262,7 @@ command_goto_single_dispatch_test() ->
     Fun = fun(_State, _) ->
         {command, beamai_graph_command:new(#{goto => D})}
     end,
-    GlobalState = beamai_graph_engine:state_new(#{}),
+    GlobalState = beamai_context:new(#{}),
     Ctx = make_command_context(test_node, GlobalState, Fun, []),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
@@ -277,7 +277,7 @@ command_no_edges_no_goto_defaults_to_end_test() ->
     Fun = fun(_State, _) ->
         {command, beamai_graph_command:update(#{x => 1})}
     end,
-    GlobalState = beamai_graph_engine:state_new(#{}),
+    GlobalState = beamai_context:new(#{}),
     Ctx = make_command_context(test_node, GlobalState, Fun, []),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
@@ -292,7 +292,7 @@ command_goto_empty_list_defaults_to_end_test() ->
     Fun = fun(_State, _) ->
         {command, beamai_graph_command:new(#{goto => []})}
     end,
-    GlobalState = beamai_graph_engine:state_new(#{}),
+    GlobalState = beamai_context:new(#{}),
     Ctx = make_command_context(test_node, GlobalState, Fun, []),
 
     ComputeFn = beamai_graph_compute:compute_fn(),
@@ -304,7 +304,7 @@ command_goto_empty_list_defaults_to_end_test() ->
 %% 测试：Command 的 update 跳过 compute_delta（直接作为 delta）
 command_update_bypasses_compute_delta_test() ->
     %% 设置 GlobalState 中已有 existing 字段
-    GlobalState = beamai_graph_engine:state_new(#{existing => old_value}),
+    GlobalState = beamai_context:new(#{existing => old_value}),
     Fun = fun(_State, _) ->
         %% 只更新 new_field，不改变 existing
         {command, beamai_graph_command:update(#{new_field => 42})}
@@ -330,7 +330,7 @@ graph_node_execute_command_test() ->
         {command, beamai_graph_command:goto(next)}
     end,
     Node = beamai_graph_node:new(test_node, Fun),
-    State = beamai_graph_engine:state_new(#{}),
+    State = beamai_context:new(#{}),
     Result = beamai_graph_node:execute(Node, State),
     ?assertMatch({command, _}, Result),
     {command, Cmd} = Result,
@@ -342,6 +342,6 @@ graph_node_execute_invalid_command_test() ->
         {command, #{not_a_command => true}}
     end,
     Node = beamai_graph_node:new(test_node, Fun),
-    State = beamai_graph_engine:state_new(#{}),
+    State = beamai_context:new(#{}),
     Result = beamai_graph_node:execute(Node, State),
     ?assertMatch({error, {invalid_command, test_node, _}}, Result).

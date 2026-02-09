@@ -31,7 +31,7 @@
 -export([run/1]).
 
 %% === 访问器 ===
--export([current_state/1, global_state/1, superstep/1,
+-export([current_state/1, context/1, global_state/1, superstep/1,
          take_snapshot/1, extract_snapshot_data/1,
          last_results/1, last_info/1, build_result/1,
          drain_effects/1, resume_data/1]).
@@ -42,23 +42,12 @@
 %% === 高级 run API（含 snapshot/store）===
 -export([run_graph/2, run_graph/3]).
 
-%% === 状态操作 API（原 graph_state）===
--export([state_new/0, state_new/1]).
--export([state_get/2, state_get/3]).
--export([state_set/3, state_set_many/2]).
--export([state_update/3, state_merge/2]).
--export([state_delete/2, state_keys/1, state_values/1]).
--export([state_has_key/2, state_is_empty/1]).
--export([state_to_map/1, state_from_map/1]).
--export([state_normalize_key/1]).
--export([state_get_context/1, state_get_context/2, state_set_context/2, state_update_context/2]).
--export([state_context_key/0]).
 
 %% 类型导出 - 低级（来自 graph_executor）
 -export_type([opts/0, result/0, restore_opts/0, snapshot_data/0]).
 -export_type([step_result/0, superstep_info/0, snapshot_type/0, done_reason/0]).
 -export_type([field_reducer/0, field_reducers/0, delta/0]).
--export_type([context/0, compute_result/0, compute_status/0, vertex_id/0, compute_fn/0]).
+-export_type([compute_context/0, context/0, compute_result/0, compute_status/0, vertex_id/0, compute_fn/0]).
 
 %% 类型导出 - 高级（来自 graph_runner/graph_snapshot）
 -export_type([run_options/0, run_result/0]).
@@ -68,17 +57,6 @@
 %% 类型导出 - 引擎
 -export_type([engine/0, effect/0]).
 
-%% 类型导出 - 状态（原 graph_state）
--export_type([state/0, state_key/0, state_value/0]).
-
-%%====================================================================
-%% 类型定义 - 状态（原 graph_state）
-%%====================================================================
-
--type state() :: #{binary() => term()}.
--type state_key() :: binary() | atom().
--type state_value() :: term().
-
 %%====================================================================
 %% 类型定义 - 低级（原 graph_executor）
 %%====================================================================
@@ -86,7 +64,7 @@
 -type graph() :: beamai_pregel_graph:graph().
 -type vertex_id() :: beamai_pregel_vertex:vertex_id().
 -type vertex() :: beamai_pregel_vertex:vertex().
--type compute_fn() :: fun((context()) -> compute_result()).
+-type compute_fn() :: fun((compute_context()) -> compute_result()).
 
 %% Delta 类型
 -type delta() :: #{atom() | binary() => term()}.
@@ -96,15 +74,16 @@
 -type field_reducers() :: #{atom() | binary() => field_reducer()}.
 
 %% 计算上下文（传递给计算函数）
--type context() :: #{
+-type compute_context() :: #{
     vertex_id := vertex_id(),
     vertex := vertex(),
-    global_state := state(),
+    context := beamai_context:t(),
     vertex_input := map() | undefined,
     superstep := non_neg_integer(),
     num_vertices := non_neg_integer(),
     resume_data => term() | undefined
 }.
+-type context() :: compute_context().  %% 过渡别名
 
 %% 计算结果状态
 -type compute_status() :: ok | {error, term()} | {interrupt, term()}.
@@ -119,7 +98,7 @@
 %% Snapshot 数据（执行器级别）
 -type snapshot_data() :: #{
     superstep := non_neg_integer(),
-    global_state := state(),
+    context := beamai_context:t(),
     pending_deltas := [delta()] | undefined,
     pending_activations := [vertex_id()] | undefined,
     vertices := #{vertex_id() => vertex()}
@@ -150,7 +129,7 @@
 %% Snapshot 恢复选项
 -type restore_opts() :: #{
     superstep := non_neg_integer(),
-    global_state := state(),
+    context := beamai_context:t(),
     pending_deltas => [delta()],
     pending_activations => [vertex_id()],
     vertices => #{vertex_id() => vertex()}
@@ -159,7 +138,7 @@
 %% 执行选项
 -type opts() :: #{
     max_supersteps => pos_integer(),
-    global_state => state(),
+    context => beamai_context:t(),
     field_reducers => field_reducers(),
     restore_from => restore_opts()
 }.
@@ -167,7 +146,7 @@
 %% 执行结果（低级）
 -type result() :: #{
     status := completed | max_supersteps,
-    global_state := state(),
+    context := beamai_context:t(),
     graph := graph(),
     supersteps := non_neg_integer(),
     stats := #{atom() => term()},
@@ -183,7 +162,7 @@
 -type runner_snapshot_data() :: #{
     type := snapshot_type(),
     pregel_snapshot := snapshot_data(),
-    global_state := state(),
+    context := beamai_context:t(),
     iteration := non_neg_integer()
 }.
 
@@ -207,8 +186,8 @@
     resume_data => #{vertex_id() => term()},
     retry_vertices => [vertex_id()],
     run_id => binary(),
-    %% 全局状态选项
-    global_state => state(),
+    %% Context 选项
+    context => beamai_context:t(),
     field_reducers => field_reducers(),
     %% Store 相关选项
     store => store_config(),
@@ -218,7 +197,7 @@
 
 -type run_result() :: #{
     status := completed | interrupted | error | max_iterations,
-    final_state := state(),
+    final_state := beamai_context:t(),
     iterations := non_neg_integer(),
     error => term(),
     done_reason => done_reason(),
@@ -249,7 +228,7 @@
     max_supersteps   :: pos_integer(),
     superstep        :: non_neg_integer(),
 
-    global_state     :: state(),
+    context          :: beamai_context:t(),
     field_reducers   :: field_reducers(),
     pending_deltas   :: [delta()] | undefined,
     pending_activations :: [vertex_id()] | undefined,
@@ -295,6 +274,7 @@ from_restored(Restored, Opts) ->
         field_reducers => FieldReducers,
         restore_from => Restored
     },
+
 
     Engine = new_engine(PregelGraph, ComputeFn, EngineOpts),
     {ok, Engine#engine{current_state = running}}.
@@ -376,9 +356,13 @@ run(E) ->
 -spec current_state(engine()) -> idle | running | interrupted | completed | error.
 current_state(#engine{current_state = CS}) -> CS.
 
-%% @doc 获取全局状态
--spec global_state(engine()) -> state().
-global_state(#engine{global_state = GS}) -> GS.
+%% @doc 获取 context
+-spec context(engine()) -> beamai_context:t().
+context(#engine{context = Ctx}) -> Ctx.
+
+%% @doc 获取 context（向后兼容别名）
+-spec global_state(engine()) -> beamai_context:t().
+global_state(Engine) -> context(Engine).
 
 %% @doc 获取当前超步号
 -spec superstep(engine()) -> non_neg_integer().
@@ -405,7 +389,7 @@ take_snapshot(Engine) ->
 -spec extract_snapshot_data(engine()) -> snapshot_data().
 extract_snapshot_data(#engine{
     superstep = Superstep,
-    global_state = GlobalState,
+    context = Context,
     pending_deltas = PendingDeltas,
     pending_activations = PendingActivations,
     vertices = Vertices,
@@ -422,7 +406,7 @@ extract_snapshot_data(#engine{
     end,
     Base = #{
         superstep => Superstep,
-        global_state => GlobalState,
+        context => Context,
         pending_deltas => PendingDeltas,
         pending_activations => Activations,
         vertices => Vertices
@@ -447,14 +431,14 @@ build_result(#engine{
     superstep = Superstep,
     graph = OriginalGraph,
     vertices = Vertices,
-    global_state = GlobalState,
+    context = Context,
     cumulative_failures = CumulativeFailures
 } = Engine) ->
     FinalGraph = beamai_graph_executor_utils:rebuild_graph(OriginalGraph, Vertices),
     FailedCount = length(CumulativeFailures),
     #{
         status => get_done_reason(Engine),
-        global_state => GlobalState,
+        context => Context,
         graph => FinalGraph,
         supersteps => Superstep + 1,
         stats => #{},
@@ -488,15 +472,15 @@ execute(Graph, ComputeFn, Opts) ->
 %% 高级 run API（含 snapshot/store）
 %%====================================================================
 
-%% @doc 运行图，使用初始状态
--spec run_graph(beamai_graph_builder:graph(), state()) -> run_result().
+%% @doc 运行图，使用初始 context
+-spec run_graph(beamai_graph_builder:graph(), beamai_context:t()) -> run_result().
 run_graph(Graph, InitialState) ->
     run_graph(Graph, InitialState, #{}).
 
-%% @doc 运行图，使用初始状态和选项
--spec run_graph(beamai_graph_builder:graph(), state(), run_options()) -> run_result().
+%% @doc 运行图，使用初始 context 和选项
+-spec run_graph(beamai_graph_builder:graph(), beamai_context:t(), run_options()) -> run_result().
 run_graph(Graph, InitialState, Options) ->
-    OptionsWithState = ensure_global_state(Options, InitialState),
+    OptionsWithState = ensure_context(Options, InitialState),
     case needs_snapshot_mode(OptionsWithState) of
         true ->
             run_with_snapshot(Graph, InitialState, OptionsWithState);
@@ -514,7 +498,7 @@ execute_superstep(#engine{
     vertices = Vertices,
     compute_fn = ComputeFn,
     superstep = Superstep,
-    global_state = GlobalState,
+    context = Context,
     field_reducers = FieldReducers,
     pending_activations = PendingActivations,
     last_results = LastResults,
@@ -542,7 +526,7 @@ execute_superstep(#engine{
 
     %% 5. 执行任务
     {Deltas, NewActivations, FailedVertices, InterruptedVertices} =
-        beamai_graph_executor_task:execute_tasks(Tasks, ComputeFn, GlobalState, Superstep, NumVertices,
+        beamai_graph_executor_task:execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
                       PoolName, PoolTimeout, Engine#engine.resume_data),
 
     %% 6. 更新顶点状态（halt 计算完成的顶点）
@@ -560,12 +544,12 @@ execute_superstep(#engine{
 
     %% 8. 决定是否延迟提交
     TotalActivations = length(NewActivations),
-    {NewGlobalState, NewPendingDeltas, NewPendingActivations} = case HasError of
+    {NewContext, NewPendingDeltas, NewPendingActivations} = case HasError of
         true ->
-            {GlobalState, Deltas, NewActivations};
+            {Context, Deltas, NewActivations};
         false ->
-            UpdatedState = beamai_graph_state_reducer:apply_deltas(GlobalState, Deltas, FieldReducers),
-            {UpdatedState, undefined, undefined}
+            UpdatedCtx = beamai_context_reducer:apply_deltas(Context, Deltas, FieldReducers),
+            {UpdatedCtx, undefined, undefined}
     end,
 
     %% 9. 更新结果映射
@@ -614,7 +598,7 @@ execute_superstep(#engine{
 
     NewEngine = Engine#engine{
         vertices = NewVertices,
-        global_state = NewGlobalState,
+        context = NewContext,
         pending_deltas = NewPendingDeltas,
         pending_activations = NewPendingActivations,
         last_results = UpdatedResults,
@@ -635,7 +619,7 @@ execute_retry_direct(VertexIds, #engine{
     vertices = Vertices,
     compute_fn = ComputeFn,
     superstep = Superstep,
-    global_state = GlobalState,
+    context = Context,
     field_reducers = FieldReducers,
     last_results = LastResults,
     pool_name = PoolName,
@@ -647,18 +631,18 @@ execute_retry_direct(VertexIds, #engine{
     Tasks = [{Id, V, undefined} || {Id, V} <- maps:to_list(RetryVertices)],
 
     {RetryDeltas, RetryActivations, StillFailed, StillInterrupted} =
-        beamai_graph_executor_task:execute_tasks(Tasks, ComputeFn, GlobalState, Superstep, NumVertices,
+        beamai_graph_executor_task:execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
                       PoolName, PoolTimeout, Engine#engine.resume_data),
 
     HasError = length(StillFailed) > 0 orelse length(StillInterrupted) > 0,
 
-    {NewGlobalState, NewPendingDeltas, NewPendingActivations} = case HasError of
+    {NewContext, NewPendingDeltas, NewPendingActivations} = case HasError of
         true ->
             LastActivations = maps:get(activations, LastResults, []),
-            {GlobalState, RetryDeltas, LastActivations ++ RetryActivations};
+            {Context, RetryDeltas, LastActivations ++ RetryActivations};
         false ->
-            UpdatedState = beamai_graph_state_reducer:apply_deltas(GlobalState, RetryDeltas, FieldReducers),
-            {UpdatedState, undefined, undefined}
+            UpdatedCtx = beamai_context_reducer:apply_deltas(Context, RetryDeltas, FieldReducers),
+            {UpdatedCtx, undefined, undefined}
     end,
 
     %% 清理已成功执行顶点的 resume_data
@@ -681,7 +665,7 @@ execute_retry_direct(VertexIds, #engine{
     Info = beamai_graph_executor_utils:build_superstep_info(Type, UpdatedResults),
 
     NewEngine = Engine#engine{
-        global_state = NewGlobalState,
+        context = NewContext,
         pending_deltas = NewPendingDeltas,
         pending_activations = NewPendingActivations,
         last_results = UpdatedResults,
@@ -695,7 +679,7 @@ execute_deferred_retry(VertexIds, #engine{
     vertices = Vertices,
     compute_fn = ComputeFn,
     superstep = Superstep,
-    global_state = GlobalState,
+    context = Context,
     field_reducers = FieldReducers,
     pending_deltas = PendingDeltas,
     pending_activations = PendingActivations,
@@ -708,7 +692,7 @@ execute_deferred_retry(VertexIds, #engine{
     Tasks = [{Id, V, undefined} || {Id, V} <- maps:to_list(RetryVertices)],
 
     {RetryDeltas, RetryActivations, StillFailed, StillInterrupted} =
-        beamai_graph_executor_task:execute_tasks(Tasks, ComputeFn, GlobalState, Superstep, NumVertices,
+        beamai_graph_executor_task:execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
                       PoolName, PoolTimeout, Engine#engine.resume_data),
 
     HasError = length(StillFailed) > 0 orelse length(StillInterrupted) > 0,
@@ -725,12 +709,12 @@ execute_deferred_retry(VertexIds, #engine{
     end,
     MergedActivations = SafePendingActivations ++ RetryActivations,
 
-    {NewGlobalState, NewPendingDeltas, NewPendingActivations} = case HasError of
+    {NewContext, NewPendingDeltas, NewPendingActivations} = case HasError of
         true ->
-            {GlobalState, MergedDeltas, MergedActivations};
+            {Context, MergedDeltas, MergedActivations};
         false ->
-            UpdatedState = beamai_graph_state_reducer:apply_deltas(GlobalState, MergedDeltas, FieldReducers),
-            {UpdatedState, undefined, undefined}
+            UpdatedCtx = beamai_context_reducer:apply_deltas(Context, MergedDeltas, FieldReducers),
+            {UpdatedCtx, undefined, undefined}
     end,
 
     %% 清理已成功执行顶点的 resume_data
@@ -754,7 +738,7 @@ execute_deferred_retry(VertexIds, #engine{
     Info = beamai_graph_executor_utils:build_superstep_info(Type, UpdatedResults),
 
     NewEngine = Engine#engine{
-        global_state = NewGlobalState,
+        context = NewContext,
         pending_deltas = NewPendingDeltas,
         pending_activations = NewPendingActivations,
         last_results = UpdatedResults,
@@ -784,12 +768,12 @@ execute_loop(Engine) ->
 %% 无进程执行 - 高级（run_graph 相关）
 %%====================================================================
 
-%% @private 确保 Options 中有 global_state
--spec ensure_global_state(run_options(), state()) -> run_options().
-ensure_global_state(Options, InitialState) ->
-    case maps:is_key(global_state, Options) of
+%% @private 确保 Options 中有 context
+-spec ensure_context(run_options(), beamai_context:t()) -> run_options().
+ensure_context(Options, InitialState) ->
+    case maps:is_key(context, Options) of
         true -> Options;
-        false -> Options#{global_state => InitialState}
+        false -> Options#{context => InitialState}
     end.
 
 %% @private 检查是否需要 snapshot 模式
@@ -799,17 +783,17 @@ needs_snapshot_mode(Options) ->
     maps:is_key(store, Options).
 
 %% @private 简单执行模式（无 snapshot）
--spec run_simple(beamai_graph_builder:graph(), state(), run_options()) -> run_result().
+-spec run_simple(beamai_graph_builder:graph(), beamai_context:t(), run_options()) -> run_result().
 run_simple(Graph, InitialState, Options) ->
     #{pregel_graph := PregelGraph} = Graph,
 
     MaxIterations = maps:get(max_iterations, Graph, 100),
-    GlobalState = maps:get(global_state, Options, InitialState),
+    Context = maps:get(context, Options, InitialState),
     FieldReducers = maps:get(field_reducers, Options, #{}),
 
     ExecutorOpts = #{
         max_supersteps => maps:get(max_supersteps, Options, MaxIterations),
-        global_state => GlobalState,
+        context => Context,
         field_reducers => FieldReducers
     },
 
@@ -820,24 +804,24 @@ run_simple(Graph, InitialState, Options) ->
     handle_pregel_result(ExecutorResult, InitialState, Options).
 
 %% @private Snapshot 执行模式
--spec run_with_snapshot(beamai_graph_builder:graph(), state(), run_options()) -> run_result().
+-spec run_with_snapshot(beamai_graph_builder:graph(), beamai_context:t(), run_options()) -> run_result().
 run_with_snapshot(Graph, _InitialState, Options) ->
     #{pregel_graph := PregelGraph} = Graph,
 
     OptionsWithRunId = ensure_run_id(Options),
 
-    ActualGlobalState = maps:get(global_state, OptionsWithRunId),
+    ActualContext = maps:get(context, OptionsWithRunId),
 
     SnapshotData = maps:get(restore_from, OptionsWithRunId, undefined),
-    {FinalGlobalState, ExecutorRestoreOpts, StartIteration} =
-        prepare_restore_options(SnapshotData, OptionsWithRunId, ActualGlobalState),
+    {FinalContext, ExecutorRestoreOpts, StartIteration} =
+        prepare_restore_options(SnapshotData, OptionsWithRunId, ActualContext),
 
     MaxIterations = maps:get(max_iterations, Graph, 100),
     FieldReducers = maps:get(field_reducers, OptionsWithRunId, #{}),
 
     ExecutorOpts0 = #{
         max_supersteps => maps:get(max_supersteps, OptionsWithRunId, MaxIterations),
-        global_state => FinalGlobalState,
+        context => FinalContext,
         field_reducers => FieldReducers
     },
 
@@ -881,11 +865,11 @@ run_loop(Engine, Iteration, Options) ->
 -spec build_early_termination_result(engine(), superstep_info()) -> result().
 build_early_termination_result(#engine{
     superstep = Superstep,
-    global_state = GlobalState
+    context = Context
 }, Info) ->
     #{
         status => completed,
-        global_state => GlobalState,
+        context => Context,
         graph => #{vertices => #{}},
         supersteps => Superstep,
         stats => #{},
@@ -896,7 +880,7 @@ build_early_termination_result(#engine{
     }.
 
 %% @private 处理 Pregel 引擎执行结果（高级 run_simple 用）
--spec handle_pregel_result({ok, state()} | {error, term()}, state(), run_options()) -> run_result().
+-spec handle_pregel_result({ok, beamai_context:t()} | {error, term()}, beamai_context:t(), run_options()) -> run_result().
 handle_pregel_result({ok, FinalState}, _InitialState, _Options) ->
     #{status => completed, final_state => FinalState, iterations => 0};
 handle_pregel_result({error, {partial_result, PartialState, max_iterations_exceeded}}, _InitialState, Options) ->
@@ -920,7 +904,7 @@ handle_pregel_result({error, Reason}, InitialState, _Options) ->
 build_runner_snapshot_data(Engine, Info, Iteration, Options) ->
     RunId = maps:get(run_id, Options),
     PregelCheckpoint = extract_snapshot_data(Engine),
-    CurrentGlobalState = Engine#engine.global_state,
+    CurrentContext = Engine#engine.context,
     Type = maps:get(type, Info),
     Superstep = maps:get(superstep, Info, 0),
 
@@ -930,7 +914,7 @@ build_runner_snapshot_data(Engine, Info, Iteration, Options) ->
     #{
         type => Type,
         pregel_snapshot => PregelCheckpoint,
-        global_state => CurrentGlobalState,
+        context => CurrentContext,
         iteration => Iteration,
         run_id => RunId,
         active_vertices => ActiveVertices,
@@ -960,15 +944,25 @@ classify_vertices(Vertices) ->
 %%====================================================================
 
 %% @private 准备从 snapshot 恢复的选项
--spec prepare_restore_options(runner_snapshot_data() | undefined, run_options(), state()) ->
-    {state(), restore_opts() | undefined, non_neg_integer()}.
-prepare_restore_options(undefined, _Options, GlobalState) ->
-    {GlobalState, undefined, 0};
-prepare_restore_options(SnapshotData, Options, _DefaultGlobalState) ->
+-spec prepare_restore_options(runner_snapshot_data() | undefined, run_options(), beamai_context:t()) ->
+    {beamai_context:t(), restore_opts() | undefined, non_neg_integer()}.
+prepare_restore_options(undefined, _Options, Context) ->
+    {Context, undefined, 0};
+prepare_restore_options(SnapshotData, Options, _DefaultContext) ->
     PregelCheckpoint = maps:get(pregel_snapshot, SnapshotData),
 
-    GlobalState = maps:get(global_state, SnapshotData,
-                          maps:get(global_state, PregelCheckpoint, state_new())),
+    Context = case maps:get(context, SnapshotData, undefined) of
+        undefined ->
+            case maps:get(global_state, SnapshotData, undefined) of
+                undefined ->
+                    case maps:get(context, PregelCheckpoint, undefined) of
+                        undefined -> maps:get(global_state, PregelCheckpoint, beamai_context:new());
+                        C -> C
+                    end;
+                GS -> GS
+            end;
+        C -> C
+    end,
     Iteration = maps:get(iteration, SnapshotData, 0),
     ResumeData = maps:get(resume_data, Options, #{}),
     RetryVertices = maps:get(retry_vertices, Options, []),
@@ -988,11 +982,11 @@ prepare_restore_options(SnapshotData, Options, _DefaultGlobalState) ->
         superstep => Superstep,
         vertices => Vertices,
         pending_activations => AllActivations,
-        global_state => GlobalState,
+        context => Context,
         resume_data => ResumeData
     },
 
-    {GlobalState, PregelRestoreOpts, Iteration}.
+    {Context, PregelRestoreOpts, Iteration}.
 
 %% @private 确保 Options 中存在 run_id
 -spec ensure_run_id(run_options()) -> run_options().
@@ -1011,11 +1005,11 @@ ensure_run_id(Options) ->
     run_result().
 build_interrupted_run_result(SnapshotData, Info, Iteration) ->
     PregelCheckpoint = maps:get(pregel_snapshot, SnapshotData),
-    GlobalState = maps:get(global_state, SnapshotData),
+    Context = maps:get(context, SnapshotData),
     InterruptedVertices = maps:get(interrupted_vertices, Info, []),
     #{
         status => interrupted,
-        final_state => GlobalState,
+        final_state => Context,
         iterations => Iteration,
         snapshot => PregelCheckpoint,
         interrupted_vertices => InterruptedVertices
@@ -1026,11 +1020,11 @@ build_interrupted_run_result(SnapshotData, Info, Iteration) ->
     run_result().
 build_error_run_result(SnapshotData, Info, Iteration) ->
     PregelCheckpoint = maps:get(pregel_snapshot, SnapshotData),
-    GlobalState = maps:get(global_state, SnapshotData),
+    Context = maps:get(context, SnapshotData),
     FailedVertices = maps:get(failed_vertices, Info, []),
     #{
         status => error,
-        final_state => GlobalState,
+        final_state => Context,
         iterations => Iteration,
         snapshot => PregelCheckpoint,
         failed_vertices => FailedVertices
@@ -1049,7 +1043,7 @@ handle_done(Engine, Reason, Info, Iteration, Options) ->
     Superstep = maps:get(superstep, Info, 0),
 
     PregelCheckpoint = extract_snapshot_data(Engine),
-    FinalGlobalState = Engine#engine.global_state,
+    FinalContext = Engine#engine.context,
 
     Vertices = maps:get(vertices, PregelCheckpoint, #{}),
     {ActiveVertices, CompletedVertices} = classify_vertices(Vertices),
@@ -1057,7 +1051,7 @@ handle_done(Engine, Reason, Info, Iteration, Options) ->
     SnapshotData = #{
         type => final,
         pregel_snapshot => PregelCheckpoint,
-        global_state => FinalGlobalState,
+        context => FinalContext,
         iteration => Iteration,
         run_id => RunId,
         active_vertices => ActiveVertices,
@@ -1069,7 +1063,7 @@ handle_done(Engine, Reason, Info, Iteration, Options) ->
 
     Result = build_result(Engine),
     PregelResult = beamai_graph_compute:from_pregel_result(Result),
-    FinalResult = handle_pregel_result(PregelResult, FinalGlobalState, Options),
+    FinalResult = handle_pregel_result(PregelResult, FinalContext, Options),
 
     FinalResult#{
         iterations => Iteration,
@@ -1155,9 +1149,9 @@ new_engine(Graph, ComputeFn, Opts) ->
     RestoreOpts = maps:get(restore_from, Opts, undefined),
     InitialSuperstep = get_restore_superstep(RestoreOpts),
 
-    GlobalState = case RestoreOpts of
-        #{global_state := RestoredGS} -> RestoredGS;
-        _ -> maps:get(global_state, Opts, state_new())
+    Context = case RestoreOpts of
+        #{context := RestoredCtx} -> RestoredCtx;
+        _ -> maps:get(context, Opts, beamai_context:new())
     end,
 
     PendingDeltas = case RestoreOpts of
@@ -1183,8 +1177,8 @@ new_engine(Graph, ComputeFn, Opts) ->
         compute_fn = ComputeFn,
         max_supersteps = maps:get(max_supersteps, Opts, 100),
         superstep = InitialSuperstep,
-        global_state = GlobalState,
-        field_reducers = maps:get(field_reducers, Opts, #{}),
+        context = Context,
+        field_reducers = maps:get(field_reducers, Opts, beamai_context_reducer:default_reducers()),
         pending_deltas = PendingDeltas,
         pending_activations = PendingActivations,
         last_results = undefined,
@@ -1235,159 +1229,3 @@ inject_restore_activations(#engine{restore_from = RestoreOpts} = Engine) ->
     Engine#engine{pending_activations = Activations}.
 
 
-%%====================================================================
-%% 状态操作 API（原 graph_state 模块）
-%%====================================================================
-
-%% 用户上下文键名（使用特殊前缀避免与用户数据冲突）
--define(USER_CONTEXT_KEY, <<"__beamai_user_context__">>).
-
-%% @doc 创建空状态
--spec state_new() -> state().
-state_new() ->
-    #{}.
-
-%% @doc 从 Map 创建状态（键自动转为 binary）
--spec state_new(map()) -> state().
-state_new(InitialMap) when is_map(InitialMap) ->
-    state_normalize_keys(InitialMap).
-
-%% @doc 获取指定键的值（不存在返回 undefined）
--spec state_get(state(), state_key()) -> state_value() | undefined.
-state_get(State, Key) when is_atom(Key) ->
-    maps:get(atom_to_binary(Key, utf8), State, undefined);
-state_get(State, Key) when is_binary(Key) ->
-    maps:get(Key, State, undefined).
-
-%% @doc 获取指定键的值（支持默认值）
--spec state_get(state(), state_key(), state_value()) -> state_value().
-state_get(State, Key, Default) when is_atom(Key) ->
-    maps:get(atom_to_binary(Key, utf8), State, Default);
-state_get(State, Key, Default) when is_binary(Key) ->
-    maps:get(Key, State, Default).
-
-%% @doc 检查键是否存在
--spec state_has_key(state(), state_key()) -> boolean().
-state_has_key(State, Key) when is_atom(Key) ->
-    maps:is_key(atom_to_binary(Key, utf8), State);
-state_has_key(State, Key) when is_binary(Key) ->
-    maps:is_key(Key, State).
-
-%% @doc 检查状态是否为空
--spec state_is_empty(state()) -> boolean().
-state_is_empty(State) ->
-    maps:size(State) =:= 0.
-
-%% @doc 获取所有键
--spec state_keys(state()) -> [state_key()].
-state_keys(State) ->
-    maps:keys(State).
-
-%% @doc 获取所有值
--spec state_values(state()) -> [state_value()].
-state_values(State) ->
-    maps:values(State).
-
-%% @doc 设置单个键值对
--spec state_set(state(), state_key(), state_value()) -> state().
-state_set(State, Key, Value) when is_atom(Key) ->
-    State#{atom_to_binary(Key, utf8) => Value};
-state_set(State, Key, Value) when is_binary(Key) ->
-    State#{Key => Value}.
-
-%% @doc 批量设置键值对
--spec state_set_many(state(), [{state_key(), state_value()}] | map()) -> state().
-state_set_many(State, Pairs) when is_list(Pairs) ->
-    lists:foldl(fun({K, V}, Acc) -> state_set(Acc, K, V) end, State, Pairs);
-state_set_many(State, Map) when is_map(Map) ->
-    maps:merge(State, state_normalize_keys(Map)).
-
-%% @doc 使用函数更新值
--spec state_update(state(), state_key(), fun((state_value() | undefined) -> state_value())) -> state().
-state_update(State, Key, UpdateFun) ->
-    OldValue = state_get(State, Key),
-    NewValue = UpdateFun(OldValue),
-    state_set(State, Key, NewValue).
-
-%% @doc 合并两个状态（冲突时右侧优先）
--spec state_merge(state(), state()) -> state().
-state_merge(State1, State2) ->
-    maps:merge(State1, State2).
-
-%% @doc 删除指定键
--spec state_delete(state(), state_key()) -> state().
-state_delete(State, Key) when is_atom(Key) ->
-    maps:remove(atom_to_binary(Key, utf8), State);
-state_delete(State, Key) when is_binary(Key) ->
-    maps:remove(Key, State).
-
-%% @doc 转换为普通 Map
--spec state_to_map(state()) -> map().
-state_to_map(State) ->
-    State.
-
-%% @doc 从普通 Map 创建状态
--spec state_from_map(map()) -> state().
-state_from_map(Map) ->
-    state_new(Map).
-
-%% @doc 将单个键标准化为 binary
--spec state_normalize_key(term()) -> binary().
-state_normalize_key(Key) when is_binary(Key) ->
-    Key;
-state_normalize_key(Key) when is_atom(Key) ->
-    atom_to_binary(Key, utf8);
-state_normalize_key(Key) when is_list(Key) ->
-    list_to_binary(Key);
-state_normalize_key(Key) ->
-    error({invalid_key_type, Key}).
-
-%% @doc 获取用户上下文键名
--spec state_context_key() -> binary().
-state_context_key() ->
-    ?USER_CONTEXT_KEY.
-
-%% @doc 获取用户上下文
--spec state_get_context(state()) -> map().
-state_get_context(State) ->
-    state_get(State, ?USER_CONTEXT_KEY, #{}).
-
-%% @doc 获取用户上下文中的指定键
--spec state_get_context(state(), state_key()) -> state_value() | undefined.
-state_get_context(State, Key) ->
-    Context = state_get_context(State),
-    NormalizedKey = state_normalize_key(Key),
-    maps:get(NormalizedKey, Context, undefined).
-
-%% @doc 设置用户上下文（完全替换）
--spec state_set_context(state(), map()) -> state().
-state_set_context(State, Context) when is_map(Context) ->
-    state_set(State, ?USER_CONTEXT_KEY, Context).
-
-%% @doc 更新用户上下文（合并）
--spec state_update_context(state(), map()) -> state().
-state_update_context(State, Updates) when is_map(Updates) ->
-    Context = state_get_context(State),
-    NormalizedUpdates = state_normalize_keys(Updates),
-    NewContext = maps:merge(Context, NormalizedUpdates),
-    state_set_context(State, NewContext).
-
-%%====================================================================
-%% 状态内部辅助函数
-%%====================================================================
-
-%% @private 将 Map 的键标准化为 binary
--spec state_normalize_keys(map()) -> state().
-state_normalize_keys(Map) ->
-    maps:fold(fun state_normalize_key_fold/3, #{}, Map).
-
-%% @private 标准化单个键（用于 maps:fold）
--spec state_normalize_key_fold(term(), state_value(), state()) -> state().
-state_normalize_key_fold(Key, Value, Acc) when is_binary(Key) ->
-    Acc#{Key => Value};
-state_normalize_key_fold(Key, Value, Acc) when is_atom(Key) ->
-    Acc#{atom_to_binary(Key, utf8) => Value};
-state_normalize_key_fold(Key, Value, Acc) when is_list(Key) ->
-    Acc#{list_to_binary(Key) => Value};
-state_normalize_key_fold(Key, _Value, _Acc) ->
-    error({invalid_key_type, Key}).

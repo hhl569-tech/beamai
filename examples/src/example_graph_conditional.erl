@@ -25,37 +25,37 @@
 %% 条件边根据分类结果路由到不同处理节点
 run_router() ->
     ClassifyFun = fun(State, _Context) ->
-        Score = beamai_graph_engine:state_get(State, score, 0),
+        Score = beamai_context:get(State, score, 0),
         Priority = if
             Score >= 80 -> <<"high">>;
             Score >= 50 -> <<"normal">>;
             true -> <<"low">>
         end,
-        {ok, beamai_graph_engine:state_set(State, priority, Priority)}
+        {ok, beamai_context:set(State, priority, Priority)}
     end,
 
     HighFun = fun(State, _Context) ->
-        {ok, beamai_graph_engine:state_set(State, action, <<"escalate_immediately">>)}
+        {ok, beamai_context:set(State, action, <<"escalate_immediately">>)}
     end,
 
     NormalFun = fun(State, _Context) ->
-        {ok, beamai_graph_engine:state_set(State, action, <<"process_in_queue">>)}
+        {ok, beamai_context:set(State, action, <<"process_in_queue">>)}
     end,
 
     LowFun = fun(State, _Context) ->
-        {ok, beamai_graph_engine:state_set(State, action, <<"batch_later">>)}
+        {ok, beamai_context:set(State, action, <<"batch_later">>)}
     end,
 
     RespondFun = fun(State, _Context) ->
-        Priority = beamai_graph_engine:state_get(State, priority),
-        Action = beamai_graph_engine:state_get(State, action),
+        Priority = beamai_context:get(State, priority),
+        Action = beamai_context:get(State, action),
         Response = <<"Priority: ", Priority/binary, ", Action: ", Action/binary>>,
-        {ok, beamai_graph_engine:state_set(State, response, Response)}
+        {ok, beamai_context:set(State, response, Response)}
     end,
 
     %% 路由函数：根据 priority 字段决定下一个节点
     RouterFun = fun(State) ->
-        case beamai_graph_engine:state_get(State, priority) of
+        case beamai_context:get(State, priority) of
             <<"high">> -> high_priority;
             <<"normal">> -> normal;
             <<"low">> -> low_priority
@@ -78,10 +78,10 @@ run_router() ->
 
     %% 测试不同分数
     lists:foreach(fun(Score) ->
-        State = beamai_graph:state(#{score => Score}),
+        State = beamai_graph:context(#{score => Score}),
         Result = beamai_graph:run(Graph, State),
         Final = maps:get(final_state, Result),
-        Response = beamai_graph_engine:state_get(Final, response),
+        Response = beamai_context:get(Final, response),
         io:format("Score ~p -> ~s~n", [Score, Response])
     end, [90, 65, 30]),
 
@@ -95,7 +95,7 @@ run_router() ->
 %% evaluate 节点使用 beamai_graph_command:goto/2 同时设置状态和路由
 run_command() ->
     EvaluateFun = fun(State, _Context) ->
-        Amount = beamai_graph_engine:state_get(State, amount, 0),
+        Amount = beamai_context:get(State, amount, 0),
         case Amount =< 1000 of
             true ->
                 {command, beamai_graph_command:goto(approve, #{reason => <<"within_limit">>})};
@@ -105,13 +105,13 @@ run_command() ->
     end,
 
     ApproveFun = fun(State, _Context) ->
-        Reason = beamai_graph_engine:state_get(State, reason),
-        {ok, beamai_graph_engine:state_set(State, result, <<"APPROVED: ", Reason/binary>>)}
+        Reason = beamai_context:get(State, reason),
+        {ok, beamai_context:set(State, result, <<"APPROVED: ", Reason/binary>>)}
     end,
 
     RejectFun = fun(State, _Context) ->
-        Reason = beamai_graph_engine:state_get(State, reason),
-        {ok, beamai_graph_engine:state_set(State, result, <<"REJECTED: ", Reason/binary>>)}
+        Reason = beamai_context:get(State, reason),
+        {ok, beamai_context:set(State, result, <<"REJECTED: ", Reason/binary>>)}
     end,
 
     {ok, Graph} = beamai_graph:build([
@@ -125,10 +125,10 @@ run_command() ->
 
     %% 测试审批流程
     lists:foreach(fun(Amount) ->
-        State = beamai_graph:state(#{amount => Amount}),
+        State = beamai_graph:context(#{amount => Amount}),
         Result = beamai_graph:run(Graph, State),
         Final = maps:get(final_state, Result),
-        Res = beamai_graph_engine:state_get(Final, result),
+        Res = beamai_context:get(Final, result),
         io:format("Amount ~p -> ~s~n", [Amount, Res])
     end, [500, 1500]),
 

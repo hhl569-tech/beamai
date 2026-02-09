@@ -4,10 +4,10 @@
 %%% 提供全局的 Pregel 计算函数，用于 Graph 执行。
 %%%
 %%% 全局状态模式:
-%%% - 计算函数从 global_state 读取数据
+%%% - 计算函数从 context 读取数据
 %%% - 计算函数返回 delta（增量更新）
 %%% - 消息用于协调执行流程（activate 消息），不携带状态
-%%% - Master 负责合并 delta 并广播新的 global_state
+%%% - Master 负责合并 delta 并广播新的 context
 %%%
 %%% 核心功能:
 %%% - compute_fn/0: 返回全局 Pregel 计算函数
@@ -37,7 +37,7 @@
 %% @doc 返回全局 Pregel 计算函数
 %%
 %% 全局状态模式（无 inbox 版本）：
-%% - 从 context 中的 global_state 读取当前状态
+%% - 从 compute_context 中的 context 读取当前状态
 %% - 返回 delta（增量更新）而不是更新 vertex value
 %% - 返回 activations（顶点ID列表）指定下一步激活的顶点
 %%
@@ -45,7 +45,7 @@
 %% - status => ok: 计算成功
 %% - status => {error, Reason}: 计算失败
 %% - status => {interrupt, Reason}: 请求中断（human-in-the-loop）
--spec compute_fn() -> fun((beamai_graph_engine:context()) -> beamai_graph_engine:compute_result()).
+-spec compute_fn() -> fun((beamai_graph_engine:compute_context()) -> beamai_graph_engine:compute_result()).
 compute_fn() ->
     fun(Ctx) ->
         try
@@ -64,41 +64,41 @@ compute_fn() ->
 %%
 %% 无 inbox 版本：节点通过被激活来触发计算
 %% - 不再从 inbox 读取消息
-%% - 从 global_state 读取所有需要的数据
--spec execute_node(beamai_graph_engine:context()) -> beamai_graph_engine:compute_result().
+%% - 从 context 读取所有需要的数据
+-spec execute_node(beamai_graph_engine:compute_context()) -> beamai_graph_engine:compute_result().
 execute_node(Ctx) ->
-    #{vertex_id := VertexId, global_state := GlobalState} = Ctx,
+    #{vertex_id := VertexId, context := Context} = Ctx,
 
     case VertexId of
         ?START_NODE ->
-            handle_start_node(Ctx, GlobalState);
+            handle_start_node(Ctx, Context);
         ?END_NODE ->
             handle_end_node(Ctx);
         _ ->
-            handle_regular_node(Ctx, GlobalState)
+            handle_regular_node(Ctx, Context)
     end.
 
 %% @doc 从 Pregel 结果中提取最终状态
 %%
-%% 全局状态模式：直接返回 global_state
+%% 全局状态模式：直接返回 context
 %% 如果有失败的顶点，返回错误
--spec from_pregel_result(beamai_graph_engine:result()) -> {ok, beamai_graph_engine:state()} | {error, term()}.
+-spec from_pregel_result(beamai_graph_engine:result()) -> {ok, beamai_context:t()} | {error, term()}.
 from_pregel_result(Result) ->
     %% 首先检查是否有失败的顶点
     FailedCount = maps:get(failed_count, Result, 0),
-    GlobalState = maps:get(global_state, Result),
+    Context = maps:get(context, Result),
     case FailedCount > 0 of
         true ->
             FailedVertices = maps:get(failed_vertices, Result, []),
-            {error, {partial_result, GlobalState, {node_failures, FailedVertices}}};
+            {error, {partial_result, Context, {node_failures, FailedVertices}}};
         false ->
             case maps:get(status, Result) of
                 completed ->
-                    {ok, GlobalState};
+                    {ok, Context};
                 max_supersteps ->
-                    {error, {partial_result, GlobalState, max_iterations_exceeded}};
+                    {error, {partial_result, Context, max_iterations_exceeded}};
                 {error, Reason} ->
-                    {error, {partial_result, GlobalState, Reason}}
+                    {error, {partial_result, Context, Reason}}
             end
     end.
 
@@ -112,16 +112,16 @@ from_pregel_result(Result) ->
 %% - 超步 0 时自动激活
 %% - 后续超步由 Master 通过 activations 激活
 %% 扁平化模式：顶点直接包含 fun_/metadata/routing_edges
--spec handle_start_node(beamai_graph_engine:context(), beamai_graph_engine:state()) ->
+-spec handle_start_node(beamai_graph_engine:compute_context(), beamai_context:t()) ->
     beamai_graph_engine:compute_result().
-handle_start_node(Ctx, GlobalState) ->
+handle_start_node(Ctx, Context) ->
     #{vertex := Vertex} = Ctx,
-    execute_and_route(Ctx, GlobalState, Vertex).
+    execute_and_route(Ctx, Context, Vertex).
 
 %% @private 处理终止节点
 %%
 %% 无 inbox 版本：终止节点被激活时标记执行完成
--spec handle_end_node(beamai_graph_engine:context()) ->
+-spec handle_end_node(beamai_graph_engine:compute_context()) ->
     beamai_graph_engine:compute_result().
 handle_end_node(_Ctx) ->
     %% 终止节点被激活，标记完成，不激活其他节点
@@ -130,13 +130,13 @@ handle_end_node(_Ctx) ->
 %% @private 处理普通节点
 %%
 %% 无 inbox 版本：节点被激活时执行
-%% - resume 数据现在通过 global_state 传递
+%% - resume 数据现在通过 context 传递
 %% 扁平化模式：顶点直接包含 fun_/metadata/routing_edges
--spec handle_regular_node(beamai_graph_engine:context(), beamai_graph_engine:state()) ->
+-spec handle_regular_node(beamai_graph_engine:compute_context(), beamai_context:t()) ->
     beamai_graph_engine:compute_result().
-handle_regular_node(Ctx, GlobalState) ->
+handle_regular_node(Ctx, Context) ->
     #{vertex := Vertex} = Ctx,
-    execute_and_route(Ctx, GlobalState, Vertex).
+    execute_and_route(Ctx, Context, Vertex).
 
 %%====================================================================
 %% 节点执行
@@ -146,9 +146,9 @@ handle_regular_node(Ctx, GlobalState) ->
 %%
 %% 扁平化模式：Vertex 直接包含 fun_/metadata/routing_edges
 %% 使用 pregel_vertex 访问器获取属性
--spec execute_and_route(beamai_graph_engine:context(), beamai_graph_engine:state(), beamai_pregel_vertex:vertex()) ->
+-spec execute_and_route(beamai_graph_engine:compute_context(), beamai_context:t(), beamai_pregel_vertex:vertex()) ->
     beamai_graph_engine:compute_result().
-execute_and_route(Ctx, GlobalState, Vertex) ->
+execute_and_route(Ctx, Context, Vertex) ->
     #{vertex_id := VertexId} = Ctx,
     VertexInput = maps:get(vertex_input, Ctx, undefined),
     ResumeData = maps:get(resume_data, Ctx, undefined),
@@ -159,10 +159,10 @@ execute_and_route(Ctx, GlobalState, Vertex) ->
     case Fun of
         undefined ->
             %% 无计算函数，直接路由
-            route_to_next(GlobalState, RoutingEdges);
+            route_to_next(Context, RoutingEdges);
         _ ->
             %% 执行节点函数
-            execute_fun_and_route(VertexId, Fun, GlobalState, RoutingEdges, VertexInput, ResumeData)
+            execute_fun_and_route(VertexId, Fun, Context, RoutingEdges, VertexInput, ResumeData)
     end.
 
 %% @private 根据 arity 调用节点函数：fun/2 或 fun/3
@@ -173,21 +173,21 @@ call_node_fun(Fun, State, Input, ResumeData) ->
     end.
 
 %% @private 执行节点函数并路由
--spec execute_fun_and_route(beamai_pregel_vertex:vertex_id(), term(), beamai_graph_engine:state(), list(), map() | undefined, term() | undefined) ->
+-spec execute_fun_and_route(beamai_pregel_vertex:vertex_id(), term(), beamai_context:t(), list(), map() | undefined, term() | undefined) ->
     beamai_graph_engine:compute_result().
-execute_fun_and_route(VertexId, Fun, GlobalState, RoutingEdges, VertexInput, ResumeData) ->
-    try call_node_fun(Fun, GlobalState, VertexInput, ResumeData) of
-        {ok, NewState} ->
+execute_fun_and_route(VertexId, Fun, Context, RoutingEdges, VertexInput, ResumeData) ->
+    try call_node_fun(Fun, Context, VertexInput, ResumeData) of
+        {ok, NewCtx} ->
             %% 成功：计算 delta，激活下游顶点
-            Delta = compute_delta(GlobalState, NewState),
-            Activations = build_activations(RoutingEdges, NewState),
+            Delta = compute_delta(Context, NewCtx),
+            Activations = build_activations(RoutingEdges, NewCtx),
             #{delta => Delta, activations => Activations, status => ok};
         {command, Cmd} when is_map(Cmd) ->
             %% Command 模式：delta 直接使用，goto 覆盖路由
-            handle_command(Cmd, GlobalState, RoutingEdges);
-        {interrupt, Reason, NewState} ->
+            handle_command(Cmd, Context, RoutingEdges);
+        {interrupt, Reason, NewCtx} ->
             %% 中断：保存 delta，但不激活下游
-            Delta = compute_delta(GlobalState, NewState),
+            Delta = compute_delta(Context, NewCtx),
             throw({interrupt, Reason, Delta, []});
         {error, Reason} ->
             %% 失败：抛出异常
@@ -198,7 +198,7 @@ execute_fun_and_route(VertexId, Fun, GlobalState, RoutingEdges, VertexInput, Res
     end.
 
 %% @private 直接路由（无节点执行）
--spec route_to_next(beamai_graph_engine:state(), [beamai_graph_edge:edge()]) ->
+-spec route_to_next(beamai_context:t(), [beamai_graph_edge:edge()]) ->
     beamai_graph_engine:compute_result().
 route_to_next(State, Edges) ->
     Activations = build_activations(Edges, State),
@@ -206,25 +206,24 @@ route_to_next(State, Edges) ->
 
 %% @private 计算 delta（状态差异）
 %%
-%% 简单实现：返回 NewState 中与 OldState 不同的字段
+%% 简单实现：返回 NewCtx 中与 OldCtx 不同的字段
 %% 注意：这里假设状态变化是由节点显式设置的
--spec compute_delta(beamai_graph_engine:state(), beamai_graph_engine:state()) -> delta().
-compute_delta(OldState, NewState) ->
-    %% 获取新状态的所有键
-    NewKeys = beamai_graph_engine:state_keys(NewState),
-
-    %% 找出变化的字段
-    lists:foldl(
-        fun(Key, Acc) ->
-            OldValue = beamai_graph_engine:state_get(OldState, Key),
-            NewValue = beamai_graph_engine:state_get(NewState, Key),
-            case OldValue =:= NewValue of
-                true -> Acc;
-                false -> Acc#{Key => NewValue}
+-spec compute_delta(beamai_context:t(), beamai_context:t()) -> delta().
+compute_delta(OldCtx, NewCtx) ->
+    maps:fold(
+        fun(Key, NewValue, Acc) ->
+            case Key of
+                '__context__' -> Acc;  %% 跳过标记字段
+                _ ->
+                    OldValue = maps:get(Key, OldCtx, undefined),
+                    case OldValue =:= NewValue of
+                        true -> Acc;
+                        false -> Acc#{Key => NewValue}
+                    end
             end
         end,
         #{},
-        NewKeys
+        NewCtx
     ).
 
 %%====================================================================
@@ -235,21 +234,21 @@ compute_delta(OldState, NewState) ->
 %%
 %% Command 的 update 直接作为 delta（跳过 compute_delta）
 %% Command 的 goto 覆盖边路由（undefined 时回退正常路由）
--spec handle_command(beamai_graph_command:command(), beamai_graph_engine:state(), list()) ->
+-spec handle_command(beamai_graph_command:command(), beamai_context:t(), list()) ->
     beamai_graph_engine:compute_result().
-handle_command(Cmd, GlobalState, RoutingEdges) ->
+handle_command(Cmd, Context, RoutingEdges) ->
     Delta = beamai_graph_command:get_update(Cmd),
     Goto = beamai_graph_command:get_goto(Cmd),
-    Activations = resolve_goto(Goto, GlobalState, Delta, RoutingEdges),
+    Activations = resolve_goto(Goto, Context, Delta, RoutingEdges),
     #{delta => Delta, activations => Activations, status => ok}.
 
 %% @private 解析 goto 目标为 activations 列表
--spec resolve_goto(beamai_graph_command:goto_target() | undefined, beamai_graph_engine:state(), map(), list()) ->
+-spec resolve_goto(beamai_graph_command:goto_target() | undefined, beamai_context:t(), map(), list()) ->
     [atom() | {dispatch, beamai_graph_dispatch:dispatch()}].
-resolve_goto(undefined, GlobalState, Delta, RoutingEdges) ->
+resolve_goto(undefined, Context, Delta, RoutingEdges) ->
     %% 无 goto：合并 delta 到状态后使用正常边路由
-    MergedState = beamai_graph_engine:state_set_many(GlobalState, Delta),
-    build_activations(RoutingEdges, MergedState);
+    MergedCtx = beamai_context:set_many(Context, Delta),
+    build_activations(RoutingEdges, MergedCtx);
 resolve_goto(Target, _, _, _) when is_atom(Target) ->
     [Target];
 resolve_goto([], _, _, _) ->
@@ -268,7 +267,7 @@ resolve_goto(Dispatch, _, _, _) when is_map(Dispatch) ->
 %% @private 构建要激活的顶点列表
 %%
 %% 无 inbox 版本：返回顶点ID列表或 dispatch 项
--spec build_activations([beamai_graph_edge:edge()], beamai_graph_engine:state()) -> [atom() | {dispatch, beamai_graph_dispatch:dispatch()}].
+-spec build_activations([beamai_graph_edge:edge()], beamai_context:t()) -> [atom() | {dispatch, beamai_graph_dispatch:dispatch()}].
 build_activations([], _State) ->
     %% 无边，激活终止节点
     [?END_NODE];
