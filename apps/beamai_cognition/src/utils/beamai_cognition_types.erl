@@ -21,7 +21,7 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(beamai_memory_types).
+-module(beamai_cognition_types).
 
 %% API 导出
 -export([

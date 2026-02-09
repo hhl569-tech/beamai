@@ -13,10 +13,10 @@
 -module(beamai_event_memory).
 
 -include_lib("beamai_memory/include/beamai_store.hrl").
--include_lib("beamai_memory/include/beamai_episodic_memory.hrl").
+-include_lib("beamai_cognition/include/beamai_episodic_memory.hrl").
 
 %% 类型别名
--type memory() :: beamai_memory:memory().
+-type store() :: beamai_store:store().
 -type user_id() :: binary().
 -type episode_id() :: binary().
 -type event_id() :: binary().
@@ -59,9 +59,9 @@
 %% - data: 事件数据
 %% - importance: 重要性评分
 %% - tags: 标签列表
--spec record_event(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-record_event(Memory, UserId, EventData) ->
+-spec record_event(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+record_event(Store, UserId, EventData) ->
     Namespace = get_event_namespace(UserId),
     EventId = maps:get(id, EventData, beamai_id:gen_id(<<"evt">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
@@ -79,14 +79,14 @@ record_event(Memory, UserId, EventData) ->
     },
 
     Value = event_to_map(Event),
-    beamai_memory:put(Memory, Namespace, EventId, Value, #{}).
+    beamai_store:put(Store, Namespace, EventId, Value, #{}).
 
 %% @doc 获取单个事件
--spec get_event(memory(), user_id(), event_id()) ->
+-spec get_event(store(), user_id(), event_id()) ->
     {ok, #event{}} | {error, not_found | term()}.
-get_event(Memory, UserId, EventId) ->
+get_event(Store, UserId, EventId) ->
     Namespace = get_event_namespace(UserId),
-    case beamai_memory:get(Memory, Namespace, EventId) of
+    case beamai_store:get(Store, Namespace, EventId) of
         {ok, #store_item{value = Value}} ->
             {ok, map_to_event(Value)};
         {error, _} = Error ->
@@ -94,19 +94,19 @@ get_event(Memory, UserId, EventId) ->
     end.
 
 %% @doc 获取对话片段的所有事件
--spec get_episode_events(memory(), user_id(), episode_id()) ->
+-spec get_episode_events(store(), user_id(), episode_id()) ->
     {ok, [#event{}]} | {error, term()}.
-get_episode_events(Memory, UserId, EpisodeId) ->
-    get_episode_events(Memory, UserId, EpisodeId, #{}).
+get_episode_events(Store, UserId, EpisodeId) ->
+    get_episode_events(Store, UserId, EpisodeId, #{}).
 
--spec get_episode_events(memory(), user_id(), episode_id(), map()) ->
+-spec get_episode_events(store(), user_id(), episode_id(), map()) ->
     {ok, [#event{}]} | {error, term()}.
-get_episode_events(Memory, UserId, EpisodeId, Opts) ->
+get_episode_events(Store, UserId, EpisodeId, Opts) ->
     Namespace = get_event_namespace(UserId),
     Filter = #{<<"episode_id">> => EpisodeId},
     Limit = maps:get(limit, Opts, ?DEFAULT_EVENT_LIMIT),
     SearchOpts = #{filter => Filter, limit => Limit},
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Events = [map_to_event(Item#store_item.value)
                       || #search_result{item = Item} <- Results],
@@ -120,12 +120,12 @@ get_episode_events(Memory, UserId, EpisodeId, Opts) ->
     end.
 
 %% @doc 查找事件
--spec find_events(memory(), user_id(), map()) ->
+-spec find_events(store(), user_id(), map()) ->
     {ok, [#event{}]} | {error, term()}.
-find_events(Memory, UserId, Opts) ->
+find_events(Store, UserId, Opts) ->
     Namespace = get_event_namespace(UserId),
     SearchOpts = build_event_filter(Opts),
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Events = [map_to_event(Item#store_item.value)
                       || #search_result{item = Item} <- Results],
@@ -135,11 +135,11 @@ find_events(Memory, UserId, Opts) ->
     end.
 
 %% @doc 删除事件
--spec delete_event(memory(), user_id(), event_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_event(Memory, UserId, EventId) ->
+-spec delete_event(store(), user_id(), event_id()) ->
+    {ok, store()} | {error, term()}.
+delete_event(Store, UserId, EventId) ->
     Namespace = get_event_namespace(UserId),
-    beamai_memory:delete(Memory, Namespace, EventId).
+    beamai_store:delete(Store, Namespace, EventId).
 
 %%====================================================================
 %% 命名空间工具函数
@@ -160,7 +160,7 @@ event_to_map(#event{} = E) ->
     #{
         <<"id">> => E#event.id,
         <<"episode_id">> => E#event.episode_id,
-        <<"type">> => beamai_memory_types:event_type_to_binary(E#event.type),
+        <<"type">> => beamai_cognition_types:event_type_to_binary(E#event.type),
         <<"description">> => E#event.description,
         <<"data">> => E#event.data,
         <<"timestamp">> => E#event.timestamp,
@@ -176,7 +176,7 @@ map_to_event(M) ->
     #event{
         id = maps:get(<<"id">>, M),
         episode_id = maps:get(<<"episode_id">>, M),
-        type = beamai_memory_types:binary_to_event_type(TypeBin),
+        type = beamai_cognition_types:binary_to_event_type(TypeBin),
         description = maps:get(<<"description">>, M),
         data = maps:get(<<"data">>, M, #{}),
         timestamp = maps:get(<<"timestamp">>, M),

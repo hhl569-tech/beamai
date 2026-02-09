@@ -13,10 +13,10 @@
 -module(beamai_episode_memory).
 
 -include_lib("beamai_memory/include/beamai_store.hrl").
--include_lib("beamai_memory/include/beamai_episodic_memory.hrl").
+-include_lib("beamai_cognition/include/beamai_episodic_memory.hrl").
 
 %% 类型别名
--type memory() :: beamai_memory:memory().
+-type store() :: beamai_store:store().
 -type user_id() :: binary().
 -type episode_id() :: binary().
 
@@ -60,9 +60,9 @@
 %% - participants: 参与者列表
 %% - topics: 话题标签
 %% - importance: 重要性评分
--spec create_episode(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-create_episode(Memory, UserId, EpisodeData) ->
+-spec create_episode(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+create_episode(Store, UserId, EpisodeData) ->
     Namespace = get_episode_namespace(UserId),
     ThreadId = maps:get(thread_id, EpisodeData),
     EpisodeId = maps:get(id, EpisodeData, ThreadId),
@@ -92,13 +92,13 @@ create_episode(Memory, UserId, EpisodeData) ->
         Emb -> #{embedding => Emb}
     end,
 
-    beamai_memory:put(Memory, Namespace, EpisodeId, Value, StoreOpts).
+    beamai_store:put(Store, Namespace, EpisodeId, Value, StoreOpts).
 
 %% @doc 更新对话片段
--spec update_episode(memory(), user_id(), episode_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-update_episode(Memory, UserId, EpisodeId, Updates) ->
-    case get_episode(Memory, UserId, EpisodeId) of
+-spec update_episode(store(), user_id(), episode_id(), map()) ->
+    {ok, store()} | {error, term()}.
+update_episode(Store, UserId, EpisodeId, Updates) ->
+    case get_episode(Store, UserId, EpisodeId) of
         {ok, Episode} ->
             Timestamp = beamai_memory_utils:current_timestamp(),
             UpdatedEpisode = apply_episode_updates(Episode, Updates, Timestamp),
@@ -108,17 +108,17 @@ update_episode(Memory, UserId, EpisodeId, Updates) ->
                 undefined -> #{};
                 Emb -> #{embedding => Emb}
             end,
-            beamai_memory:put(Memory, Namespace, EpisodeId, Value, StoreOpts);
+            beamai_store:put(Store, Namespace, EpisodeId, Value, StoreOpts);
         {error, _} = Error ->
             Error
     end.
 
 %% @doc 获取对话片段
--spec get_episode(memory(), user_id(), episode_id()) ->
+-spec get_episode(store(), user_id(), episode_id()) ->
     {ok, #episode{}} | {error, not_found | term()}.
-get_episode(Memory, UserId, EpisodeId) ->
+get_episode(Store, UserId, EpisodeId) ->
     Namespace = get_episode_namespace(UserId),
-    case beamai_memory:get(Memory, Namespace, EpisodeId) of
+    case beamai_store:get(Store, Namespace, EpisodeId) of
         {ok, #store_item{value = Value, embedding = Emb}} ->
             E = map_to_episode(Value),
             {ok, E#episode{embedding = Emb}};
@@ -134,12 +134,12 @@ get_episode(Memory, UserId, EpisodeId) ->
 %% - since: 开始时间之后
 %% - until: 结束时间之前
 %% - limit: 返回数量限制
--spec find_episodes(memory(), user_id(), map()) ->
+-spec find_episodes(store(), user_id(), map()) ->
     {ok, [#episode{}]} | {error, term()}.
-find_episodes(Memory, UserId, Opts) ->
+find_episodes(Store, UserId, Opts) ->
     Namespace = get_episode_namespace(UserId),
     SearchOpts = build_episode_filter(Opts),
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Episodes = [begin
                 E = map_to_episode(Item#store_item.value),
@@ -153,33 +153,33 @@ find_episodes(Memory, UserId, Opts) ->
     end.
 
 %% @doc 获取所有对话片段
--spec find_episodes(memory(), user_id()) ->
+-spec find_episodes(store(), user_id()) ->
     {ok, [#episode{}]} | {error, term()}.
-find_episodes(Memory, UserId) ->
-    find_episodes(Memory, UserId, #{}).
+find_episodes(Store, UserId) ->
+    find_episodes(Store, UserId, #{}).
 
 %% @doc 完成对话片段
--spec complete_episode(memory(), user_id(), episode_id()) ->
-    {ok, memory()} | {error, term()}.
-complete_episode(Memory, UserId, EpisodeId) ->
-    complete_episode(Memory, UserId, EpisodeId, #{}).
+-spec complete_episode(store(), user_id(), episode_id()) ->
+    {ok, store()} | {error, term()}.
+complete_episode(Store, UserId, EpisodeId) ->
+    complete_episode(Store, UserId, EpisodeId, #{}).
 
--spec complete_episode(memory(), user_id(), episode_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-complete_episode(Memory, UserId, EpisodeId, FinalData) ->
+-spec complete_episode(store(), user_id(), episode_id(), map()) ->
+    {ok, store()} | {error, term()}.
+complete_episode(Store, UserId, EpisodeId, FinalData) ->
     Timestamp = beamai_memory_utils:current_timestamp(),
     Updates = FinalData#{
         outcome => ?OUTCOME_COMPLETED,
         ended_at => Timestamp
     },
-    update_episode(Memory, UserId, EpisodeId, Updates).
+    update_episode(Store, UserId, EpisodeId, Updates).
 
 %% @doc 删除对话片段
--spec delete_episode(memory(), user_id(), episode_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_episode(Memory, UserId, EpisodeId) ->
+-spec delete_episode(store(), user_id(), episode_id()) ->
+    {ok, store()} | {error, term()}.
+delete_episode(Store, UserId, EpisodeId) ->
     Namespace = get_episode_namespace(UserId),
-    beamai_memory:delete(Memory, Namespace, EpisodeId).
+    beamai_store:delete(Store, Namespace, EpisodeId).
 
 %%====================================================================
 %% 命名空间工具函数
@@ -205,8 +205,8 @@ episode_to_map(#episode{} = E) ->
         <<"participants">> => E#episode.participants,
         <<"message_count">> => E#episode.message_count,
         <<"topics">> => E#episode.topics,
-        <<"sentiment">> => beamai_memory_types:sentiment_to_binary(E#episode.sentiment),
-        <<"outcome">> => beamai_memory_types:outcome_to_binary(E#episode.outcome),
+        <<"sentiment">> => beamai_cognition_types:sentiment_to_binary(E#episode.sentiment),
+        <<"outcome">> => beamai_cognition_types:outcome_to_binary(E#episode.outcome),
         <<"importance">> => E#episode.importance,
         <<"started_at">> => E#episode.started_at,
         <<"ended_at">> => E#episode.ended_at,
@@ -227,8 +227,8 @@ map_to_episode(M) ->
         participants = maps:get(<<"participants">>, M, []),
         message_count = maps:get(<<"message_count">>, M, 0),
         topics = maps:get(<<"topics">>, M, []),
-        sentiment = beamai_memory_types:binary_to_sentiment(SentimentBin),
-        outcome = beamai_memory_types:binary_to_outcome(OutcomeBin),
+        sentiment = beamai_cognition_types:binary_to_sentiment(SentimentBin),
+        outcome = beamai_cognition_types:binary_to_outcome(OutcomeBin),
         importance = maps:get(<<"importance">>, M, ?DEFAULT_IMPORTANCE),
         started_at = maps:get(<<"started_at">>, M),
         ended_at = maps:get(<<"ended_at">>, M, undefined),

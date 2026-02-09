@@ -13,10 +13,10 @@
 -module(beamai_workflow_memory).
 
 -include_lib("beamai_memory/include/beamai_store.hrl").
--include_lib("beamai_memory/include/beamai_procedural_memory.hrl").
+-include_lib("beamai_cognition/include/beamai_procedural_memory.hrl").
 
 %% 类型别名
--type memory() :: beamai_memory:memory().
+-type store() :: beamai_store:store().
 -type user_id() :: binary().
 -type workflow_id() :: binary().
 
@@ -70,9 +70,9 @@
 %% - input_schema: 输入参数定义
 %% - output_schema: 输出定义
 %% - tags: 标签列表
--spec create_workflow(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-create_workflow(Memory, UserId, WorkflowData) ->
+-spec create_workflow(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+create_workflow(Store, UserId, WorkflowData) ->
     Namespace = get_workflow_namespace(UserId),
     WorkflowId = maps:get(id, WorkflowData, beamai_id:gen_id(<<"wf">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
@@ -106,14 +106,14 @@ create_workflow(Memory, UserId, WorkflowData) ->
         Emb -> #{embedding => Emb}
     end,
 
-    beamai_memory:put(Memory, Namespace, WorkflowId, Value, StoreOpts).
+    beamai_store:put(Store, Namespace, WorkflowId, Value, StoreOpts).
 
 %% @doc 获取工作流
--spec get_workflow(memory(), user_id(), workflow_id()) ->
+-spec get_workflow(store(), user_id(), workflow_id()) ->
     {ok, #workflow{}} | {error, not_found | term()}.
-get_workflow(Memory, UserId, WorkflowId) ->
+get_workflow(Store, UserId, WorkflowId) ->
     Namespace = get_workflow_namespace(UserId),
-    case beamai_memory:get(Memory, Namespace, WorkflowId) of
+    case beamai_store:get(Store, Namespace, WorkflowId) of
         {ok, #store_item{value = Value, embedding = Emb}} ->
             W = map_to_workflow(Value),
             {ok, W#workflow{embedding = Emb}};
@@ -122,12 +122,12 @@ get_workflow(Memory, UserId, WorkflowId) ->
     end.
 
 %% @doc 查找工作流
--spec find_workflows(memory(), user_id(), map()) ->
+-spec find_workflows(store(), user_id(), map()) ->
     {ok, [#workflow{}]} | {error, term()}.
-find_workflows(Memory, UserId, Opts) ->
+find_workflows(Store, UserId, Opts) ->
     Namespace = get_workflow_namespace(UserId),
     SearchOpts = build_workflow_filter(Opts),
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Workflows = [begin
                 W = map_to_workflow(Item#store_item.value),
@@ -144,16 +144,16 @@ find_workflows(Memory, UserId, Opts) ->
     end.
 
 %% @doc 获取所有工作流
--spec find_workflows(memory(), user_id()) ->
+-spec find_workflows(store(), user_id()) ->
     {ok, [#workflow{}]} | {error, term()}.
-find_workflows(Memory, UserId) ->
-    find_workflows(Memory, UserId, #{}).
+find_workflows(Store, UserId) ->
+    find_workflows(Store, UserId, #{}).
 
 %% @doc 更新工作流
--spec update_workflow(memory(), user_id(), workflow_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-update_workflow(Memory, UserId, WorkflowId, Updates) ->
-    case get_workflow(Memory, UserId, WorkflowId) of
+-spec update_workflow(store(), user_id(), workflow_id(), map()) ->
+    {ok, store()} | {error, term()}.
+update_workflow(Store, UserId, WorkflowId, Updates) ->
+    case get_workflow(Store, UserId, WorkflowId) of
         {ok, Workflow} ->
             Timestamp = beamai_memory_utils:current_timestamp(),
             UpdatedWorkflow = apply_workflow_updates(Workflow, Updates, Timestamp),
@@ -163,16 +163,16 @@ update_workflow(Memory, UserId, WorkflowId, Updates) ->
                 undefined -> #{};
                 Emb -> #{embedding => Emb}
             end,
-            beamai_memory:put(Memory, Namespace, WorkflowId, Value, StoreOpts);
+            beamai_store:put(Store, Namespace, WorkflowId, Value, StoreOpts);
         {error, _} = Error ->
             Error
     end.
 
 %% @doc 记录工作流执行
--spec record_workflow_execution(memory(), user_id(), workflow_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-record_workflow_execution(Memory, UserId, WorkflowId, Result) ->
-    case get_workflow(Memory, UserId, WorkflowId) of
+-spec record_workflow_execution(store(), user_id(), workflow_id(), map()) ->
+    {ok, store()} | {error, term()}.
+record_workflow_execution(Store, UserId, WorkflowId, Result) ->
+    case get_workflow(Store, UserId, WorkflowId) of
         {ok, Workflow} ->
             Success = maps:get(success, Result, true),
             Duration = maps:get(duration, Result, undefined),
@@ -198,29 +198,29 @@ record_workflow_execution(Memory, UserId, WorkflowId, Result) ->
                 avg_duration => NewAvgDuration
             },
 
-            update_workflow(Memory, UserId, WorkflowId, Updates);
+            update_workflow(Store, UserId, WorkflowId, Updates);
         {error, _} = Error ->
             Error
     end.
 
 %% @doc 启用工作流
--spec enable_workflow(memory(), user_id(), workflow_id()) ->
-    {ok, memory()} | {error, term()}.
-enable_workflow(Memory, UserId, WorkflowId) ->
-    update_workflow(Memory, UserId, WorkflowId, #{enabled => true}).
+-spec enable_workflow(store(), user_id(), workflow_id()) ->
+    {ok, store()} | {error, term()}.
+enable_workflow(Store, UserId, WorkflowId) ->
+    update_workflow(Store, UserId, WorkflowId, #{enabled => true}).
 
 %% @doc 禁用工作流
--spec disable_workflow(memory(), user_id(), workflow_id()) ->
-    {ok, memory()} | {error, term()}.
-disable_workflow(Memory, UserId, WorkflowId) ->
-    update_workflow(Memory, UserId, WorkflowId, #{enabled => false}).
+-spec disable_workflow(store(), user_id(), workflow_id()) ->
+    {ok, store()} | {error, term()}.
+disable_workflow(Store, UserId, WorkflowId) ->
+    update_workflow(Store, UserId, WorkflowId, #{enabled => false}).
 
 %% @doc 删除工作流
--spec delete_workflow(memory(), user_id(), workflow_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_workflow(Memory, UserId, WorkflowId) ->
+-spec delete_workflow(store(), user_id(), workflow_id()) ->
+    {ok, store()} | {error, term()}.
+delete_workflow(Store, UserId, WorkflowId) ->
     Namespace = get_workflow_namespace(UserId),
-    beamai_memory:delete(Memory, Namespace, WorkflowId).
+    beamai_store:delete(Store, Namespace, WorkflowId).
 
 %%====================================================================
 %% 高级查询 API
@@ -229,11 +229,11 @@ delete_workflow(Memory, UserId, WorkflowId) ->
 %% @doc 获取适用的工作流
 %%
 %% 根据触发条件描述查找适用的工作流
--spec get_applicable_workflows(memory(), user_id(), binary()) ->
+-spec get_applicable_workflows(store(), user_id(), binary()) ->
     {ok, [#workflow{}]} | {error, term()}.
-get_applicable_workflows(Memory, UserId, TriggerDesc) ->
+get_applicable_workflows(Store, UserId, TriggerDesc) ->
     %% 使用语义搜索查找匹配的工作流
-    find_workflows(Memory, UserId, #{query => TriggerDesc}).
+    find_workflows(Store, UserId, #{query => TriggerDesc}).
 
 %%====================================================================
 %% 命名空间工具函数

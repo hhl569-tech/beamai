@@ -43,10 +43,10 @@
 -module(beamai_semantic_memory).
 
 -include_lib("beamai_memory/include/beamai_store.hrl").
--include_lib("beamai_memory/include/beamai_semantic_memory.hrl").
+-include_lib("beamai_cognition/include/beamai_semantic_memory.hrl").
 
 %% 类型别名
--type memory() :: beamai_memory:memory().
+-type store() :: beamai_store:store().
 -type user_id() :: binary().
 -type preference_key() :: binary().
 -type entity_id() :: binary().
@@ -110,19 +110,19 @@
 %% - <<"confidence">> / confidence: 置信度 (0.0 - 1.0)
 %% - <<"source_thread">> / source_thread: 来源会话 ID
 %% - <<"expires_at">> / expires_at: 过期时间
--spec set_preference(memory(), user_id(), preference_key(), map()) ->
-    {ok, memory()} | {error, term()}.
-set_preference(Memory, UserId, Key, Opts) ->
-    set_preference(Memory, UserId, Key, Opts, #{}).
+-spec set_preference(store(), user_id(), preference_key(), map()) ->
+    {ok, store()} | {error, term()}.
+set_preference(Store, UserId, Key, Opts) ->
+    set_preference(Store, UserId, Key, Opts, #{}).
 
--spec set_preference(memory(), user_id(), preference_key(), map(), map()) ->
-    {ok, memory()} | {error, term()}.
-set_preference(Memory, UserId, Key, Opts, StoreOpts) ->
+-spec set_preference(store(), user_id(), preference_key(), map(), map()) ->
+    {ok, store()} | {error, term()}.
+set_preference(Store, UserId, Key, Opts, StoreOpts) ->
     Namespace = get_preference_namespace(UserId),
     Timestamp = beamai_memory_utils:current_timestamp(),
 
     %% 检查是否已存在
-    CreatedAt = case beamai_memory:get(Memory, Namespace, Key) of
+    CreatedAt = case beamai_store:get(Store, Namespace, Key) of
         {ok, #store_item{created_at = T}} -> T;
         {error, not_found} -> Timestamp
     end,
@@ -135,7 +135,7 @@ set_preference(Memory, UserId, Key, Opts, StoreOpts) ->
     ExpiresAt = get_opt(<<"expires_at">>, Opts, undefined),
 
     %% 安全转换 binary 到 atom
-    Source = beamai_memory_types:binary_to_source(SourceBin),
+    Source = beamai_cognition_types:binary_to_source(SourceBin),
 
     %% 构建偏好记录
     Preference = #preference{
@@ -152,14 +152,14 @@ set_preference(Memory, UserId, Key, Opts, StoreOpts) ->
     %% 转换为存储格式
     MapValue = preference_to_map(Preference),
 
-    beamai_memory:put(Memory, Namespace, Key, MapValue, StoreOpts).
+    beamai_store:put(Store, Namespace, Key, MapValue, StoreOpts).
 
 %% @doc 获取单个偏好
--spec get_preference(memory(), user_id(), preference_key()) ->
+-spec get_preference(store(), user_id(), preference_key()) ->
     {ok, #preference{}} | {error, not_found | term()}.
-get_preference(Memory, UserId, Key) ->
+get_preference(Store, UserId, Key) ->
     Namespace = get_preference_namespace(UserId),
-    case beamai_memory:get(Memory, Namespace, Key) of
+    case beamai_store:get(Store, Namespace, Key) of
         {ok, #store_item{value = Value}} ->
             {ok, map_to_preference(Key, Value)};
         {error, _} = Error ->
@@ -167,16 +167,16 @@ get_preference(Memory, UserId, Key) ->
     end.
 
 %% @doc 获取用户的所有偏好
--spec get_preferences(memory(), user_id()) ->
+-spec get_preferences(store(), user_id()) ->
     {ok, [#preference{}]} | {error, term()}.
-get_preferences(Memory, UserId) ->
-    get_preferences(Memory, UserId, #{}).
+get_preferences(Store, UserId) ->
+    get_preferences(Store, UserId, #{}).
 
--spec get_preferences(memory(), user_id(), map()) ->
+-spec get_preferences(store(), user_id(), map()) ->
     {ok, [#preference{}]} | {error, term()}.
-get_preferences(Memory, UserId, Opts) ->
+get_preferences(Store, UserId, Opts) ->
     Namespace = get_preference_namespace(UserId),
-    case beamai_memory:search(Memory, Namespace, Opts) of
+    case beamai_store:search(Store, Namespace, Opts) of
         {ok, Results} ->
             Preferences = [map_to_preference(
                 Item#store_item.key,
@@ -188,11 +188,11 @@ get_preferences(Memory, UserId, Opts) ->
     end.
 
 %% @doc 删除偏好
--spec delete_preference(memory(), user_id(), preference_key()) ->
-    {ok, memory()} | {error, term()}.
-delete_preference(Memory, UserId, Key) ->
+-spec delete_preference(store(), user_id(), preference_key()) ->
+    {ok, store()} | {error, term()}.
+delete_preference(Store, UserId, Key) ->
     Namespace = get_preference_namespace(UserId),
-    beamai_memory:delete(Memory, Namespace, Key).
+    beamai_store:delete(Store, Namespace, Key).
 
 %%====================================================================
 %% 实体管理 API
@@ -209,15 +209,15 @@ delete_preference(Memory, UserId, Key) ->
 %% - <<"relations">> / relations: 关系列表
 %% - <<"confidence">> / confidence: 置信度
 %% - <<"source">> / source: 来源 (<<"explicit">> | <<"extracted">> | ...)
--spec upsert_entity(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-upsert_entity(Memory, UserId, EntityData) ->
+-spec upsert_entity(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+upsert_entity(Store, UserId, EntityData) ->
     Namespace = get_entity_namespace(UserId),
     EntityId = get_opt(<<"id">>, EntityData),
     Timestamp = beamai_memory_utils:current_timestamp(),
 
     %% 检查是否已存在
-    CreatedAt = case beamai_memory:get(Memory, Namespace, EntityId) of
+    CreatedAt = case beamai_store:get(Store, Namespace, EntityId) of
         {ok, #store_item{created_at = T}} -> T;
         {error, not_found} -> Timestamp
     end,
@@ -227,8 +227,8 @@ upsert_entity(Memory, UserId, EntityData) ->
     SourceBin = get_opt(<<"source">>, EntityData, <<"explicit">>),
 
     %% 安全转换 binary 到 atom
-    Type = beamai_memory_types:binary_to_entity_type(TypeBin),
-    Source = beamai_memory_types:binary_to_source(SourceBin),
+    Type = beamai_cognition_types:binary_to_entity_type(TypeBin),
+    Source = beamai_cognition_types:binary_to_source(SourceBin),
 
     %% 构建实体记录
     Entity = #entity{
@@ -247,14 +247,14 @@ upsert_entity(Memory, UserId, EntityData) ->
     %% 转换为存储格式
     Value = entity_to_map(Entity),
 
-    beamai_memory:put(Memory, Namespace, EntityId, Value, #{}).
+    beamai_store:put(Store, Namespace, EntityId, Value, #{}).
 
 %% @doc 获取单个实体
--spec get_entity(memory(), user_id(), entity_id()) ->
+-spec get_entity(store(), user_id(), entity_id()) ->
     {ok, #entity{}} | {error, not_found | term()}.
-get_entity(Memory, UserId, EntityId) ->
+get_entity(Store, UserId, EntityId) ->
     Namespace = get_entity_namespace(UserId),
-    case beamai_memory:get(Memory, Namespace, EntityId) of
+    case beamai_store:get(Store, Namespace, EntityId) of
         {ok, #store_item{value = Value}} ->
             {ok, map_to_entity(Value)};
         {error, _} = Error ->
@@ -267,12 +267,12 @@ get_entity(Memory, UserId, EntityId) ->
 %% - type: 按类型过滤
 %% - name: 按名称过滤（精确匹配）
 %% - limit: 返回数量限制
--spec find_entities(memory(), user_id(), map()) ->
+-spec find_entities(store(), user_id(), map()) ->
     {ok, [#entity{}]} | {error, term()}.
-find_entities(Memory, UserId, Opts) ->
+find_entities(Store, UserId, Opts) ->
     Namespace = get_entity_namespace(UserId),
     SearchOpts = build_entity_filter(Opts),
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Entities = [map_to_entity(Item#store_item.value)
                         || #search_result{item = Item} <- Results],
@@ -282,17 +282,17 @@ find_entities(Memory, UserId, Opts) ->
     end.
 
 %% @doc 获取用户的所有实体
--spec find_entities(memory(), user_id()) ->
+-spec find_entities(store(), user_id()) ->
     {ok, [#entity{}]} | {error, term()}.
-find_entities(Memory, UserId) ->
-    find_entities(Memory, UserId, #{}).
+find_entities(Store, UserId) ->
+    find_entities(Store, UserId, #{}).
 
 %% @doc 删除实体
--spec delete_entity(memory(), user_id(), entity_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_entity(Memory, UserId, EntityId) ->
+-spec delete_entity(store(), user_id(), entity_id()) ->
+    {ok, store()} | {error, term()}.
+delete_entity(Store, UserId, EntityId) ->
     Namespace = get_entity_namespace(UserId),
-    beamai_memory:delete(Memory, Namespace, EntityId).
+    beamai_store:delete(Store, Namespace, EntityId).
 
 %%====================================================================
 %% 知识管理 API
@@ -311,9 +311,9 @@ delete_entity(Memory, UserId, EntityId) ->
 %% - <<"source">> / source: 来源 (<<"explicit">> | ...)
 %% - <<"source_ref">> / source_ref: 来源引用
 %% - <<"embedding">> / embedding: 向量嵌入
--spec add_knowledge(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-add_knowledge(Memory, UserId, KnowledgeData) ->
+-spec add_knowledge(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+add_knowledge(Store, UserId, KnowledgeData) ->
     Namespace = get_knowledge_namespace(UserId),
     KnowledgeId = get_opt(<<"id">>, KnowledgeData, beamai_id:gen_id(<<"k">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
@@ -323,8 +323,8 @@ add_knowledge(Memory, UserId, KnowledgeData) ->
     SourceBin = get_opt(<<"source">>, KnowledgeData, <<"explicit">>),
 
     %% 安全转换 binary 到 atom
-    Type = beamai_memory_types:binary_to_knowledge_type(TypeBin),
-    Source = beamai_memory_types:binary_to_source(SourceBin),
+    Type = beamai_cognition_types:binary_to_knowledge_type(TypeBin),
+    Source = beamai_cognition_types:binary_to_source(SourceBin),
 
     %% 构建知识记录
     Knowledge = #knowledge{
@@ -352,14 +352,14 @@ add_knowledge(Memory, UserId, KnowledgeData) ->
         Emb -> #{embedding => Emb}
     end,
 
-    beamai_memory:put(Memory, Namespace, KnowledgeId, Value, StoreOpts).
+    beamai_store:put(Store, Namespace, KnowledgeId, Value, StoreOpts).
 
 %% @doc 获取单个知识
--spec get_knowledge(memory(), user_id(), knowledge_id()) ->
+-spec get_knowledge(store(), user_id(), knowledge_id()) ->
     {ok, #knowledge{}} | {error, not_found | term()}.
-get_knowledge(Memory, UserId, KnowledgeId) ->
+get_knowledge(Store, UserId, KnowledgeId) ->
     Namespace = get_knowledge_namespace(UserId),
-    case beamai_memory:get(Memory, Namespace, KnowledgeId) of
+    case beamai_store:get(Store, Namespace, KnowledgeId) of
         {ok, #store_item{value = Value, embedding = Emb}} ->
             K = map_to_knowledge(Value),
             {ok, K#knowledge{embedding = Emb}};
@@ -375,12 +375,12 @@ get_knowledge(Memory, UserId, KnowledgeId) ->
 %% - tags: 按标签过滤（任一匹配）
 %% - query: 语义搜索查询（需要后端支持）
 %% - limit: 返回数量限制
--spec query_knowledge(memory(), user_id(), map()) ->
+-spec query_knowledge(store(), user_id(), map()) ->
     {ok, [#knowledge{}]} | {error, term()}.
-query_knowledge(Memory, UserId, Opts) ->
+query_knowledge(Store, UserId, Opts) ->
     Namespace = get_knowledge_namespace(UserId),
     SearchOpts = build_knowledge_filter(Opts),
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Knowledges = [begin
                 K = map_to_knowledge(Item#store_item.value),
@@ -392,26 +392,26 @@ query_knowledge(Memory, UserId, Opts) ->
     end.
 
 %% @doc 获取用户的所有知识
--spec query_knowledge(memory(), user_id()) ->
+-spec query_knowledge(store(), user_id()) ->
     {ok, [#knowledge{}]} | {error, term()}.
-query_knowledge(Memory, UserId) ->
-    query_knowledge(Memory, UserId, #{}).
+query_knowledge(Store, UserId) ->
+    query_knowledge(Store, UserId, #{}).
 
 %% @doc 删除知识
--spec delete_knowledge(memory(), user_id(), knowledge_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_knowledge(Memory, UserId, KnowledgeId) ->
+-spec delete_knowledge(store(), user_id(), knowledge_id()) ->
+    {ok, store()} | {error, term()}.
+delete_knowledge(Store, UserId, KnowledgeId) ->
     Namespace = get_knowledge_namespace(UserId),
-    beamai_memory:delete(Memory, Namespace, KnowledgeId).
+    beamai_store:delete(Store, Namespace, KnowledgeId).
 
 %%====================================================================
 %% 共享知识 API
 %%====================================================================
 
 %% @doc 添加共享知识
--spec add_shared_knowledge(memory(), map()) ->
-    {ok, memory()} | {error, term()}.
-add_shared_knowledge(Memory, KnowledgeData) ->
+-spec add_shared_knowledge(store(), map()) ->
+    {ok, store()} | {error, term()}.
+add_shared_knowledge(Store, KnowledgeData) ->
     Namespace = get_shared_knowledge_namespace(),
     KnowledgeId = maps:get(id, KnowledgeData, beamai_id:gen_id(<<"k">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
@@ -438,20 +438,20 @@ add_shared_knowledge(Memory, KnowledgeData) ->
         Emb -> #{embedding => Emb}
     end,
 
-    beamai_memory:put(Memory, Namespace, KnowledgeId, Value, StoreOpts).
+    beamai_store:put(Store, Namespace, KnowledgeId, Value, StoreOpts).
 
 %% @doc 查询共享知识
--spec query_shared_knowledge(memory()) ->
+-spec query_shared_knowledge(store()) ->
     {ok, [#knowledge{}]} | {error, term()}.
-query_shared_knowledge(Memory) ->
-    query_shared_knowledge(Memory, #{}).
+query_shared_knowledge(Store) ->
+    query_shared_knowledge(Store, #{}).
 
--spec query_shared_knowledge(memory(), map()) ->
+-spec query_shared_knowledge(store(), map()) ->
     {ok, [#knowledge{}]} | {error, term()}.
-query_shared_knowledge(Memory, Opts) ->
+query_shared_knowledge(Store, Opts) ->
     Namespace = get_shared_knowledge_namespace(),
     SearchOpts = build_knowledge_filter(Opts),
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Knowledges = [begin
                 K = map_to_knowledge(Item#store_item.value),
@@ -497,7 +497,7 @@ preference_to_map(#preference{} = P) ->
         <<"key">> => P#preference.key,
         <<"value">> => P#preference.value,
         <<"confidence">> => P#preference.confidence,
-        <<"source">> => beamai_memory_types:source_to_binary(P#preference.source),
+        <<"source">> => beamai_cognition_types:source_to_binary(P#preference.source),
         <<"source_thread">> => P#preference.source_thread,
         <<"created_at">> => P#preference.created_at,
         <<"updated_at">> => P#preference.updated_at,
@@ -512,7 +512,7 @@ map_to_preference(Key, M) ->
         key = Key,
         value = maps:get(<<"value">>, M),
         confidence = maps:get(<<"confidence">>, M, 1.0),
-        source = beamai_memory_types:binary_to_source(SourceBin),
+        source = beamai_cognition_types:binary_to_source(SourceBin),
         source_thread = maps:get(<<"source_thread">>, M, undefined),
         created_at = maps:get(<<"created_at">>, M),
         updated_at = maps:get(<<"updated_at">>, M),
@@ -524,13 +524,13 @@ map_to_preference(Key, M) ->
 entity_to_map(#entity{} = E) ->
     #{
         <<"id">> => E#entity.id,
-        <<"type">> => beamai_memory_types:entity_type_to_binary(E#entity.type),
+        <<"type">> => beamai_cognition_types:entity_type_to_binary(E#entity.type),
         <<"name">> => E#entity.name,
         <<"aliases">> => E#entity.aliases,
         <<"attributes">> => E#entity.attributes,
         <<"relations">> => encode_relations(E#entity.relations),
         <<"confidence">> => E#entity.confidence,
-        <<"source">> => beamai_memory_types:source_to_binary(E#entity.source),
+        <<"source">> => beamai_cognition_types:source_to_binary(E#entity.source),
         <<"created_at">> => E#entity.created_at,
         <<"updated_at">> => E#entity.updated_at
     }.
@@ -542,13 +542,13 @@ map_to_entity(M) ->
     SourceBin = maps:get(<<"source">>, M, <<"explicit">>),
     #entity{
         id = maps:get(<<"id">>, M),
-        type = beamai_memory_types:binary_to_entity_type(TypeBin),
+        type = beamai_cognition_types:binary_to_entity_type(TypeBin),
         name = maps:get(<<"name">>, M),
         aliases = maps:get(<<"aliases">>, M, []),
         attributes = maps:get(<<"attributes">>, M, #{}),
         relations = decode_relations(maps:get(<<"relations">>, M, [])),
         confidence = maps:get(<<"confidence">>, M, 1.0),
-        source = beamai_memory_types:binary_to_source(SourceBin),
+        source = beamai_cognition_types:binary_to_source(SourceBin),
         created_at = maps:get(<<"created_at">>, M),
         updated_at = maps:get(<<"updated_at">>, M)
     }.
@@ -558,13 +558,13 @@ map_to_entity(M) ->
 knowledge_to_map(#knowledge{} = K) ->
     #{
         <<"id">> => K#knowledge.id,
-        <<"type">> => beamai_memory_types:knowledge_type_to_binary(K#knowledge.type),
+        <<"type">> => beamai_cognition_types:knowledge_type_to_binary(K#knowledge.type),
         <<"subject">> => K#knowledge.subject,
         <<"content">> => K#knowledge.content,
         <<"tags">> => K#knowledge.tags,
         <<"related_entities">> => K#knowledge.related_entities,
         <<"confidence">> => K#knowledge.confidence,
-        <<"source">> => beamai_memory_types:source_to_binary(K#knowledge.source),
+        <<"source">> => beamai_cognition_types:source_to_binary(K#knowledge.source),
         <<"source_ref">> => K#knowledge.source_ref,
         <<"created_at">> => K#knowledge.created_at,
         <<"updated_at">> => K#knowledge.updated_at,
@@ -578,13 +578,13 @@ map_to_knowledge(M) ->
     SourceBin = maps:get(<<"source">>, M, <<"explicit">>),
     #knowledge{
         id = maps:get(<<"id">>, M),
-        type = beamai_memory_types:binary_to_knowledge_type(TypeBin),
+        type = beamai_cognition_types:binary_to_knowledge_type(TypeBin),
         subject = maps:get(<<"subject">>, M),
         content = maps:get(<<"content">>, M),
         tags = maps:get(<<"tags">>, M, []),
         related_entities = maps:get(<<"related_entities">>, M, []),
         confidence = maps:get(<<"confidence">>, M, 1.0),
-        source = beamai_memory_types:binary_to_source(SourceBin),
+        source = beamai_cognition_types:binary_to_source(SourceBin),
         source_ref = maps:get(<<"source_ref">>, M, undefined),
         embedding = undefined,  %% embedding 单独存储
         created_at = maps:get(<<"created_at">>, M),

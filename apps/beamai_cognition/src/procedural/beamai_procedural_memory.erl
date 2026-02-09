@@ -36,10 +36,10 @@
 -module(beamai_procedural_memory).
 
 -include_lib("beamai_memory/include/beamai_store.hrl").
--include_lib("beamai_memory/include/beamai_procedural_memory.hrl").
+-include_lib("beamai_cognition/include/beamai_procedural_memory.hrl").
 
 %% 类型别名
--type memory() :: beamai_memory:memory().
+-type store() :: beamai_store:store().
 -type user_id() :: binary().
 -type skill_id() :: binary().
 -type workflow_id() :: binary().
@@ -112,110 +112,110 @@
 %%====================================================================
 
 %% @doc 注册技能
--spec register_skill(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-register_skill(Memory, UserId, SkillData) ->
-    beamai_skill_memory:register_skill(Memory, UserId, SkillData).
+-spec register_skill(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+register_skill(Store, UserId, SkillData) ->
+    beamai_skill_memory:register_skill(Store, UserId, SkillData).
 
 %% @doc 获取技能
--spec get_skill(memory(), user_id(), skill_id()) ->
+-spec get_skill(store(), user_id(), skill_id()) ->
     {ok, #skill{}} | {error, not_found | term()}.
-get_skill(Memory, UserId, SkillId) ->
-    beamai_skill_memory:get_skill(Memory, UserId, SkillId).
+get_skill(Store, UserId, SkillId) ->
+    beamai_skill_memory:get_skill(Store, UserId, SkillId).
 
 %% @doc 查找技能
--spec find_skills(memory(), user_id(), map()) ->
+-spec find_skills(store(), user_id(), map()) ->
     {ok, [#skill{}]} | {error, term()}.
-find_skills(Memory, UserId, Opts) ->
-    beamai_skill_memory:find_skills(Memory, UserId, Opts).
+find_skills(Store, UserId, Opts) ->
+    beamai_skill_memory:find_skills(Store, UserId, Opts).
 
 %% @doc 获取所有技能
--spec find_skills(memory(), user_id()) ->
+-spec find_skills(store(), user_id()) ->
     {ok, [#skill{}]} | {error, term()}.
-find_skills(Memory, UserId) ->
-    beamai_skill_memory:find_skills(Memory, UserId).
+find_skills(Store, UserId) ->
+    beamai_skill_memory:find_skills(Store, UserId).
 
 %% @doc 更新技能
--spec update_skill(memory(), user_id(), skill_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-update_skill(Memory, UserId, SkillId, Updates) ->
-    beamai_skill_memory:update_skill(Memory, UserId, SkillId, Updates).
+-spec update_skill(store(), user_id(), skill_id(), map()) ->
+    {ok, store()} | {error, term()}.
+update_skill(Store, UserId, SkillId, Updates) ->
+    beamai_skill_memory:update_skill(Store, UserId, SkillId, Updates).
 
 %% @doc 记录技能使用
--spec record_skill_usage(memory(), user_id(), skill_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-record_skill_usage(Memory, UserId, SkillId, Result) ->
-    beamai_skill_memory:record_skill_usage(Memory, UserId, SkillId, Result).
+-spec record_skill_usage(store(), user_id(), skill_id(), map()) ->
+    {ok, store()} | {error, term()}.
+record_skill_usage(Store, UserId, SkillId, Result) ->
+    beamai_skill_memory:record_skill_usage(Store, UserId, SkillId, Result).
 
 %% @doc 弃用技能
--spec deprecate_skill(memory(), user_id(), skill_id()) ->
-    {ok, memory()} | {error, term()}.
-deprecate_skill(Memory, UserId, SkillId) ->
-    beamai_skill_memory:deprecate_skill(Memory, UserId, SkillId).
+-spec deprecate_skill(store(), user_id(), skill_id()) ->
+    {ok, store()} | {error, term()}.
+deprecate_skill(Store, UserId, SkillId) ->
+    beamai_skill_memory:deprecate_skill(Store, UserId, SkillId).
 
 %% @doc 删除技能
--spec delete_skill(memory(), user_id(), skill_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_skill(Memory, UserId, SkillId) ->
-    beamai_skill_memory:delete_skill(Memory, UserId, SkillId).
+-spec delete_skill(store(), user_id(), skill_id()) ->
+    {ok, store()} | {error, term()}.
+delete_skill(Store, UserId, SkillId) ->
+    beamai_skill_memory:delete_skill(Store, UserId, SkillId).
 
 %%====================================================================
 %% 工作流管理 API（委托给 beamai_workflow_memory）
 %%====================================================================
 
 %% @doc 创建工作流
--spec create_workflow(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-create_workflow(Memory, UserId, WorkflowData) ->
-    beamai_workflow_memory:create_workflow(Memory, UserId, WorkflowData).
+-spec create_workflow(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+create_workflow(Store, UserId, WorkflowData) ->
+    beamai_workflow_memory:create_workflow(Store, UserId, WorkflowData).
 
 %% @doc 获取工作流
--spec get_workflow(memory(), user_id(), workflow_id()) ->
+-spec get_workflow(store(), user_id(), workflow_id()) ->
     {ok, #workflow{}} | {error, not_found | term()}.
-get_workflow(Memory, UserId, WorkflowId) ->
-    beamai_workflow_memory:get_workflow(Memory, UserId, WorkflowId).
+get_workflow(Store, UserId, WorkflowId) ->
+    beamai_workflow_memory:get_workflow(Store, UserId, WorkflowId).
 
 %% @doc 查找工作流
--spec find_workflows(memory(), user_id(), map()) ->
+-spec find_workflows(store(), user_id(), map()) ->
     {ok, [#workflow{}]} | {error, term()}.
-find_workflows(Memory, UserId, Opts) ->
-    beamai_workflow_memory:find_workflows(Memory, UserId, Opts).
+find_workflows(Store, UserId, Opts) ->
+    beamai_workflow_memory:find_workflows(Store, UserId, Opts).
 
 %% @doc 获取所有工作流
--spec find_workflows(memory(), user_id()) ->
+-spec find_workflows(store(), user_id()) ->
     {ok, [#workflow{}]} | {error, term()}.
-find_workflows(Memory, UserId) ->
-    beamai_workflow_memory:find_workflows(Memory, UserId).
+find_workflows(Store, UserId) ->
+    beamai_workflow_memory:find_workflows(Store, UserId).
 
 %% @doc 更新工作流
--spec update_workflow(memory(), user_id(), workflow_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-update_workflow(Memory, UserId, WorkflowId, Updates) ->
-    beamai_workflow_memory:update_workflow(Memory, UserId, WorkflowId, Updates).
+-spec update_workflow(store(), user_id(), workflow_id(), map()) ->
+    {ok, store()} | {error, term()}.
+update_workflow(Store, UserId, WorkflowId, Updates) ->
+    beamai_workflow_memory:update_workflow(Store, UserId, WorkflowId, Updates).
 
 %% @doc 记录工作流执行
--spec record_workflow_execution(memory(), user_id(), workflow_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-record_workflow_execution(Memory, UserId, WorkflowId, Result) ->
-    beamai_workflow_memory:record_workflow_execution(Memory, UserId, WorkflowId, Result).
+-spec record_workflow_execution(store(), user_id(), workflow_id(), map()) ->
+    {ok, store()} | {error, term()}.
+record_workflow_execution(Store, UserId, WorkflowId, Result) ->
+    beamai_workflow_memory:record_workflow_execution(Store, UserId, WorkflowId, Result).
 
 %% @doc 启用工作流
--spec enable_workflow(memory(), user_id(), workflow_id()) ->
-    {ok, memory()} | {error, term()}.
-enable_workflow(Memory, UserId, WorkflowId) ->
-    beamai_workflow_memory:enable_workflow(Memory, UserId, WorkflowId).
+-spec enable_workflow(store(), user_id(), workflow_id()) ->
+    {ok, store()} | {error, term()}.
+enable_workflow(Store, UserId, WorkflowId) ->
+    beamai_workflow_memory:enable_workflow(Store, UserId, WorkflowId).
 
 %% @doc 禁用工作流
--spec disable_workflow(memory(), user_id(), workflow_id()) ->
-    {ok, memory()} | {error, term()}.
-disable_workflow(Memory, UserId, WorkflowId) ->
-    beamai_workflow_memory:disable_workflow(Memory, UserId, WorkflowId).
+-spec disable_workflow(store(), user_id(), workflow_id()) ->
+    {ok, store()} | {error, term()}.
+disable_workflow(Store, UserId, WorkflowId) ->
+    beamai_workflow_memory:disable_workflow(Store, UserId, WorkflowId).
 
 %% @doc 删除工作流
--spec delete_workflow(memory(), user_id(), workflow_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_workflow(Memory, UserId, WorkflowId) ->
-    beamai_workflow_memory:delete_workflow(Memory, UserId, WorkflowId).
+-spec delete_workflow(store(), user_id(), workflow_id()) ->
+    {ok, store()} | {error, term()}.
+delete_workflow(Store, UserId, WorkflowId) ->
+    beamai_workflow_memory:delete_workflow(Store, UserId, WorkflowId).
 
 %%====================================================================
 %% 工具模式管理 API（本模块直接处理）
@@ -234,9 +234,9 @@ delete_workflow(Memory, UserId, WorkflowId) ->
 %% - best_practices: 最佳实践
 %% - pitfalls: 常见错误
 %% - tags: 标签列表
--spec register_tool_pattern(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-register_tool_pattern(Memory, UserId, PatternData) ->
+-spec register_tool_pattern(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+register_tool_pattern(Store, UserId, PatternData) ->
     Namespace = get_tool_pattern_namespace(UserId),
     PatternId = maps:get(id, PatternData, beamai_id:gen_id(<<"pat">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
@@ -265,14 +265,14 @@ register_tool_pattern(Memory, UserId, PatternData) ->
         Emb -> #{embedding => Emb}
     end,
 
-    beamai_memory:put(Memory, Namespace, PatternId, Value, StoreOpts).
+    beamai_store:put(Store, Namespace, PatternId, Value, StoreOpts).
 
 %% @doc 获取工具模式
--spec get_tool_pattern(memory(), user_id(), pattern_id()) ->
+-spec get_tool_pattern(store(), user_id(), pattern_id()) ->
     {ok, #tool_pattern{}} | {error, not_found | term()}.
-get_tool_pattern(Memory, UserId, PatternId) ->
+get_tool_pattern(Store, UserId, PatternId) ->
     Namespace = get_tool_pattern_namespace(UserId),
-    case beamai_memory:get(Memory, Namespace, PatternId) of
+    case beamai_store:get(Store, Namespace, PatternId) of
         {ok, #store_item{value = Value, embedding = Emb}} ->
             P = map_to_tool_pattern(Value),
             {ok, P#tool_pattern{embedding = Emb}};
@@ -281,12 +281,12 @@ get_tool_pattern(Memory, UserId, PatternId) ->
     end.
 
 %% @doc 查找工具模式
--spec find_tool_patterns(memory(), user_id(), map()) ->
+-spec find_tool_patterns(store(), user_id(), map()) ->
     {ok, [#tool_pattern{}]} | {error, term()}.
-find_tool_patterns(Memory, UserId, Opts) ->
+find_tool_patterns(Store, UserId, Opts) ->
     Namespace = get_tool_pattern_namespace(UserId),
     SearchOpts = build_pattern_filter(Opts),
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Patterns = [begin
                 P = map_to_tool_pattern(Item#store_item.value),
@@ -298,16 +298,16 @@ find_tool_patterns(Memory, UserId, Opts) ->
     end.
 
 %% @doc 查找特定工具的模式
--spec find_patterns_for_tool(memory(), user_id(), binary()) ->
+-spec find_patterns_for_tool(store(), user_id(), binary()) ->
     {ok, [#tool_pattern{}]} | {error, term()}.
-find_patterns_for_tool(Memory, UserId, ToolName) ->
-    find_tool_patterns(Memory, UserId, #{tool_name => ToolName}).
+find_patterns_for_tool(Store, UserId, ToolName) ->
+    find_tool_patterns(Store, UserId, #{tool_name => ToolName}).
 
 %% @doc 更新工具模式
--spec update_tool_pattern(memory(), user_id(), pattern_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-update_tool_pattern(Memory, UserId, PatternId, Updates) ->
-    case get_tool_pattern(Memory, UserId, PatternId) of
+-spec update_tool_pattern(store(), user_id(), pattern_id(), map()) ->
+    {ok, store()} | {error, term()}.
+update_tool_pattern(Store, UserId, PatternId, Updates) ->
+    case get_tool_pattern(Store, UserId, PatternId) of
         {ok, Pattern} ->
             Timestamp = beamai_memory_utils:current_timestamp(),
             UpdatedPattern = apply_pattern_updates(Pattern, Updates, Timestamp),
@@ -317,16 +317,16 @@ update_tool_pattern(Memory, UserId, PatternId, Updates) ->
                 undefined -> #{};
                 Emb -> #{embedding => Emb}
             end,
-            beamai_memory:put(Memory, Namespace, PatternId, Value, StoreOpts);
+            beamai_store:put(Store, Namespace, PatternId, Value, StoreOpts);
         {error, _} = Error ->
             Error
     end.
 
 %% @doc 记录模式使用
--spec record_pattern_usage(memory(), user_id(), pattern_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-record_pattern_usage(Memory, UserId, PatternId, Result) ->
-    case get_tool_pattern(Memory, UserId, PatternId) of
+-spec record_pattern_usage(store(), user_id(), pattern_id(), map()) ->
+    {ok, store()} | {error, term()}.
+record_pattern_usage(Store, UserId, PatternId, Result) ->
+    case get_tool_pattern(Store, UserId, PatternId) of
         {ok, Pattern} ->
             Success = maps:get(success, Result, true),
 
@@ -342,63 +342,63 @@ record_pattern_usage(Memory, UserId, PatternId, Result) ->
                 success_rate => NewSuccessRate
             },
 
-            update_tool_pattern(Memory, UserId, PatternId, Updates);
+            update_tool_pattern(Store, UserId, PatternId, Updates);
         {error, _} = Error ->
             Error
     end.
 
 %% @doc 删除工具模式
--spec delete_tool_pattern(memory(), user_id(), pattern_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_tool_pattern(Memory, UserId, PatternId) ->
+-spec delete_tool_pattern(store(), user_id(), pattern_id()) ->
+    {ok, store()} | {error, term()}.
+delete_tool_pattern(Store, UserId, PatternId) ->
     Namespace = get_tool_pattern_namespace(UserId),
-    beamai_memory:delete(Memory, Namespace, PatternId).
+    beamai_store:delete(Store, Namespace, PatternId).
 
 %%====================================================================
 %% 共享技能 API（委托给 beamai_skill_memory）
 %%====================================================================
 
 %% @doc 注册共享技能
--spec register_shared_skill(memory(), map()) ->
-    {ok, memory()} | {error, term()}.
-register_shared_skill(Memory, SkillData) ->
-    beamai_skill_memory:register_shared_skill(Memory, SkillData).
+-spec register_shared_skill(store(), map()) ->
+    {ok, store()} | {error, term()}.
+register_shared_skill(Store, SkillData) ->
+    beamai_skill_memory:register_shared_skill(Store, SkillData).
 
 %% @doc 查找共享技能
--spec find_shared_skills(memory(), map()) ->
+-spec find_shared_skills(store(), map()) ->
     {ok, [#skill{}]} | {error, term()}.
-find_shared_skills(Memory, Opts) ->
-    beamai_skill_memory:find_shared_skills(Memory, Opts).
+find_shared_skills(Store, Opts) ->
+    beamai_skill_memory:find_shared_skills(Store, Opts).
 
 %% @doc 获取所有共享技能
--spec find_shared_skills(memory()) ->
+-spec find_shared_skills(store()) ->
     {ok, [#skill{}]} | {error, term()}.
-find_shared_skills(Memory) ->
-    beamai_skill_memory:find_shared_skills(Memory).
+find_shared_skills(Store) ->
+    beamai_skill_memory:find_shared_skills(Store).
 
 %%====================================================================
 %% 高级查询 API
 %%====================================================================
 
 %% @doc 获取熟练的技能
--spec get_proficient_skills(memory(), user_id()) ->
+-spec get_proficient_skills(store(), user_id()) ->
     {ok, [#skill{}]} | {error, term()}.
-get_proficient_skills(Memory, UserId) ->
-    beamai_skill_memory:get_proficient_skills(Memory, UserId).
+get_proficient_skills(Store, UserId) ->
+    beamai_skill_memory:get_proficient_skills(Store, UserId).
 
 %% @doc 获取适用的工作流
--spec get_applicable_workflows(memory(), user_id(), binary()) ->
+-spec get_applicable_workflows(store(), user_id(), binary()) ->
     {ok, [#workflow{}]} | {error, term()}.
-get_applicable_workflows(Memory, UserId, TriggerDesc) ->
-    beamai_workflow_memory:get_applicable_workflows(Memory, UserId, TriggerDesc).
+get_applicable_workflows(Store, UserId, TriggerDesc) ->
+    beamai_workflow_memory:get_applicable_workflows(Store, UserId, TriggerDesc).
 
 %% @doc 建议工具使用
 %%
 %% 根据使用场景建议工具模式
--spec suggest_tools(memory(), user_id(), binary()) ->
+-spec suggest_tools(store(), user_id(), binary()) ->
     {ok, [#tool_pattern{}]} | {error, term()}.
-suggest_tools(Memory, UserId, UseCase) ->
-    find_tool_patterns(Memory, UserId, #{query => UseCase}).
+suggest_tools(Store, UserId, UseCase) ->
+    find_tool_patterns(Store, UserId, #{query => UseCase}).
 
 %%====================================================================
 %% 命名空间工具函数

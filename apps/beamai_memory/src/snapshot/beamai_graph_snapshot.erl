@@ -1,15 +1,15 @@
 %%%-------------------------------------------------------------------
-%%% @doc Checkpoint 模块 - Graph Engine 专用
+%%% @doc Graph Snapshot 模块 - Graph Engine 专用
 %%%
-%%% 为 Graph Engine (Pregel) 提供检查点功能：
+%%% 为 Graph Engine (Pregel) 提供快照功能：
 %%% - 保存/恢复图执行状态
 %%% - 时间旅行（回退/前进超步）
 %%% - 分支管理
 %%% - 顶点重试
 %%%
-%%% == 实现 beamai_timeline 行为 ==
+%%% == 实现 beamai_snapshot 行为 ==
 %%%
-%%% 本模块实现 beamai_timeline 行为，提供 Graph 特定的
+%%% 本模块实现 beamai_snapshot 行为，提供 Graph 特定的
 %%% 条目访问器、修改器和工厂函数。
 %%%
 %%% == 时间旅行模型 ==
@@ -18,25 +18,25 @@
 %%% ```
 %%% superstep_0 → superstep_1 → superstep_2 → superstep_3 → superstep_4
 %%%      │            │             │             │             │
-%%%     cp_1         cp_2          cp_3          cp_4          cp_5
+%%%     sn_1         sn_2          sn_3          sn_4          sn_5
 %%%                   ↑                           ↑
 %%%                   └─── go_back(2) ────────────┘
 %%% ```
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(beamai_checkpoint).
+-module(beamai_graph_snapshot).
 
--behaviour(beamai_timeline).
+-behaviour(beamai_snapshot).
 
--include_lib("beamai_memory/include/beamai_checkpoint.hrl").
+-include_lib("beamai_memory/include/beamai_graph_snapshot.hrl").
 -include_lib("beamai_memory/include/beamai_state_store.hrl").
 
 %% 类型导出
 -export_type([
-    checkpoint/0,
+    graph_snapshot/0,
     manager/0,
-    checkpoint_type/0,
+    graph_snapshot_type/0,
     vertex_state/0
 ]).
 
@@ -46,7 +46,7 @@
     new/2
 ]).
 
-%% 核心操作（委托给 timeline）
+%% 核心操作（委托给 snapshot）
 -export([
     save/3,
     load/2,
@@ -54,7 +54,7 @@
     get_latest/2
 ]).
 
-%% 时间旅行（委托给 timeline）
+%% 时间旅行（委托给 snapshot）
 -export([
     go_back/3,
     go_forward/3,
@@ -64,7 +64,7 @@
     get_current_position/2
 ]).
 
-%% 分支管理（委托给 timeline）
+%% 分支管理（委托给 snapshot）
 -export([
     fork_from/4,
     fork_from/5,
@@ -72,7 +72,7 @@
     switch_branch/2
 ]).
 
-%% 历史查询（委托给 timeline）
+%% 历史查询（委托给 snapshot）
 -export([
     get_history/2,
     get_history/3,
@@ -84,8 +84,8 @@
 -export([
     save_from_pregel/3,
     save_from_pregel/4,
-    create_checkpoint/2,
-    create_checkpoint/3,
+    create_graph_snapshot/2,
+    create_graph_snapshot/3,
     get_vertex_state/2,
     get_vertices/1,
     get_active_vertices/1,
@@ -103,7 +103,7 @@
     to_pregel_restore_opts/1
 ]).
 
-%% Timeline 行为回调
+%% Snapshot 行为回调
 -export([
     entry_id/1,
     entry_owner_id/1,
@@ -128,47 +128,47 @@
 %% 类型定义
 %%====================================================================
 
--type checkpoint() :: #graph_checkpoint{}.
--type manager() :: beamai_timeline:manager().
+-type graph_snapshot() :: #graph_snapshot{}.
+-type manager() :: beamai_snapshot:manager().
 
 %%====================================================================
 %% 构造函数
 %%====================================================================
 
-%% @doc 创建 Checkpoint 管理器
+%% @doc 创建 Graph Snapshot 管理器
 -spec new(beamai_state_store:store()) -> manager().
 new(StateStore) ->
     new(StateStore, #{}).
 
-%% @doc 创建 Checkpoint 管理器（带选项）
+%% @doc 创建 Graph Snapshot 管理器（带选项）
 -spec new(beamai_state_store:store(), map()) -> manager().
 new(StateStore, Opts) ->
-    beamai_timeline:new(?MODULE, StateStore, Opts).
+    beamai_snapshot:new(?MODULE, StateStore, Opts).
 
 %%====================================================================
 %% 核心操作
 %%====================================================================
 
-%% @doc 保存检查点
--spec save(manager(), binary(), checkpoint()) ->
-    {ok, checkpoint(), manager()} | {error, term()}.
-save(Mgr, RunId, Checkpoint) ->
-    beamai_timeline:save(Mgr, RunId, Checkpoint).
+%% @doc 保存快照
+-spec save(manager(), binary(), graph_snapshot()) ->
+    {ok, graph_snapshot(), manager()} | {error, term()}.
+save(Mgr, RunId, Snapshot) ->
+    beamai_snapshot:save(Mgr, RunId, Snapshot).
 
-%% @doc 加载检查点
--spec load(manager(), binary()) -> {ok, checkpoint()} | {error, term()}.
-load(Mgr, CheckpointId) ->
-    beamai_timeline:load(Mgr, CheckpointId).
+%% @doc 加载快照
+-spec load(manager(), binary()) -> {ok, graph_snapshot()} | {error, term()}.
+load(Mgr, SnapshotId) ->
+    beamai_snapshot:load(Mgr, SnapshotId).
 
-%% @doc 删除检查点
+%% @doc 删除快照
 -spec delete(manager(), binary()) -> {ok, manager()} | {error, term()}.
-delete(Mgr, CheckpointId) ->
-    beamai_timeline:delete(Mgr, CheckpointId).
+delete(Mgr, SnapshotId) ->
+    beamai_snapshot:delete(Mgr, SnapshotId).
 
-%% @doc 获取最新检查点
--spec get_latest(manager(), binary()) -> {ok, checkpoint()} | {error, term()}.
+%% @doc 获取最新快照
+-spec get_latest(manager(), binary()) -> {ok, graph_snapshot()} | {error, term()}.
 get_latest(Mgr, RunId) ->
-    beamai_timeline:get_latest(Mgr, RunId).
+    beamai_snapshot:get_latest(Mgr, RunId).
 
 %%====================================================================
 %% 时间旅行
@@ -176,119 +176,119 @@ get_latest(Mgr, RunId) ->
 
 %% @doc 回退 N 个超步
 -spec go_back(manager(), binary(), pos_integer()) ->
-    {ok, checkpoint(), manager()} | {error, term()}.
+    {ok, graph_snapshot(), manager()} | {error, term()}.
 go_back(Mgr, RunId, Steps) ->
-    beamai_timeline:go_back(Mgr, RunId, Steps).
+    beamai_snapshot:go_back(Mgr, RunId, Steps).
 
 %% @doc 前进 N 个超步
 -spec go_forward(manager(), binary(), pos_integer()) ->
-    {ok, checkpoint(), manager()} | {error, term()}.
+    {ok, graph_snapshot(), manager()} | {error, term()}.
 go_forward(Mgr, RunId, Steps) ->
-    beamai_timeline:go_forward(Mgr, RunId, Steps).
+    beamai_snapshot:go_forward(Mgr, RunId, Steps).
 
-%% @doc 跳转到指定检查点
+%% @doc 跳转到指定快照
 -spec goto(manager(), binary(), binary()) ->
-    {ok, checkpoint(), manager()} | {error, term()}.
-goto(Mgr, RunId, CheckpointId) ->
-    beamai_timeline:goto(Mgr, RunId, CheckpointId).
+    {ok, graph_snapshot(), manager()} | {error, term()}.
+goto(Mgr, RunId, SnapshotId) ->
+    beamai_snapshot:goto(Mgr, RunId, SnapshotId).
 
 %% @doc 撤销
--spec undo(manager(), binary()) -> {ok, checkpoint(), manager()} | {error, term()}.
+-spec undo(manager(), binary()) -> {ok, graph_snapshot(), manager()} | {error, term()}.
 undo(Mgr, RunId) ->
-    beamai_timeline:undo(Mgr, RunId).
+    beamai_snapshot:undo(Mgr, RunId).
 
 %% @doc 重做
--spec redo(manager(), binary()) -> {ok, checkpoint(), manager()} | {error, term()}.
+-spec redo(manager(), binary()) -> {ok, graph_snapshot(), manager()} | {error, term()}.
 redo(Mgr, RunId) ->
-    beamai_timeline:redo(Mgr, RunId).
+    beamai_snapshot:redo(Mgr, RunId).
 
 %% @doc 获取当前位置
 -spec get_current_position(manager(), binary()) ->
-    {ok, beamai_timeline:position()} | {error, term()}.
+    {ok, beamai_snapshot:position()} | {error, term()}.
 get_current_position(Mgr, RunId) ->
-    beamai_timeline:get_current_position(Mgr, RunId).
+    beamai_snapshot:get_current_position(Mgr, RunId).
 
 %%====================================================================
 %% 分支管理
 %%====================================================================
 
-%% @doc 从指定检查点创建分支
+%% @doc 从指定快照创建分支
 -spec fork_from(manager(), binary(), binary(), binary()) ->
-    {ok, checkpoint(), manager()} | {error, term()}.
-fork_from(Mgr, CheckpointId, NewBranchName, RunId) ->
-    beamai_timeline:fork_from(Mgr, CheckpointId, NewBranchName, RunId).
+    {ok, graph_snapshot(), manager()} | {error, term()}.
+fork_from(Mgr, SnapshotId, NewBranchName, RunId) ->
+    beamai_snapshot:fork_from(Mgr, SnapshotId, NewBranchName, RunId).
 
 -spec fork_from(manager(), binary(), binary(), binary(), map()) ->
-    {ok, checkpoint(), manager()} | {error, term()}.
-fork_from(Mgr, CheckpointId, NewBranchName, RunId, Opts) ->
-    beamai_timeline:fork_from(Mgr, CheckpointId, NewBranchName, RunId, Opts).
+    {ok, graph_snapshot(), manager()} | {error, term()}.
+fork_from(Mgr, SnapshotId, NewBranchName, RunId, Opts) ->
+    beamai_snapshot:fork_from(Mgr, SnapshotId, NewBranchName, RunId, Opts).
 
 %% @doc 列出所有分支
--spec list_branches(manager()) -> [beamai_timeline:branch()].
+-spec list_branches(manager()) -> [beamai_snapshot:branch()].
 list_branches(Mgr) ->
-    beamai_timeline:list_branches(Mgr).
+    beamai_snapshot:list_branches(Mgr).
 
 %% @doc 切换分支
 -spec switch_branch(manager(), binary()) -> {ok, manager()} | {error, term()}.
 switch_branch(Mgr, BranchId) ->
-    beamai_timeline:switch_branch(Mgr, BranchId).
+    beamai_snapshot:switch_branch(Mgr, BranchId).
 
 %%====================================================================
 %% 历史查询
 %%====================================================================
 
 %% @doc 获取执行路径（历史记录）
--spec get_history(manager(), binary()) -> {ok, [checkpoint()]} | {error, term()}.
+-spec get_history(manager(), binary()) -> {ok, [graph_snapshot()]} | {error, term()}.
 get_history(Mgr, RunId) ->
-    beamai_timeline:get_history(Mgr, RunId).
+    beamai_snapshot:get_history(Mgr, RunId).
 
--spec get_history(manager(), binary(), map()) -> {ok, [checkpoint()]} | {error, term()}.
+-spec get_history(manager(), binary(), map()) -> {ok, [graph_snapshot()]} | {error, term()}.
 get_history(Mgr, RunId, Opts) ->
-    beamai_timeline:get_history(Mgr, RunId, Opts).
+    beamai_snapshot:get_history(Mgr, RunId, Opts).
 
 %% @doc 获取血统
--spec get_lineage(manager(), binary()) -> {ok, [checkpoint()]} | {error, term()}.
-get_lineage(Mgr, CheckpointId) ->
-    beamai_timeline:get_lineage(Mgr, CheckpointId).
+-spec get_lineage(manager(), binary()) -> {ok, [graph_snapshot()]} | {error, term()}.
+get_lineage(Mgr, SnapshotId) ->
+    beamai_snapshot:get_lineage(Mgr, SnapshotId).
 
-%% @doc 比较两个检查点
+%% @doc 比较两个快照
 -spec compare(manager(), binary(), binary()) ->
-    {ok, #{from := checkpoint(), to := checkpoint(), version_diff := integer()}} |
+    {ok, #{from := graph_snapshot(), to := graph_snapshot(), version_diff := integer()}} |
     {error, term()}.
-compare(Mgr, CheckpointId1, CheckpointId2) ->
-    beamai_timeline:compare(Mgr, CheckpointId1, CheckpointId2).
+compare(Mgr, SnapshotId1, SnapshotId2) ->
+    beamai_snapshot:compare(Mgr, SnapshotId1, SnapshotId2).
 
 %%====================================================================
 %% Graph 专用操作
 %%====================================================================
 
-%% @doc 从 Pregel 状态创建并保存检查点
+%% @doc 从 Pregel 状态创建并保存快照
 -spec save_from_pregel(manager(), binary(), map()) ->
-    {ok, checkpoint(), manager()} | {error, term()}.
+    {ok, graph_snapshot(), manager()} | {error, term()}.
 save_from_pregel(Mgr, RunId, PregelState) ->
     save_from_pregel(Mgr, RunId, PregelState, #{}).
 
 -spec save_from_pregel(manager(), binary(), map(), map()) ->
-    {ok, checkpoint(), manager()} | {error, term()}.
+    {ok, graph_snapshot(), manager()} | {error, term()}.
 save_from_pregel(Mgr, RunId, PregelState, Opts) ->
-    Checkpoint = create_checkpoint(RunId, PregelState, Opts),
-    save(Mgr, RunId, Checkpoint).
+    Snapshot = create_graph_snapshot(RunId, PregelState, Opts),
+    save(Mgr, RunId, Snapshot).
 
-%% @doc 创建检查点（不保存）
--spec create_checkpoint(binary(), map()) -> checkpoint().
-create_checkpoint(RunId, PregelState) ->
-    create_checkpoint(RunId, PregelState, #{}).
+%% @doc 创建快照（不保存）
+-spec create_graph_snapshot(binary(), map()) -> graph_snapshot().
+create_graph_snapshot(RunId, PregelState) ->
+    create_graph_snapshot(RunId, PregelState, #{}).
 
--spec create_checkpoint(binary(), map(), map()) -> checkpoint().
-create_checkpoint(RunId, PregelState, Opts) ->
+-spec create_graph_snapshot(binary(), map(), map()) -> graph_snapshot().
+create_graph_snapshot(RunId, PregelState, Opts) ->
     Now = erlang:system_time(millisecond),
 
-    #graph_checkpoint{
-        id = undefined,  %% 由 timeline 分配
+    #graph_snapshot{
+        id = undefined,  %% 由 snapshot 分配
         run_id = RunId,
-        parent_id = undefined,  %% 由 timeline 设置
-        branch_id = maps:get(branch_id, Opts, ?DEFAULT_CHECKPOINT_BRANCH),
-        version = 0,  %% 由 timeline 设置
+        parent_id = undefined,  %% 由 snapshot 设置
+        branch_id = maps:get(branch_id, Opts, ?DEFAULT_GRAPH_SNAPSHOT_BRANCH),
+        version = 0,  %% 由 snapshot 设置
         created_at = Now,
 
         %% Pregel 状态
@@ -305,8 +305,8 @@ create_checkpoint(RunId, PregelState, Opts) ->
         failed_vertices = maps:get(failed_vertices, PregelState, []),
         interrupted_vertices = maps:get(interrupted_vertices, PregelState, []),
 
-        %% 检查点类型
-        checkpoint_type = maps:get(checkpoint_type, Opts, superstep),
+        %% 快照类型
+        snapshot_type = maps:get(snapshot_type, Opts, superstep),
 
         %% 恢复信息
         resumable = maps:get(resumable, Opts, true),
@@ -319,108 +319,108 @@ create_checkpoint(RunId, PregelState, Opts) ->
     }.
 
 %% @doc 获取指定顶点的状态
--spec get_vertex_state(checkpoint(), atom()) -> {ok, vertex_state()} | {error, not_found}.
-get_vertex_state(#graph_checkpoint{vertices = Vertices}, VertexId) ->
+-spec get_vertex_state(graph_snapshot(), atom()) -> {ok, vertex_state()} | {error, not_found}.
+get_vertex_state(#graph_snapshot{vertices = Vertices}, VertexId) ->
     case maps:find(VertexId, Vertices) of
         {ok, State} -> {ok, State};
         error -> {error, not_found}
     end.
 
 %% @doc 获取所有顶点
--spec get_vertices(checkpoint()) -> #{atom() => vertex_state()}.
-get_vertices(#graph_checkpoint{vertices = Vertices}) ->
+-spec get_vertices(graph_snapshot()) -> #{atom() => vertex_state()}.
+get_vertices(#graph_snapshot{vertices = Vertices}) ->
     Vertices.
 
 %% @doc 获取活跃顶点列表
--spec get_active_vertices(checkpoint()) -> [atom()].
-get_active_vertices(#graph_checkpoint{active_vertices = Active}) ->
+-spec get_active_vertices(graph_snapshot()) -> [atom()].
+get_active_vertices(#graph_snapshot{active_vertices = Active}) ->
     Active.
 
 %% @doc 获取失败顶点列表
--spec get_failed_vertices(checkpoint()) -> [atom()].
-get_failed_vertices(#graph_checkpoint{failed_vertices = Failed}) ->
+-spec get_failed_vertices(graph_snapshot()) -> [atom()].
+get_failed_vertices(#graph_snapshot{failed_vertices = Failed}) ->
     Failed.
 
 %% @doc 获取中断顶点列表
--spec get_interrupted_vertices(checkpoint()) -> [atom()].
-get_interrupted_vertices(#graph_checkpoint{interrupted_vertices = Interrupted}) ->
+-spec get_interrupted_vertices(graph_snapshot()) -> [atom()].
+get_interrupted_vertices(#graph_snapshot{interrupted_vertices = Interrupted}) ->
     Interrupted.
 
 %% @doc 获取待激活顶点列表
--spec get_pending_activations(checkpoint()) -> [atom()].
-get_pending_activations(#graph_checkpoint{pending_activations = Pending}) ->
+-spec get_pending_activations(graph_snapshot()) -> [atom()].
+get_pending_activations(#graph_snapshot{pending_activations = Pending}) ->
     Pending.
 
 %% @doc 获取延迟提交的 deltas
--spec get_pending_deltas(checkpoint()) -> [map()] | undefined.
-get_pending_deltas(#graph_checkpoint{pending_deltas = Deltas}) ->
+-spec get_pending_deltas(graph_snapshot()) -> [map()] | undefined.
+get_pending_deltas(#graph_snapshot{pending_deltas = Deltas}) ->
     Deltas.
 
 %% @doc 检查是否可恢复
--spec is_resumable(checkpoint()) -> boolean().
-is_resumable(#graph_checkpoint{resumable = Resumable}) ->
+-spec is_resumable(graph_snapshot()) -> boolean().
+is_resumable(#graph_snapshot{resumable = Resumable}) ->
     Resumable.
 
 %% @doc 获取恢复数据
--spec get_resume_data(checkpoint()) -> #{atom() => term()}.
-get_resume_data(#graph_checkpoint{resume_data = ResumeData}) ->
+-spec get_resume_data(graph_snapshot()) -> #{atom() => term()}.
+get_resume_data(#graph_snapshot{resume_data = ResumeData}) ->
     ResumeData.
 
 %% @doc 设置恢复数据
--spec set_resume_data(checkpoint(), #{atom() => term()}) -> checkpoint().
-set_resume_data(Checkpoint, ResumeData) ->
-    Checkpoint#graph_checkpoint{resume_data = ResumeData}.
+-spec set_resume_data(graph_snapshot(), #{atom() => term()}) -> graph_snapshot().
+set_resume_data(Snapshot, ResumeData) ->
+    Snapshot#graph_snapshot{resume_data = ResumeData}.
 
 %% @doc 获取当前超步
--spec get_superstep(checkpoint()) -> non_neg_integer().
-get_superstep(#graph_checkpoint{superstep = Superstep}) ->
+-spec get_superstep(graph_snapshot()) -> non_neg_integer().
+get_superstep(#graph_snapshot{superstep = Superstep}) ->
     Superstep.
 
 %% @doc 获取全局状态
--spec get_global_state(checkpoint()) -> map().
-get_global_state(#graph_checkpoint{global_state = GlobalState}) ->
+-spec get_global_state(graph_snapshot()) -> map().
+get_global_state(#graph_snapshot{global_state = GlobalState}) ->
     GlobalState.
 
 %% @doc 标记顶点需要重试
 -spec retry_vertex(manager(), binary(), atom()) ->
-    {ok, checkpoint(), manager()} | {error, term()}.
+    {ok, graph_snapshot(), manager()} | {error, term()}.
 retry_vertex(Mgr, RunId, VertexId) ->
     case get_latest(Mgr, RunId) of
-        {ok, #graph_checkpoint{
+        {ok, #graph_snapshot{
             failed_vertices = Failed,
             pending_activations = Pending,
             retry_count = RetryCount
-        } = Cp} ->
+        } = Sn} ->
             %% 从失败列表移除，加入待激活列表
             NewFailed = lists:delete(VertexId, Failed),
             NewPending = case lists:member(VertexId, Pending) of
                 true -> Pending;
                 false -> [VertexId | Pending]
             end,
-            NewCp = Cp#graph_checkpoint{
+            NewSn = Sn#graph_snapshot{
                 failed_vertices = NewFailed,
                 pending_activations = NewPending,
                 retry_count = RetryCount + 1
             },
-            save(Mgr, RunId, NewCp);
+            save(Mgr, RunId, NewSn);
         {error, _} = Error ->
             Error
     end.
 
 %% @doc 为指定顶点注入恢复数据
 -spec inject_resume_data(manager(), binary(), #{atom() => term()}) ->
-    {ok, checkpoint(), manager()} | {error, term()}.
+    {ok, graph_snapshot(), manager()} | {error, term()}.
 inject_resume_data(Mgr, RunId, Data) ->
     case get_latest(Mgr, RunId) of
-        {ok, #graph_checkpoint{resume_data = Existing} = Cp} ->
+        {ok, #graph_snapshot{resume_data = Existing} = Sn} ->
             NewResumeData = maps:merge(Existing, Data),
-            NewCp = Cp#graph_checkpoint{resume_data = NewResumeData},
-            save(Mgr, RunId, NewCp);
+            NewSn = Sn#graph_snapshot{resume_data = NewResumeData},
+            save(Mgr, RunId, NewSn);
         {error, _} = Error ->
             Error
     end.
 
-%% @doc 将 checkpoint 转换为 Pregel 恢复选项
+%% @doc 将 graph snapshot 转换为 Pregel 恢复选项
 %%
 %% 返回的 map 可直接用于 pregel:start/3 的 restore_from 选项。
 %% 注意：vertices 字段需要调用方结合原始图定义重建完整顶点结构。
@@ -435,150 +435,150 @@ inject_resume_data(Mgr, RunId, Data) ->
 %%     vertices => #{atom() => vertex_state()}
 %% }
 %% ```
--spec to_pregel_restore_opts(checkpoint()) -> map().
-to_pregel_restore_opts(#graph_checkpoint{} = Cp) ->
+-spec to_pregel_restore_opts(graph_snapshot()) -> map().
+to_pregel_restore_opts(#graph_snapshot{} = Sn) ->
     Base = #{
-        superstep => Cp#graph_checkpoint.superstep,
-        global_state => Cp#graph_checkpoint.global_state,
-        vertices => Cp#graph_checkpoint.vertices
+        superstep => Sn#graph_snapshot.superstep,
+        global_state => Sn#graph_snapshot.global_state,
+        vertices => Sn#graph_snapshot.vertices
     },
     %% 添加可选字段
-    WithActivations = case Cp#graph_checkpoint.pending_activations of
+    WithActivations = case Sn#graph_snapshot.pending_activations of
         [] -> Base;
         Activations -> Base#{pending_activations => Activations}
     end,
-    case Cp#graph_checkpoint.pending_deltas of
+    case Sn#graph_snapshot.pending_deltas of
         undefined -> WithActivations;
         Deltas -> WithActivations#{pending_deltas => Deltas}
     end.
 
 %%====================================================================
-%% Timeline 行为回调 - 条目访问器
+%% Snapshot 行为回调 - 条目访问器
 %%====================================================================
 
 %% @private
-entry_id(#graph_checkpoint{id = Id}) -> Id.
+entry_id(#graph_snapshot{id = Id}) -> Id.
 
 %% @private
-entry_owner_id(#graph_checkpoint{run_id = RunId}) -> RunId.
+entry_owner_id(#graph_snapshot{run_id = RunId}) -> RunId.
 
 %% @private
-entry_parent_id(#graph_checkpoint{parent_id = ParentId}) -> ParentId.
+entry_parent_id(#graph_snapshot{parent_id = ParentId}) -> ParentId.
 
 %% @private
-entry_version(#graph_checkpoint{version = Version}) -> Version.
+entry_version(#graph_snapshot{version = Version}) -> Version.
 
 %% @private
-entry_branch_id(#graph_checkpoint{branch_id = BranchId}) -> BranchId.
+entry_branch_id(#graph_snapshot{branch_id = BranchId}) -> BranchId.
 
 %% @private
-entry_created_at(#graph_checkpoint{created_at = CreatedAt}) -> CreatedAt.
+entry_created_at(#graph_snapshot{created_at = CreatedAt}) -> CreatedAt.
 
 %% @private
-entry_state(#graph_checkpoint{} = Cp) ->
+entry_state(#graph_snapshot{} = Sn) ->
     #{
-        superstep => Cp#graph_checkpoint.superstep,
-        iteration => Cp#graph_checkpoint.iteration,
-        vertices => Cp#graph_checkpoint.vertices,
-        pending_activations => Cp#graph_checkpoint.pending_activations,
-        pending_deltas => Cp#graph_checkpoint.pending_deltas,
-        global_state => Cp#graph_checkpoint.global_state,
-        active_vertices => Cp#graph_checkpoint.active_vertices,
-        completed_vertices => Cp#graph_checkpoint.completed_vertices,
-        failed_vertices => Cp#graph_checkpoint.failed_vertices,
-        interrupted_vertices => Cp#graph_checkpoint.interrupted_vertices,
-        checkpoint_type => Cp#graph_checkpoint.checkpoint_type,
-        resumable => Cp#graph_checkpoint.resumable,
-        resume_data => Cp#graph_checkpoint.resume_data,
-        retry_count => Cp#graph_checkpoint.retry_count,
-        graph_name => Cp#graph_checkpoint.graph_name,
-        metadata => Cp#graph_checkpoint.metadata
+        superstep => Sn#graph_snapshot.superstep,
+        iteration => Sn#graph_snapshot.iteration,
+        vertices => Sn#graph_snapshot.vertices,
+        pending_activations => Sn#graph_snapshot.pending_activations,
+        pending_deltas => Sn#graph_snapshot.pending_deltas,
+        global_state => Sn#graph_snapshot.global_state,
+        active_vertices => Sn#graph_snapshot.active_vertices,
+        completed_vertices => Sn#graph_snapshot.completed_vertices,
+        failed_vertices => Sn#graph_snapshot.failed_vertices,
+        interrupted_vertices => Sn#graph_snapshot.interrupted_vertices,
+        snapshot_type => Sn#graph_snapshot.snapshot_type,
+        resumable => Sn#graph_snapshot.resumable,
+        resume_data => Sn#graph_snapshot.resume_data,
+        retry_count => Sn#graph_snapshot.retry_count,
+        graph_name => Sn#graph_snapshot.graph_name,
+        metadata => Sn#graph_snapshot.metadata
     }.
 
 %%====================================================================
-%% Timeline 行为回调 - 条目修改器
+%% Snapshot 行为回调 - 条目修改器
 %%====================================================================
 
 %% @private
-set_entry_id(Checkpoint, Id) ->
-    Checkpoint#graph_checkpoint{id = Id}.
+set_entry_id(Snapshot, Id) ->
+    Snapshot#graph_snapshot{id = Id}.
 
 %% @private
-set_entry_parent_id(Checkpoint, ParentId) ->
-    Checkpoint#graph_checkpoint{parent_id = ParentId}.
+set_entry_parent_id(Snapshot, ParentId) ->
+    Snapshot#graph_snapshot{parent_id = ParentId}.
 
 %% @private
-set_entry_version(Checkpoint, Version) ->
-    Checkpoint#graph_checkpoint{version = Version}.
+set_entry_version(Snapshot, Version) ->
+    Snapshot#graph_snapshot{version = Version}.
 
 %% @private
-set_entry_branch_id(Checkpoint, BranchId) ->
-    Checkpoint#graph_checkpoint{branch_id = BranchId}.
+set_entry_branch_id(Snapshot, BranchId) ->
+    Snapshot#graph_snapshot{branch_id = BranchId}.
 
 %%====================================================================
-%% Timeline 行为回调 - 工厂和转换
+%% Snapshot 行为回调 - 工厂和转换
 %%====================================================================
 
 %% @private
 new_entry(RunId, State, Opts) ->
-    create_checkpoint(RunId, State, Opts).
+    create_graph_snapshot(RunId, State, Opts).
 
 %% @private
-entry_to_state_entry(#graph_checkpoint{} = Cp) ->
+entry_to_state_entry(#graph_snapshot{} = Sn) ->
     #state_entry{
-        id = Cp#graph_checkpoint.id,
-        owner_id = Cp#graph_checkpoint.run_id,
-        parent_id = Cp#graph_checkpoint.parent_id,
-        branch_id = Cp#graph_checkpoint.branch_id,
-        version = Cp#graph_checkpoint.version,
-        state = checkpoint_to_map(Cp),
-        entry_type = graph_checkpoint,
-        created_at = Cp#graph_checkpoint.created_at,
-        metadata = Cp#graph_checkpoint.metadata
+        id = Sn#graph_snapshot.id,
+        owner_id = Sn#graph_snapshot.run_id,
+        parent_id = Sn#graph_snapshot.parent_id,
+        branch_id = Sn#graph_snapshot.branch_id,
+        version = Sn#graph_snapshot.version,
+        state = graph_snapshot_to_map(Sn),
+        entry_type = graph_snapshot,
+        created_at = Sn#graph_snapshot.created_at,
+        metadata = Sn#graph_snapshot.metadata
     }.
 
 %% @private
 state_entry_to_entry(#state_entry{} = Entry) ->
-    map_to_checkpoint(Entry#state_entry.state, Entry).
+    map_to_graph_snapshot(Entry#state_entry.state, Entry).
 
 %% @private
-namespace() -> ?NS_GRAPH_CHECKPOINTS.
+namespace() -> ?NS_GRAPH_SNAPSHOTS.
 
 %% @private
-id_prefix() -> ?CHECKPOINT_ID_PREFIX.
+id_prefix() -> ?GRAPH_SNAPSHOT_ID_PREFIX.
 
 %% @private
-entry_type() -> graph_checkpoint.
+entry_type() -> graph_snapshot.
 
 %%====================================================================
 %% 内部函数
 %%====================================================================
 
-%% @private 检查点转 Map（用于存储）
--spec checkpoint_to_map(checkpoint()) -> map().
-checkpoint_to_map(#graph_checkpoint{} = Cp) ->
+%% @private 快照转 Map（用于存储）
+-spec graph_snapshot_to_map(graph_snapshot()) -> map().
+graph_snapshot_to_map(#graph_snapshot{} = Sn) ->
     #{
-        <<"superstep">> => Cp#graph_checkpoint.superstep,
-        <<"iteration">> => Cp#graph_checkpoint.iteration,
-        <<"vertices">> => encode_vertices(Cp#graph_checkpoint.vertices),
-        <<"pending_activations">> => encode_atom_list(Cp#graph_checkpoint.pending_activations),
-        <<"pending_deltas">> => Cp#graph_checkpoint.pending_deltas,
-        <<"global_state">> => Cp#graph_checkpoint.global_state,
-        <<"active_vertices">> => encode_atom_list(Cp#graph_checkpoint.active_vertices),
-        <<"completed_vertices">> => encode_atom_list(Cp#graph_checkpoint.completed_vertices),
-        <<"failed_vertices">> => encode_atom_list(Cp#graph_checkpoint.failed_vertices),
-        <<"interrupted_vertices">> => encode_atom_list(Cp#graph_checkpoint.interrupted_vertices),
-        <<"checkpoint_type">> => atom_to_binary(Cp#graph_checkpoint.checkpoint_type, utf8),
-        <<"resumable">> => Cp#graph_checkpoint.resumable,
-        <<"resume_data">> => encode_resume_data(Cp#graph_checkpoint.resume_data),
-        <<"retry_count">> => Cp#graph_checkpoint.retry_count,
-        <<"graph_name">> => maybe_atom_to_binary(Cp#graph_checkpoint.graph_name)
+        <<"superstep">> => Sn#graph_snapshot.superstep,
+        <<"iteration">> => Sn#graph_snapshot.iteration,
+        <<"vertices">> => encode_vertices(Sn#graph_snapshot.vertices),
+        <<"pending_activations">> => encode_atom_list(Sn#graph_snapshot.pending_activations),
+        <<"pending_deltas">> => Sn#graph_snapshot.pending_deltas,
+        <<"global_state">> => Sn#graph_snapshot.global_state,
+        <<"active_vertices">> => encode_atom_list(Sn#graph_snapshot.active_vertices),
+        <<"completed_vertices">> => encode_atom_list(Sn#graph_snapshot.completed_vertices),
+        <<"failed_vertices">> => encode_atom_list(Sn#graph_snapshot.failed_vertices),
+        <<"interrupted_vertices">> => encode_atom_list(Sn#graph_snapshot.interrupted_vertices),
+        <<"snapshot_type">> => atom_to_binary(Sn#graph_snapshot.snapshot_type, utf8),
+        <<"resumable">> => Sn#graph_snapshot.resumable,
+        <<"resume_data">> => encode_resume_data(Sn#graph_snapshot.resume_data),
+        <<"retry_count">> => Sn#graph_snapshot.retry_count,
+        <<"graph_name">> => maybe_atom_to_binary(Sn#graph_snapshot.graph_name)
     }.
 
-%% @private Map 转检查点（从存储恢复）
--spec map_to_checkpoint(map(), #state_entry{}) -> checkpoint().
-map_to_checkpoint(State, Entry) ->
-    #graph_checkpoint{
+%% @private Map 转快照（从存储恢复）
+-spec map_to_graph_snapshot(map(), #state_entry{}) -> graph_snapshot().
+map_to_graph_snapshot(State, Entry) ->
+    #graph_snapshot{
         id = Entry#state_entry.id,
         run_id = Entry#state_entry.owner_id,
         parent_id = Entry#state_entry.parent_id,
@@ -598,8 +598,8 @@ map_to_checkpoint(State, Entry) ->
         failed_vertices = decode_atom_list(maps:get(<<"failed_vertices">>, State, [])),
         interrupted_vertices = decode_atom_list(maps:get(<<"interrupted_vertices">>, State, [])),
 
-        checkpoint_type = binary_to_existing_atom(
-            maps:get(<<"checkpoint_type">>, State, <<"superstep">>), utf8),
+        snapshot_type = binary_to_existing_atom(
+            maps:get(<<"snapshot_type">>, State, <<"superstep">>), utf8),
 
         resumable = maps:get(<<"resumable">>, State, true),
         resume_data = decode_resume_data(maps:get(<<"resume_data">>, State, #{})),

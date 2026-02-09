@@ -1,51 +1,40 @@
 %%%-------------------------------------------------------------------
-%%% @doc Snapshot 模块 - Process Framework 专用
+%%% @doc Snapshot - 通用快照引擎
 %%%
-%%% 为 Process Framework 提供状态快照功能：
-%%% - 保存/恢复流程状态
-%%% - 时间旅行（回退/前进）
-%%% - 分支管理
-%%% - 血统追踪
+%%% 提供通用的时间旅行和分支管理功能。
+%%% 通过 behaviour 回调与具体的领域层（Process Snapshot/Graph Snapshot）集成。
 %%%
-%%% == 实现 beamai_timeline 行为 ==
+%%% == 核心概念 ==
 %%%
-%%% 本模块实现 beamai_timeline 行为，提供 Process 特定的
-%%% 条目访问器、修改器和工厂函数。
+%%% - Entry: 时间线上的一个状态点
+%%% - Version: 条目在时间线中的位置
+%%% - Branch: 时间线分支，支持分叉和并行演化
+%%% - Owner: 时间线所属者（thread_id 或 run_id）
 %%%
 %%% == 时间旅行模型 ==
 %%%
-%%% Process Framework 的时间线由事件驱动：
 %%% ```
-%%% event_1 → event_2 → event_3 → event_4 → event_5
-%%%    │         │         │         │         │
-%%%   sn_1      sn_2      sn_3      sn_4      sn_5
-%%%              ↑                    ↑
-%%%              └── go_back(2) ──────┘
+%%% v0 ──→ v1 ──→ v2 ──→ v3 ──→ v4  (main branch)
+%%%               │
+%%%               └──→ v2' ──→ v3'   (forked branch)
 %%% ```
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
 -module(beamai_snapshot).
 
--behaviour(beamai_timeline).
-
--include_lib("beamai_memory/include/beamai_snapshot.hrl").
 -include_lib("beamai_memory/include/beamai_state_store.hrl").
 
-%% 类型导出
--export_type([
-    snapshot/0,
-    manager/0,
-    snapshot_type/0
-]).
+%% 行为回调定义
+-export([behaviour_info/1]).
 
-%% 构造函数
+%% 管理器操作
 -export([
-    new/1,
-    new/2
+    new/2,
+    new/3
 ]).
 
-%% 核心操作（委托给 timeline）
+%% 条目操作
 -export([
     save/3,
     load/2,
@@ -53,7 +42,7 @@
     get_latest/2
 ]).
 
-%% 时间旅行（委托给 timeline）
+%% 时间旅行
 -export([
     go_back/3,
     go_forward/3,
@@ -63,15 +52,17 @@
     get_current_position/2
 ]).
 
-%% 分支管理（委托给 timeline）
+%% 分支管理
 -export([
     fork_from/4,
     fork_from/5,
     list_branches/1,
-    switch_branch/2
+    get_branch/2,
+    switch_branch/2,
+    delete_branch/2
 ]).
 
-%% 历史查询（委托给 timeline）
+%% 历史查询
 -export([
     get_history/2,
     get_history/3,
@@ -79,85 +70,195 @@
     compare/3
 ]).
 
-%% Process 专用操作
--export([
-    save_from_state/3,
-    save_from_state/4,
-    create_snapshot/2,
-    create_snapshot/3,
-    get_step_state/2,
-    get_steps_state/1,
-    get_event_queue/1,
-    is_paused/1,
-    get_pause_info/1
-]).
-
-%% Timeline 行为回调
--export([
-    entry_id/1,
-    entry_owner_id/1,
-    entry_parent_id/1,
-    entry_version/1,
-    entry_branch_id/1,
-    entry_created_at/1,
-    entry_state/1,
-    set_entry_id/2,
-    set_entry_parent_id/2,
-    set_entry_version/2,
-    set_entry_branch_id/2,
-    new_entry/3,
-    entry_to_state_entry/1,
-    state_entry_to_entry/1,
-    namespace/0,
-    id_prefix/0,
-    entry_type/0
+%% 类型导出
+-export_type([
+    manager/0,
+    branch/0,
+    position/0
 ]).
 
 %%====================================================================
 %% 类型定义
 %%====================================================================
 
--type snapshot() :: #process_snapshot{}.
--type manager() :: beamai_timeline:manager().
+-type manager() :: #{
+    module := module(),
+    state_store := beamai_state_store:store(),
+    current_branch := binary(),
+    branches := #{binary() => branch()},
+    positions := #{binary() => non_neg_integer()},
+    max_entries := pos_integer(),
+    auto_prune := boolean()
+}.
+
+-type branch() :: #{
+    id := binary(),
+    name := binary(),
+    head_id := binary() | undefined,
+    entry_count := non_neg_integer(),
+    parent_branch_id := binary() | undefined,
+    forked_from_id := binary() | undefined,
+    created_at := integer()
+}.
+
+-type position() :: #{
+    current := non_neg_integer(),
+    total := non_neg_integer(),
+    entry_id := binary(),
+    branch_id := binary()
+}.
 
 %%====================================================================
-%% 构造函数
+%% 行为回调
 %%====================================================================
 
-%% @doc 创建 Snapshot 管理器
--spec new(beamai_state_store:store()) -> manager().
-new(StateStore) ->
-    new(StateStore, #{}).
+%% @doc 行为回调定义
+behaviour_info(callbacks) ->
+    [
+        %% 条目访问器
+        {entry_id, 1},
+        {entry_owner_id, 1},
+        {entry_parent_id, 1},
+        {entry_version, 1},
+        {entry_branch_id, 1},
+        {entry_created_at, 1},
+        {entry_state, 1},
 
-%% @doc 创建 Snapshot 管理器（带选项）
--spec new(beamai_state_store:store(), map()) -> manager().
-new(StateStore, Opts) ->
-    beamai_timeline:new(?MODULE, StateStore, Opts).
+        %% 条目修改器
+        {set_entry_id, 2},
+        {set_entry_parent_id, 2},
+        {set_entry_version, 2},
+        {set_entry_branch_id, 2},
+
+        %% 工厂函数
+        {new_entry, 3},
+
+        %% 转换函数
+        {entry_to_state_entry, 1},
+        {state_entry_to_entry, 1},
+
+        %% 配置
+        {namespace, 0},
+        {id_prefix, 0},
+        {entry_type, 0}
+    ];
+behaviour_info(_) ->
+    undefined.
 
 %%====================================================================
-%% 核心操作
+%% 管理器操作
 %%====================================================================
 
-%% @doc 保存快照
--spec save(manager(), binary(), snapshot()) ->
-    {ok, snapshot(), manager()} | {error, term()}.
-save(Mgr, ThreadId, Snapshot) ->
-    beamai_timeline:save(Mgr, ThreadId, Snapshot).
+%% @doc 创建快照管理器
+-spec new(module(), beamai_state_store:store()) -> manager().
+new(Module, StateStore) ->
+    new(Module, StateStore, #{}).
 
-%% @doc 加载快照
--spec load(manager(), binary()) -> {ok, snapshot()} | {error, term()}.
-load(Mgr, SnapshotId) ->
-    beamai_timeline:load(Mgr, SnapshotId).
+%% @doc 创建快照管理器（带选项）
+-spec new(module(), beamai_state_store:store(), map()) -> manager().
+new(Module, StateStore, Opts) ->
+    MainBranch = create_branch(<<"main">>, <<"main">>, undefined, undefined),
+    #{
+        module => Module,
+        state_store => StateStore,
+        current_branch => <<"main">>,
+        branches => #{<<"main">> => MainBranch},
+        positions => #{},
+        max_entries => maps:get(max_entries, Opts, 100),
+        auto_prune => maps:get(auto_prune, Opts, true)
+    }.
 
-%% @doc 删除快照
+%%====================================================================
+%% 条目操作
+%%====================================================================
+
+%% @doc 保存条目
+-spec save(manager(), binary(), term()) -> {ok, term(), manager()} | {error, term()}.
+save(#{module := Module, state_store := Store, current_branch := BranchId,
+       branches := Branches, positions := Positions} = Mgr, OwnerId, Entry0) ->
+
+    %% 获取当前版本
+    CurrentVersion = maps:get(OwnerId, Positions, 0),
+    NewVersion = CurrentVersion + 1,
+
+    %% 获取父条目 ID（如果条目已设置 parent_id 则保留）
+    ExistingParentId = Module:entry_parent_id(Entry0),
+    ParentId = case ExistingParentId of
+        undefined -> get_head_id(Mgr, OwnerId, BranchId);
+        _ -> ExistingParentId
+    end,
+
+    %% 生成新 ID
+    Prefix = Module:id_prefix(),
+    NewId = beamai_state_store:generate_id(Prefix),
+
+    %% 更新条目
+    Entry1 = Module:set_entry_id(Entry0, NewId),
+    Entry2 = Module:set_entry_parent_id(Entry1, ParentId),
+    Entry3 = Module:set_entry_version(Entry2, NewVersion),
+    Entry4 = Module:set_entry_branch_id(Entry3, BranchId),
+
+    %% 转换为存储条目
+    StateEntry = Module:entry_to_state_entry(Entry4),
+
+    %% 保存
+    case beamai_state_store:save(Store, StateEntry) of
+        {ok, _} ->
+            %% 更新分支头
+            Branch = maps:get(BranchId, Branches),
+            NewBranch = Branch#{
+                head_id => NewId,
+                entry_count => maps:get(entry_count, Branch, 0) + 1
+            },
+            NewBranches = maps:put(BranchId, NewBranch, Branches),
+
+            %% 更新位置
+            NewPositions = maps:put(OwnerId, NewVersion, Positions),
+
+            NewMgr = Mgr#{
+                branches => NewBranches,
+                positions => NewPositions
+            },
+
+            %% 自动清理
+            NewMgr2 = maybe_prune(NewMgr, OwnerId),
+
+            {ok, Entry4, NewMgr2};
+        {error, _} = Error ->
+            Error
+    end.
+
+%% @doc 加载条目
+-spec load(manager(), binary()) -> {ok, term()} | {error, term()}.
+load(#{module := Module, state_store := Store}, EntryId) ->
+    case beamai_state_store:load(Store, EntryId) of
+        {ok, StateEntry} ->
+            {ok, Module:state_entry_to_entry(StateEntry)};
+        {error, _} = Error ->
+            Error
+    end.
+
+%% @doc 删除条目
 -spec delete(manager(), binary()) -> {ok, manager()} | {error, term()}.
-delete(Mgr, SnapshotId) ->
-    beamai_timeline:delete(Mgr, SnapshotId).
+delete(#{state_store := Store} = Mgr, EntryId) ->
+    case beamai_state_store:delete(Store, EntryId) of
+        ok ->
+            {ok, Mgr};
+        {error, _} = Error ->
+            Error
+    end.
 
-%% @doc 获取最新快照
--spec get_latest(manager(), binary()) -> {ok, snapshot()} | {error, term()}.
-get_latest(Mgr, ThreadId) ->
-    beamai_timeline:get_latest(Mgr, ThreadId).
+%% @doc 获取最新条目
+-spec get_latest(manager(), binary()) -> {ok, term()} | {error, term()}.
+get_latest(#{current_branch := BranchId} = Mgr, OwnerId) ->
+    case get_history(Mgr, OwnerId, #{branch_id => BranchId, limit => 1, order => desc}) of
+        {ok, [Entry | _]} ->
+            {ok, Entry};
+        {ok, []} ->
+            {error, not_found};
+        {error, _} = Error ->
+            Error
+    end.
 
 %%====================================================================
 %% 时间旅行
@@ -165,345 +266,322 @@ get_latest(Mgr, ThreadId) ->
 
 %% @doc 回退 N 个版本
 -spec go_back(manager(), binary(), pos_integer()) ->
-    {ok, snapshot(), manager()} | {error, term()}.
-go_back(Mgr, ThreadId, Steps) ->
-    beamai_timeline:go_back(Mgr, ThreadId, Steps).
+    {ok, term(), manager()} | {error, term()}.
+go_back(Mgr, OwnerId, Steps) ->
+    case get_history(Mgr, OwnerId) of
+        {ok, History} when length(History) > 0 ->
+            CurrentPos = get_position_in_history(Mgr, OwnerId, History),
+            TargetPos = max(0, CurrentPos - Steps),
+            goto_position(Mgr, OwnerId, History, TargetPos);
+        {ok, []} ->
+            {error, no_history};
+        {error, _} = Error ->
+            Error
+    end.
 
 %% @doc 前进 N 个版本
 -spec go_forward(manager(), binary(), pos_integer()) ->
-    {ok, snapshot(), manager()} | {error, term()}.
-go_forward(Mgr, ThreadId, Steps) ->
-    beamai_timeline:go_forward(Mgr, ThreadId, Steps).
+    {ok, term(), manager()} | {error, term()}.
+go_forward(Mgr, OwnerId, Steps) ->
+    case get_history(Mgr, OwnerId) of
+        {ok, History} when length(History) > 0 ->
+            CurrentPos = get_position_in_history(Mgr, OwnerId, History),
+            MaxPos = length(History) - 1,
+            TargetPos = min(MaxPos, CurrentPos + Steps),
+            goto_position(Mgr, OwnerId, History, TargetPos);
+        {ok, []} ->
+            {error, no_history};
+        {error, _} = Error ->
+            Error
+    end.
 
-%% @doc 跳转到指定快照
+%% @doc 跳转到指定条目
 -spec goto(manager(), binary(), binary()) ->
-    {ok, snapshot(), manager()} | {error, term()}.
-goto(Mgr, ThreadId, SnapshotId) ->
-    beamai_timeline:goto(Mgr, ThreadId, SnapshotId).
+    {ok, term(), manager()} | {error, term()}.
+goto(#{module := Module, positions := Positions} = Mgr, OwnerId, EntryId) ->
+    case load(Mgr, EntryId) of
+        {ok, Entry} ->
+            Version = Module:entry_version(Entry),
+            NewPositions = maps:put(OwnerId, Version, Positions),
+            NewMgr = Mgr#{positions => NewPositions},
+            {ok, Entry, NewMgr};
+        {error, _} = Error ->
+            Error
+    end.
 
-%% @doc 撤销
--spec undo(manager(), binary()) -> {ok, snapshot(), manager()} | {error, term()}.
-undo(Mgr, ThreadId) ->
-    beamai_timeline:undo(Mgr, ThreadId).
+%% @doc 撤销（回退一步）
+-spec undo(manager(), binary()) -> {ok, term(), manager()} | {error, term()}.
+undo(Mgr, OwnerId) ->
+    go_back(Mgr, OwnerId, 1).
 
-%% @doc 重做
--spec redo(manager(), binary()) -> {ok, snapshot(), manager()} | {error, term()}.
-redo(Mgr, ThreadId) ->
-    beamai_timeline:redo(Mgr, ThreadId).
+%% @doc 重做（前进一步）
+-spec redo(manager(), binary()) -> {ok, term(), manager()} | {error, term()}.
+redo(Mgr, OwnerId) ->
+    go_forward(Mgr, OwnerId, 1).
 
-%% @doc 获取当前位置
--spec get_current_position(manager(), binary()) ->
-    {ok, beamai_timeline:position()} | {error, term()}.
-get_current_position(Mgr, ThreadId) ->
-    beamai_timeline:get_current_position(Mgr, ThreadId).
+%% @doc 获取当前位置信息
+-spec get_current_position(manager(), binary()) -> {ok, position()} | {error, term()}.
+get_current_position(#{module := Module, current_branch := BranchId} = Mgr, OwnerId) ->
+    case get_history(Mgr, OwnerId) of
+        {ok, History} when length(History) > 0 ->
+            CurrentPos = get_position_in_history(Mgr, OwnerId, History),
+            Entry = lists:nth(CurrentPos + 1, History),
+            {ok, #{
+                current => CurrentPos,
+                total => length(History),
+                entry_id => Module:entry_id(Entry),
+                branch_id => BranchId
+            }};
+        {ok, []} ->
+            {error, no_history};
+        {error, _} = Error ->
+            Error
+    end.
 
 %%====================================================================
 %% 分支管理
 %%====================================================================
 
-%% @doc 从指定快照创建分支
+%% @doc 从指定条目创建分支
 -spec fork_from(manager(), binary(), binary(), binary()) ->
-    {ok, snapshot(), manager()} | {error, term()}.
-fork_from(Mgr, SnapshotId, NewBranchName, ThreadId) ->
-    beamai_timeline:fork_from(Mgr, SnapshotId, NewBranchName, ThreadId).
+    {ok, term(), manager()} | {error, term()}.
+fork_from(Mgr, EntryId, NewBranchName, OwnerId) ->
+    fork_from(Mgr, EntryId, NewBranchName, OwnerId, #{}).
 
 -spec fork_from(manager(), binary(), binary(), binary(), map()) ->
-    {ok, snapshot(), manager()} | {error, term()}.
-fork_from(Mgr, SnapshotId, NewBranchName, ThreadId, Opts) ->
-    beamai_timeline:fork_from(Mgr, SnapshotId, NewBranchName, ThreadId, Opts).
+    {ok, term(), manager()} | {error, term()}.
+fork_from(#{module := Module, branches := Branches, current_branch := CurrentBranch} = Mgr,
+          EntryId, NewBranchName, OwnerId, Opts) ->
+    case load(Mgr, EntryId) of
+        {ok, SourceEntry} ->
+            %% 生成新分支 ID
+            NewBranchId = beamai_state_store:generate_id(<<"branch_">>),
+
+            %% 创建新分支记录
+            NewBranch = create_branch(NewBranchId, NewBranchName, CurrentBranch, EntryId),
+            NewBranches = maps:put(NewBranchId, NewBranch, Branches),
+
+            %% 创建新条目（复制源条目状态）
+            SourceState = Module:entry_state(SourceEntry),
+            NewEntry0 = Module:new_entry(OwnerId, SourceState, Opts),
+            NewEntry1 = Module:set_entry_parent_id(NewEntry0, EntryId),
+            NewEntry2 = Module:set_entry_branch_id(NewEntry1, NewBranchId),
+
+            %% 切换到新分支并保存
+            Mgr1 = Mgr#{
+                branches => NewBranches,
+                current_branch => NewBranchId
+            },
+
+            save(Mgr1, OwnerId, NewEntry2);
+        {error, _} = Error ->
+            Error
+    end.
 
 %% @doc 列出所有分支
--spec list_branches(manager()) -> [beamai_timeline:branch()].
-list_branches(Mgr) ->
-    beamai_timeline:list_branches(Mgr).
+-spec list_branches(manager()) -> [branch()].
+list_branches(#{branches := Branches}) ->
+    maps:values(Branches).
 
-%% @doc 切换分支
--spec switch_branch(manager(), binary()) -> {ok, manager()} | {error, term()}.
-switch_branch(Mgr, BranchId) ->
-    beamai_timeline:switch_branch(Mgr, BranchId).
+%% @doc 获取指定分支
+-spec get_branch(manager(), binary()) -> {ok, branch()} | {error, not_found}.
+get_branch(#{branches := Branches}, BranchId) ->
+    case maps:find(BranchId, Branches) of
+        {ok, Branch} -> {ok, Branch};
+        error -> {error, not_found}
+    end.
+
+%% @doc 切换当前分支
+-spec switch_branch(manager(), binary()) -> {ok, manager()} | {error, not_found}.
+switch_branch(#{branches := Branches} = Mgr, BranchId) ->
+    case maps:is_key(BranchId, Branches) of
+        true ->
+            {ok, Mgr#{current_branch => BranchId}};
+        false ->
+            {error, not_found}
+    end.
+
+%% @doc 删除分支
+-spec delete_branch(manager(), binary()) -> {ok, manager()} | {error, term()}.
+delete_branch(#{current_branch := CurrentBranch}, BranchId)
+  when BranchId =:= CurrentBranch ->
+    {error, cannot_delete_current_branch};
+delete_branch(#{branches := Branches} = Mgr, BranchId) ->
+    case maps:is_key(BranchId, Branches) of
+        true ->
+            %% TODO: 删除分支下的所有条目
+            NewBranches = maps:remove(BranchId, Branches),
+            {ok, Mgr#{branches => NewBranches}};
+        false ->
+            {error, not_found}
+    end.
 
 %%====================================================================
 %% 历史查询
 %%====================================================================
 
 %% @doc 获取历史记录
--spec get_history(manager(), binary()) -> {ok, [snapshot()]} | {error, term()}.
-get_history(Mgr, ThreadId) ->
-    beamai_timeline:get_history(Mgr, ThreadId).
+-spec get_history(manager(), binary()) -> {ok, [term()]} | {error, term()}.
+get_history(Mgr, OwnerId) ->
+    get_history(Mgr, OwnerId, #{}).
 
--spec get_history(manager(), binary(), map()) -> {ok, [snapshot()]} | {error, term()}.
-get_history(Mgr, ThreadId, Opts) ->
-    beamai_timeline:get_history(Mgr, ThreadId, Opts).
+-spec get_history(manager(), binary(), map()) -> {ok, [term()]} | {error, term()}.
+get_history(#{module := Module, state_store := Store, current_branch := DefaultBranch},
+            OwnerId, Opts) ->
+    BranchId = maps:get(branch_id, Opts, DefaultBranch),
+    Limit = maps:get(limit, Opts, 1000),
+    Order = maps:get(order, Opts, asc),
 
-%% @doc 获取血统
--spec get_lineage(manager(), binary()) -> {ok, [snapshot()]} | {error, term()}.
-get_lineage(Mgr, SnapshotId) ->
-    beamai_timeline:get_lineage(Mgr, SnapshotId).
+    ListOpts = #{
+        owner_id => OwnerId,
+        branch_id => BranchId,
+        limit => Limit,
+        order => Order
+    },
 
-%% @doc 比较两个快照
--spec compare(manager(), binary(), binary()) ->
-    {ok, #{from := snapshot(), to := snapshot(), version_diff := integer()}} |
-    {error, term()}.
-compare(Mgr, SnapshotId1, SnapshotId2) ->
-    beamai_timeline:compare(Mgr, SnapshotId1, SnapshotId2).
-
-%%====================================================================
-%% Process 专用操作
-%%====================================================================
-
-%% @doc 从 Process 状态创建并保存快照
--spec save_from_state(manager(), binary(), map()) ->
-    {ok, snapshot(), manager()} | {error, term()}.
-save_from_state(Mgr, ThreadId, ProcessState) ->
-    save_from_state(Mgr, ThreadId, ProcessState, #{}).
-
--spec save_from_state(manager(), binary(), map(), map()) ->
-    {ok, snapshot(), manager()} | {error, term()}.
-save_from_state(Mgr, ThreadId, ProcessState, Opts) ->
-    Snapshot = create_snapshot(ThreadId, ProcessState, Opts),
-    save(Mgr, ThreadId, Snapshot).
-
-%% @doc 创建快照（不保存）
--spec create_snapshot(binary(), map()) -> snapshot().
-create_snapshot(ThreadId, ProcessState) ->
-    create_snapshot(ThreadId, ProcessState, #{}).
-
--spec create_snapshot(binary(), map(), map()) -> snapshot().
-create_snapshot(ThreadId, ProcessState, Opts) ->
-    Now = erlang:system_time(millisecond),
-
-    #process_snapshot{
-        id = undefined,  %% 由 timeline 分配
-        thread_id = ThreadId,
-        parent_id = undefined,  %% 由 timeline 设置
-        branch_id = maps:get(branch_id, Opts, ?DEFAULT_BRANCH),
-        version = 0,  %% 由 timeline 设置
-        created_at = Now,
-
-        %% Process 状态
-        process_spec = maps:get(process_spec, ProcessState, #{}),
-        fsm_state = maps:get(fsm_state, ProcessState, idle),
-        steps_state = maps:get(steps_state, ProcessState, #{}),
-        event_queue = maps:get(event_queue, ProcessState, []),
-        paused_step = maps:get(paused_step, ProcessState, undefined),
-        pause_reason = maps:get(pause_reason, ProcessState, undefined),
-
-        %% 快照类型和上下文
-        snapshot_type = maps:get(snapshot_type, Opts, manual),
-        step_id = maps:get(step_id, Opts, undefined),
-        run_id = maps:get(run_id, Opts, undefined),
-        agent_id = maps:get(agent_id, Opts, undefined),
-        agent_name = maps:get(agent_name, Opts, undefined),
-
-        %% 元数据
-        metadata = maps:get(metadata, Opts, #{})
-    }.
-
-%% @doc 获取指定步骤的状态
--spec get_step_state(snapshot(), atom()) -> {ok, step_snapshot()} | {error, not_found}.
-get_step_state(#process_snapshot{steps_state = StepsState}, StepId) ->
-    case maps:find(StepId, StepsState) of
-        {ok, State} -> {ok, State};
-        error -> {error, not_found}
+    case beamai_state_store:list(Store, ListOpts) of
+        {ok, StateEntries} ->
+            Entries = [Module:state_entry_to_entry(SE) || SE <- StateEntries],
+            {ok, Entries};
+        {error, _} = Error ->
+            Error
     end.
 
-%% @doc 获取所有步骤状态
--spec get_steps_state(snapshot()) -> #{atom() => step_snapshot()}.
-get_steps_state(#process_snapshot{steps_state = StepsState}) ->
-    StepsState.
+%% @doc 获取血统（从当前条目追溯到根）
+-spec get_lineage(manager(), binary()) -> {ok, [term()]} | {error, term()}.
+get_lineage(Mgr, EntryId) ->
+    get_lineage_acc(Mgr, EntryId, []).
 
-%% @doc 获取事件队列
--spec get_event_queue(snapshot()) -> [map()].
-get_event_queue(#process_snapshot{event_queue = Queue}) ->
-    Queue.
-
-%% @doc 检查是否暂停
--spec is_paused(snapshot()) -> boolean().
-is_paused(#process_snapshot{fsm_state = paused}) -> true;
-is_paused(_) -> false.
-
-%% @doc 获取暂停信息
--spec get_pause_info(snapshot()) ->
-    {ok, #{step := atom(), reason := term()}} | {error, not_paused}.
-get_pause_info(#process_snapshot{fsm_state = paused, paused_step = Step, pause_reason = Reason}) ->
-    {ok, #{step => Step, reason => Reason}};
-get_pause_info(_) ->
-    {error, not_paused}.
-
-%%====================================================================
-%% Timeline 行为回调 - 条目访问器
-%%====================================================================
-
-%% @private
-entry_id(#process_snapshot{id = Id}) -> Id.
-
-%% @private
-entry_owner_id(#process_snapshot{thread_id = ThreadId}) -> ThreadId.
-
-%% @private
-entry_parent_id(#process_snapshot{parent_id = ParentId}) -> ParentId.
-
-%% @private
-entry_version(#process_snapshot{version = Version}) -> Version.
-
-%% @private
-entry_branch_id(#process_snapshot{branch_id = BranchId}) -> BranchId.
-
-%% @private
-entry_created_at(#process_snapshot{created_at = CreatedAt}) -> CreatedAt.
-
-%% @private
-entry_state(#process_snapshot{} = Snapshot) ->
-    #{
-        process_spec => Snapshot#process_snapshot.process_spec,
-        fsm_state => Snapshot#process_snapshot.fsm_state,
-        steps_state => Snapshot#process_snapshot.steps_state,
-        event_queue => Snapshot#process_snapshot.event_queue,
-        paused_step => Snapshot#process_snapshot.paused_step,
-        pause_reason => Snapshot#process_snapshot.pause_reason,
-        snapshot_type => Snapshot#process_snapshot.snapshot_type,
-        step_id => Snapshot#process_snapshot.step_id,
-        run_id => Snapshot#process_snapshot.run_id,
-        agent_id => Snapshot#process_snapshot.agent_id,
-        agent_name => Snapshot#process_snapshot.agent_name,
-        metadata => Snapshot#process_snapshot.metadata
-    }.
-
-%%====================================================================
-%% Timeline 行为回调 - 条目修改器
-%%====================================================================
-
-%% @private
-set_entry_id(Snapshot, Id) ->
-    Snapshot#process_snapshot{id = Id}.
-
-%% @private
-set_entry_parent_id(Snapshot, ParentId) ->
-    Snapshot#process_snapshot{parent_id = ParentId}.
-
-%% @private
-set_entry_version(Snapshot, Version) ->
-    Snapshot#process_snapshot{version = Version}.
-
-%% @private
-set_entry_branch_id(Snapshot, BranchId) ->
-    Snapshot#process_snapshot{branch_id = BranchId}.
-
-%%====================================================================
-%% Timeline 行为回调 - 工厂和转换
-%%====================================================================
-
-%% @private
-new_entry(ThreadId, State, Opts) ->
-    create_snapshot(ThreadId, State, Opts).
-
-%% @private
-entry_to_state_entry(#process_snapshot{} = Snapshot) ->
-    #state_entry{
-        id = Snapshot#process_snapshot.id,
-        owner_id = Snapshot#process_snapshot.thread_id,
-        parent_id = Snapshot#process_snapshot.parent_id,
-        branch_id = Snapshot#process_snapshot.branch_id,
-        version = Snapshot#process_snapshot.version,
-        state = snapshot_to_map(Snapshot),
-        entry_type = process_snapshot,
-        created_at = Snapshot#process_snapshot.created_at,
-        metadata = Snapshot#process_snapshot.metadata
-    }.
-
-%% @private
-state_entry_to_entry(#state_entry{} = Entry) ->
-    map_to_snapshot(Entry#state_entry.state, Entry).
-
-%% @private
-namespace() -> ?NS_PROCESS_SNAPSHOTS.
-
-%% @private
-id_prefix() -> ?SNAPSHOT_ID_PREFIX.
-
-%% @private
-entry_type() -> process_snapshot.
+%% @doc 比较两个条目
+-spec compare(manager(), binary(), binary()) ->
+    {ok, #{from := term(), to := term(), version_diff := integer()}} | {error, term()}.
+compare(#{module := Module} = Mgr, EntryId1, EntryId2) ->
+    case {load(Mgr, EntryId1), load(Mgr, EntryId2)} of
+        {{ok, Entry1}, {ok, Entry2}} ->
+            V1 = Module:entry_version(Entry1),
+            V2 = Module:entry_version(Entry2),
+            {ok, #{
+                from => Entry1,
+                to => Entry2,
+                version_diff => V2 - V1
+            }};
+        {{error, _} = Error, _} ->
+            Error;
+        {_, {error, _} = Error} ->
+            Error
+    end.
 
 %%====================================================================
 %% 内部函数
 %%====================================================================
 
-%% @private 快照转 Map（用于存储）
--spec snapshot_to_map(snapshot()) -> map().
-snapshot_to_map(#process_snapshot{} = S) ->
+%% @private 创建分支记录
+-spec create_branch(binary(), binary(), binary() | undefined, binary() | undefined) -> branch().
+create_branch(Id, Name, ParentBranchId, ForkedFromId) ->
     #{
-        <<"process_spec">> => S#process_snapshot.process_spec,
-        <<"fsm_state">> => atom_to_binary(S#process_snapshot.fsm_state, utf8),
-        <<"steps_state">> => encode_steps_state(S#process_snapshot.steps_state),
-        <<"event_queue">> => S#process_snapshot.event_queue,
-        <<"paused_step">> => maybe_atom_to_binary(S#process_snapshot.paused_step),
-        <<"pause_reason">> => S#process_snapshot.pause_reason,
-        <<"snapshot_type">> => atom_to_binary(S#process_snapshot.snapshot_type, utf8),
-        <<"step_id">> => maybe_atom_to_binary(S#process_snapshot.step_id),
-        <<"run_id">> => S#process_snapshot.run_id,
-        <<"agent_id">> => S#process_snapshot.agent_id,
-        <<"agent_name">> => S#process_snapshot.agent_name
+        id => Id,
+        name => Name,
+        head_id => undefined,
+        entry_count => 0,
+        parent_branch_id => ParentBranchId,
+        forked_from_id => ForkedFromId,
+        created_at => erlang:system_time(millisecond)
     }.
 
-%% @private Map 转快照（从存储恢复）
--spec map_to_snapshot(map(), #state_entry{}) -> snapshot().
-map_to_snapshot(State, Entry) ->
-    #process_snapshot{
-        id = Entry#state_entry.id,
-        thread_id = Entry#state_entry.owner_id,
-        parent_id = Entry#state_entry.parent_id,
-        branch_id = Entry#state_entry.branch_id,
-        version = Entry#state_entry.version,
-        created_at = Entry#state_entry.created_at,
+%% @private 获取分支头条目 ID
+-spec get_head_id(manager(), binary(), binary()) -> binary() | undefined.
+get_head_id(#{module := Module} = Mgr, OwnerId, BranchId) ->
+    case get_history(Mgr, OwnerId, #{branch_id => BranchId, limit => 1, order => desc}) of
+        {ok, [Entry | _]} ->
+            Module:entry_id(Entry);
+        _ ->
+            undefined
+    end.
 
-        process_spec = maps:get(<<"process_spec">>, State, #{}),
-        fsm_state = binary_to_existing_atom(maps:get(<<"fsm_state">>, State, <<"idle">>), utf8),
-        steps_state = decode_steps_state(maps:get(<<"steps_state">>, State, #{})),
-        event_queue = maps:get(<<"event_queue">>, State, []),
-        paused_step = maybe_binary_to_atom(maps:get(<<"paused_step">>, State, undefined)),
-        pause_reason = maps:get(<<"pause_reason">>, State, undefined),
+%% @private 获取当前在历史中的位置
+-spec get_position_in_history(manager(), binary(), [term()]) -> non_neg_integer().
+get_position_in_history(#{module := Module, positions := Positions}, OwnerId, History) ->
+    CurrentVersion = maps:get(OwnerId, Positions, 0),
+    case CurrentVersion of
+        0 ->
+            %% 没有记录位置，默认在最后
+            length(History) - 1;
+        _ ->
+            %% 查找对应版本的位置
+            case lists:search(
+                fun(E) -> Module:entry_version(E) =:= CurrentVersion end,
+                History
+            ) of
+                {value, _} ->
+                    find_index(
+                        fun(E) -> Module:entry_version(E) =:= CurrentVersion end,
+                        History,
+                        0
+                    );
+                false ->
+                    %% 版本不存在，返回最近的较小版本位置
+                    Filtered = lists:filter(
+                        fun(E) -> Module:entry_version(E) < CurrentVersion end,
+                        History
+                    ),
+                    length(Filtered) - 1
+            end
+    end.
 
-        snapshot_type = binary_to_existing_atom(
-            maps:get(<<"snapshot_type">>, State, <<"manual">>), utf8),
-        step_id = maybe_binary_to_atom(maps:get(<<"step_id">>, State, undefined)),
-        run_id = maps:get(<<"run_id">>, State, undefined),
-        agent_id = maps:get(<<"agent_id">>, State, undefined),
-        agent_name = maps:get(<<"agent_name">>, State, undefined),
+%% @private 查找索引
+-spec find_index(fun((term()) -> boolean()), [term()], non_neg_integer()) -> non_neg_integer().
+find_index(_Pred, [], Idx) ->
+    Idx;
+find_index(Pred, [H | T], Idx) ->
+    case Pred(H) of
+        true -> Idx;
+        false -> find_index(Pred, T, Idx + 1)
+    end.
 
-        metadata = Entry#state_entry.metadata
-    }.
+%% @private 跳转到指定位置
+-spec goto_position(manager(), binary(), [term()], non_neg_integer()) ->
+    {ok, term(), manager()} | {error, term()}.
+goto_position(#{module := Module, positions := Positions} = Mgr, OwnerId, History, Position) ->
+    Entry = lists:nth(Position + 1, History),
+    Version = Module:entry_version(Entry),
+    NewPositions = maps:put(OwnerId, Version, Positions),
+    NewMgr = Mgr#{positions => NewPositions},
+    {ok, Entry, NewMgr}.
 
-%% @private 编码步骤状态
--spec encode_steps_state(#{atom() => step_snapshot()}) -> map().
-encode_steps_state(StepsState) ->
-    maps:fold(
-        fun(StepId, StepState, Acc) ->
-            Key = atom_to_binary(StepId, utf8),
-            maps:put(Key, StepState, Acc)
-        end,
-        #{},
-        StepsState
-    ).
+%% @private 递归获取血统
+%% 返回从根到当前条目的列表 [root, ..., current]
+-spec get_lineage_acc(manager(), binary() | undefined, [term()]) ->
+    {ok, [term()]} | {error, term()}.
+get_lineage_acc(_Mgr, undefined, Acc) ->
+    %% Acc 已经是 [root, ..., current] 顺序，无需反转
+    {ok, Acc};
+get_lineage_acc(#{module := Module} = Mgr, EntryId, Acc) ->
+    case load(Mgr, EntryId) of
+        {ok, Entry} ->
+            ParentId = Module:entry_parent_id(Entry),
+            %% 先递归获取祖先，再追加当前条目
+            get_lineage_acc(Mgr, ParentId, [Entry | Acc]);
+        {error, _} = Error ->
+            Error
+    end.
 
-%% @private 解码步骤状态
--spec decode_steps_state(map()) -> #{atom() => step_snapshot()}.
-decode_steps_state(EncodedState) ->
-    maps:fold(
-        fun(Key, StepState, Acc) ->
-            StepId = binary_to_existing_atom(Key, utf8),
-            maps:put(StepId, StepState, Acc)
-        end,
-        #{},
-        EncodedState
-    ).
-
-%% @private 安全的原子转二进制
--spec maybe_atom_to_binary(atom() | undefined) -> binary() | undefined.
-maybe_atom_to_binary(undefined) -> undefined;
-maybe_atom_to_binary(Atom) -> atom_to_binary(Atom, utf8).
-
-%% @private 安全的二进制转原子
--spec maybe_binary_to_atom(binary() | undefined) -> atom() | undefined.
-maybe_binary_to_atom(undefined) -> undefined;
-maybe_binary_to_atom(<<>>) -> undefined;
-maybe_binary_to_atom(Bin) -> binary_to_existing_atom(Bin, utf8).
+%% @private 自动清理旧条目
+-spec maybe_prune(manager(), binary()) -> manager().
+maybe_prune(#{auto_prune := false} = Mgr, _OwnerId) ->
+    Mgr;
+maybe_prune(#{auto_prune := true, max_entries := MaxEntries, state_store := Store} = Mgr, OwnerId) ->
+    case beamai_state_store:count_by_owner(Store, OwnerId) of
+        {ok, Count} when Count > MaxEntries ->
+            %% 删除最旧的条目
+            ToDelete = Count - MaxEntries,
+            case beamai_state_store:list_by_owner(Store, OwnerId, #{limit => ToDelete, order => asc}) of
+                {ok, OldEntries} ->
+                    Ids = [E#state_entry.id || E <- OldEntries],
+                    beamai_state_store:batch_delete(Store, Ids),
+                    Mgr;
+                _ ->
+                    Mgr
+            end;
+        _ ->
+            Mgr
+    end.

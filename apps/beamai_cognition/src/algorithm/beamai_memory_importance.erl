@@ -43,7 +43,7 @@
 %%%-------------------------------------------------------------------
 -module(beamai_memory_importance).
 
--include_lib("beamai_memory/include/beamai_episodic_memory.hrl").
+-include_lib("beamai_cognition/include/beamai_episodic_memory.hrl").
 
 %%====================================================================
 %%% API 导出

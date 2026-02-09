@@ -13,10 +13,10 @@
 -module(beamai_experience_memory).
 
 -include_lib("beamai_memory/include/beamai_store.hrl").
--include_lib("beamai_memory/include/beamai_episodic_memory.hrl").
+-include_lib("beamai_cognition/include/beamai_episodic_memory.hrl").
 
 %% 类型别名
--type memory() :: beamai_memory:memory().
+-type store() :: beamai_store:store().
 -type user_id() :: binary().
 -type experience_id() :: binary().
 
@@ -60,9 +60,9 @@
 %% - topics: 相关主题
 %% - confidence: 置信度
 %% - embedding: 向量嵌入
--spec add_experience(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-add_experience(Memory, UserId, ExperienceData) ->
+-spec add_experience(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+add_experience(Store, UserId, ExperienceData) ->
     Namespace = get_experience_namespace(UserId),
     ExperienceId = maps:get(id, ExperienceData, beamai_id:gen_id(<<"exp">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
@@ -89,14 +89,14 @@ add_experience(Memory, UserId, ExperienceData) ->
         Emb -> #{embedding => Emb}
     end,
 
-    beamai_memory:put(Memory, Namespace, ExperienceId, Value, StoreOpts).
+    beamai_store:put(Store, Namespace, ExperienceId, Value, StoreOpts).
 
 %% @doc 获取经验
--spec get_experience(memory(), user_id(), experience_id()) ->
+-spec get_experience(store(), user_id(), experience_id()) ->
     {ok, #experience{}} | {error, not_found | term()}.
-get_experience(Memory, UserId, ExperienceId) ->
+get_experience(Store, UserId, ExperienceId) ->
     Namespace = get_experience_namespace(UserId),
-    case beamai_memory:get(Memory, Namespace, ExperienceId) of
+    case beamai_store:get(Store, Namespace, ExperienceId) of
         {ok, #store_item{value = Value, embedding = Emb}} ->
             E = map_to_experience(Value),
             {ok, E#experience{embedding = Emb}};
@@ -105,12 +105,12 @@ get_experience(Memory, UserId, ExperienceId) ->
     end.
 
 %% @doc 查找经验
--spec find_experiences(memory(), user_id(), map()) ->
+-spec find_experiences(store(), user_id(), map()) ->
     {ok, [#experience{}]} | {error, term()}.
-find_experiences(Memory, UserId, Opts) ->
+find_experiences(Store, UserId, Opts) ->
     Namespace = get_experience_namespace(UserId),
     SearchOpts = build_experience_filter(Opts),
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Experiences = [begin
                 E = map_to_experience(Item#store_item.value),
@@ -122,16 +122,16 @@ find_experiences(Memory, UserId, Opts) ->
     end.
 
 %% @doc 获取所有经验
--spec find_experiences(memory(), user_id()) ->
+-spec find_experiences(store(), user_id()) ->
     {ok, [#experience{}]} | {error, term()}.
-find_experiences(Memory, UserId) ->
-    find_experiences(Memory, UserId, #{}).
+find_experiences(Store, UserId) ->
+    find_experiences(Store, UserId, #{}).
 
 %% @doc 验证经验（增加置信度和验证次数）
--spec validate_experience(memory(), user_id(), experience_id()) ->
-    {ok, memory()} | {error, term()}.
-validate_experience(Memory, UserId, ExperienceId) ->
-    case get_experience(Memory, UserId, ExperienceId) of
+-spec validate_experience(store(), user_id(), experience_id()) ->
+    {ok, store()} | {error, term()}.
+validate_experience(Store, UserId, ExperienceId) ->
+    case get_experience(Store, UserId, ExperienceId) of
         {ok, Experience} ->
             Timestamp = beamai_memory_utils:current_timestamp(),
             NewCount = Experience#experience.validation_count + 1,
@@ -142,16 +142,16 @@ validate_experience(Memory, UserId, ExperienceId) ->
                 confidence => NewConfidence,
                 last_validated_at => Timestamp
             },
-            update_experience(Memory, UserId, ExperienceId, Updates);
+            update_experience(Store, UserId, ExperienceId, Updates);
         {error, _} = Error ->
             Error
     end.
 
 %% @doc 更新经验
--spec update_experience(memory(), user_id(), experience_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-update_experience(Memory, UserId, ExperienceId, Updates) ->
-    case get_experience(Memory, UserId, ExperienceId) of
+-spec update_experience(store(), user_id(), experience_id(), map()) ->
+    {ok, store()} | {error, term()}.
+update_experience(Store, UserId, ExperienceId, Updates) ->
+    case get_experience(Store, UserId, ExperienceId) of
         {ok, Experience} ->
             Timestamp = beamai_memory_utils:current_timestamp(),
             UpdatedExperience = apply_experience_updates(Experience, Updates, Timestamp),
@@ -161,17 +161,17 @@ update_experience(Memory, UserId, ExperienceId, Updates) ->
                 undefined -> #{};
                 Emb -> #{embedding => Emb}
             end,
-            beamai_memory:put(Memory, Namespace, ExperienceId, Value, StoreOpts);
+            beamai_store:put(Store, Namespace, ExperienceId, Value, StoreOpts);
         {error, _} = Error ->
             Error
     end.
 
 %% @doc 删除经验
--spec delete_experience(memory(), user_id(), experience_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_experience(Memory, UserId, ExperienceId) ->
+-spec delete_experience(store(), user_id(), experience_id()) ->
+    {ok, store()} | {error, term()}.
+delete_experience(Store, UserId, ExperienceId) ->
     Namespace = get_experience_namespace(UserId),
-    beamai_memory:delete(Memory, Namespace, ExperienceId).
+    beamai_store:delete(Store, Namespace, ExperienceId).
 
 %%====================================================================
 %% 命名空间工具函数

@@ -47,10 +47,10 @@
 -module(beamai_episodic_memory).
 
 -include_lib("beamai_memory/include/beamai_store.hrl").
--include_lib("beamai_memory/include/beamai_episodic_memory.hrl").
+-include_lib("beamai_cognition/include/beamai_episodic_memory.hrl").
 
 %% 类型别名
--type memory() :: beamai_memory:memory().
+-type store() :: beamai_store:store().
 -type user_id() :: binary().
 -type episode_id() :: binary().
 -type event_id() :: binary().
@@ -113,151 +113,151 @@
 %%====================================================================
 
 %% @doc 创建对话片段
--spec create_episode(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-create_episode(Memory, UserId, EpisodeData) ->
-    beamai_episode_memory:create_episode(Memory, UserId, EpisodeData).
+-spec create_episode(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+create_episode(Store, UserId, EpisodeData) ->
+    beamai_episode_memory:create_episode(Store, UserId, EpisodeData).
 
 %% @doc 更新对话片段
--spec update_episode(memory(), user_id(), episode_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-update_episode(Memory, UserId, EpisodeId, Updates) ->
-    beamai_episode_memory:update_episode(Memory, UserId, EpisodeId, Updates).
+-spec update_episode(store(), user_id(), episode_id(), map()) ->
+    {ok, store()} | {error, term()}.
+update_episode(Store, UserId, EpisodeId, Updates) ->
+    beamai_episode_memory:update_episode(Store, UserId, EpisodeId, Updates).
 
 %% @doc 获取对话片段
--spec get_episode(memory(), user_id(), episode_id()) ->
+-spec get_episode(store(), user_id(), episode_id()) ->
     {ok, #episode{}} | {error, not_found | term()}.
-get_episode(Memory, UserId, EpisodeId) ->
-    beamai_episode_memory:get_episode(Memory, UserId, EpisodeId).
+get_episode(Store, UserId, EpisodeId) ->
+    beamai_episode_memory:get_episode(Store, UserId, EpisodeId).
 
 %% @doc 查找对话片段
--spec find_episodes(memory(), user_id(), map()) ->
+-spec find_episodes(store(), user_id(), map()) ->
     {ok, [#episode{}]} | {error, term()}.
-find_episodes(Memory, UserId, Opts) ->
-    beamai_episode_memory:find_episodes(Memory, UserId, Opts).
+find_episodes(Store, UserId, Opts) ->
+    beamai_episode_memory:find_episodes(Store, UserId, Opts).
 
 %% @doc 获取所有对话片段
--spec find_episodes(memory(), user_id()) ->
+-spec find_episodes(store(), user_id()) ->
     {ok, [#episode{}]} | {error, term()}.
-find_episodes(Memory, UserId) ->
-    beamai_episode_memory:find_episodes(Memory, UserId).
+find_episodes(Store, UserId) ->
+    beamai_episode_memory:find_episodes(Store, UserId).
 
 %% @doc 完成对话片段
--spec complete_episode(memory(), user_id(), episode_id()) ->
-    {ok, memory()} | {error, term()}.
-complete_episode(Memory, UserId, EpisodeId) ->
-    beamai_episode_memory:complete_episode(Memory, UserId, EpisodeId).
+-spec complete_episode(store(), user_id(), episode_id()) ->
+    {ok, store()} | {error, term()}.
+complete_episode(Store, UserId, EpisodeId) ->
+    beamai_episode_memory:complete_episode(Store, UserId, EpisodeId).
 
--spec complete_episode(memory(), user_id(), episode_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-complete_episode(Memory, UserId, EpisodeId, FinalData) ->
-    beamai_episode_memory:complete_episode(Memory, UserId, EpisodeId, FinalData).
+-spec complete_episode(store(), user_id(), episode_id(), map()) ->
+    {ok, store()} | {error, term()}.
+complete_episode(Store, UserId, EpisodeId, FinalData) ->
+    beamai_episode_memory:complete_episode(Store, UserId, EpisodeId, FinalData).
 
 %% @doc 删除对话片段
--spec delete_episode(memory(), user_id(), episode_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_episode(Memory, UserId, EpisodeId) ->
-    beamai_episode_memory:delete_episode(Memory, UserId, EpisodeId).
+-spec delete_episode(store(), user_id(), episode_id()) ->
+    {ok, store()} | {error, term()}.
+delete_episode(Store, UserId, EpisodeId) ->
+    beamai_episode_memory:delete_episode(Store, UserId, EpisodeId).
 
 %%====================================================================
 %% 交互事件 API（委托给 beamai_event_memory）
 %%====================================================================
 
 %% @doc 记录交互事件
--spec record_event(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-record_event(Memory, UserId, EventData) ->
-    beamai_event_memory:record_event(Memory, UserId, EventData).
+-spec record_event(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+record_event(Store, UserId, EventData) ->
+    beamai_event_memory:record_event(Store, UserId, EventData).
 
 %% @doc 获取单个事件
--spec get_event(memory(), user_id(), event_id()) ->
+-spec get_event(store(), user_id(), event_id()) ->
     {ok, #event{}} | {error, not_found | term()}.
-get_event(Memory, UserId, EventId) ->
-    beamai_event_memory:get_event(Memory, UserId, EventId).
+get_event(Store, UserId, EventId) ->
+    beamai_event_memory:get_event(Store, UserId, EventId).
 
 %% @doc 获取对话片段的所有事件
--spec get_episode_events(memory(), user_id(), episode_id()) ->
+-spec get_episode_events(store(), user_id(), episode_id()) ->
     {ok, [#event{}]} | {error, term()}.
-get_episode_events(Memory, UserId, EpisodeId) ->
-    beamai_event_memory:get_episode_events(Memory, UserId, EpisodeId).
+get_episode_events(Store, UserId, EpisodeId) ->
+    beamai_event_memory:get_episode_events(Store, UserId, EpisodeId).
 
--spec get_episode_events(memory(), user_id(), episode_id(), map()) ->
+-spec get_episode_events(store(), user_id(), episode_id(), map()) ->
     {ok, [#event{}]} | {error, term()}.
-get_episode_events(Memory, UserId, EpisodeId, Opts) ->
-    beamai_event_memory:get_episode_events(Memory, UserId, EpisodeId, Opts).
+get_episode_events(Store, UserId, EpisodeId, Opts) ->
+    beamai_event_memory:get_episode_events(Store, UserId, EpisodeId, Opts).
 
 %% @doc 查找事件
--spec find_events(memory(), user_id(), map()) ->
+-spec find_events(store(), user_id(), map()) ->
     {ok, [#event{}]} | {error, term()}.
-find_events(Memory, UserId, Opts) ->
-    beamai_event_memory:find_events(Memory, UserId, Opts).
+find_events(Store, UserId, Opts) ->
+    beamai_event_memory:find_events(Store, UserId, Opts).
 
 %% @doc 删除事件
--spec delete_event(memory(), user_id(), event_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_event(Memory, UserId, EventId) ->
-    beamai_event_memory:delete_event(Memory, UserId, EventId).
+-spec delete_event(store(), user_id(), event_id()) ->
+    {ok, store()} | {error, term()}.
+delete_event(Store, UserId, EventId) ->
+    beamai_event_memory:delete_event(Store, UserId, EventId).
 
 %%====================================================================
 %% 经验总结 API（委托给 beamai_experience_memory）
 %%====================================================================
 
 %% @doc 添加经验
--spec add_experience(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-add_experience(Memory, UserId, ExperienceData) ->
-    beamai_experience_memory:add_experience(Memory, UserId, ExperienceData).
+-spec add_experience(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+add_experience(Store, UserId, ExperienceData) ->
+    beamai_experience_memory:add_experience(Store, UserId, ExperienceData).
 
 %% @doc 获取经验
--spec get_experience(memory(), user_id(), experience_id()) ->
+-spec get_experience(store(), user_id(), experience_id()) ->
     {ok, #experience{}} | {error, not_found | term()}.
-get_experience(Memory, UserId, ExperienceId) ->
-    beamai_experience_memory:get_experience(Memory, UserId, ExperienceId).
+get_experience(Store, UserId, ExperienceId) ->
+    beamai_experience_memory:get_experience(Store, UserId, ExperienceId).
 
 %% @doc 查找经验
--spec find_experiences(memory(), user_id(), map()) ->
+-spec find_experiences(store(), user_id(), map()) ->
     {ok, [#experience{}]} | {error, term()}.
-find_experiences(Memory, UserId, Opts) ->
-    beamai_experience_memory:find_experiences(Memory, UserId, Opts).
+find_experiences(Store, UserId, Opts) ->
+    beamai_experience_memory:find_experiences(Store, UserId, Opts).
 
 %% @doc 获取所有经验
--spec find_experiences(memory(), user_id()) ->
+-spec find_experiences(store(), user_id()) ->
     {ok, [#experience{}]} | {error, term()}.
-find_experiences(Memory, UserId) ->
-    beamai_experience_memory:find_experiences(Memory, UserId).
+find_experiences(Store, UserId) ->
+    beamai_experience_memory:find_experiences(Store, UserId).
 
 %% @doc 验证经验
--spec validate_experience(memory(), user_id(), experience_id()) ->
-    {ok, memory()} | {error, term()}.
-validate_experience(Memory, UserId, ExperienceId) ->
-    beamai_experience_memory:validate_experience(Memory, UserId, ExperienceId).
+-spec validate_experience(store(), user_id(), experience_id()) ->
+    {ok, store()} | {error, term()}.
+validate_experience(Store, UserId, ExperienceId) ->
+    beamai_experience_memory:validate_experience(Store, UserId, ExperienceId).
 
 %% @doc 更新经验
--spec update_experience(memory(), user_id(), experience_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-update_experience(Memory, UserId, ExperienceId, Updates) ->
-    beamai_experience_memory:update_experience(Memory, UserId, ExperienceId, Updates).
+-spec update_experience(store(), user_id(), experience_id(), map()) ->
+    {ok, store()} | {error, term()}.
+update_experience(Store, UserId, ExperienceId, Updates) ->
+    beamai_experience_memory:update_experience(Store, UserId, ExperienceId, Updates).
 
 %% @doc 删除经验
--spec delete_experience(memory(), user_id(), experience_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_experience(Memory, UserId, ExperienceId) ->
-    beamai_experience_memory:delete_experience(Memory, UserId, ExperienceId).
+-spec delete_experience(store(), user_id(), experience_id()) ->
+    {ok, store()} | {error, term()}.
+delete_experience(Store, UserId, ExperienceId) ->
+    beamai_experience_memory:delete_experience(Store, UserId, ExperienceId).
 
 %%====================================================================
 %% 高级查询 API（本模块实现）
 %%====================================================================
 
 %% @doc 获取最近的对话片段
--spec get_recent_episodes(memory(), user_id()) ->
+-spec get_recent_episodes(store(), user_id()) ->
     {ok, [#episode{}]} | {error, term()}.
-get_recent_episodes(Memory, UserId) ->
-    get_recent_episodes(Memory, UserId, #{limit => ?DEFAULT_EPISODE_LIMIT}).
+get_recent_episodes(Store, UserId) ->
+    get_recent_episodes(Store, UserId, #{limit => ?DEFAULT_EPISODE_LIMIT}).
 
--spec get_recent_episodes(memory(), user_id(), map()) ->
+-spec get_recent_episodes(store(), user_id(), map()) ->
     {ok, [#episode{}]} | {error, term()}.
-get_recent_episodes(Memory, UserId, Opts) ->
-    case beamai_episode_memory:find_episodes(Memory, UserId, Opts) of
+get_recent_episodes(Store, UserId, Opts) ->
+    case beamai_episode_memory:find_episodes(Store, UserId, Opts) of
         {ok, Episodes} ->
             %% 按开始时间降序排序
             Sorted = lists:sort(fun(A, B) ->
@@ -272,11 +272,11 @@ get_recent_episodes(Memory, UserId, Opts) ->
 %% @doc 按主题搜索
 %%
 %% 搜索相关的对话片段和经验
--spec search_by_topic(memory(), user_id(), binary()) ->
+-spec search_by_topic(store(), user_id(), binary()) ->
     {ok, #{episodes := [#episode{}], experiences := [#experience{}]}} | {error, term()}.
-search_by_topic(Memory, UserId, Topic) ->
-    EpisodeResult = beamai_episode_memory:find_episodes(Memory, UserId, #{topic => Topic}),
-    ExperienceResult = beamai_experience_memory:find_experiences(Memory, UserId, #{topic => Topic}),
+search_by_topic(Store, UserId, Topic) ->
+    EpisodeResult = beamai_episode_memory:find_episodes(Store, UserId, #{topic => Topic}),
+    ExperienceResult = beamai_experience_memory:find_experiences(Store, UserId, #{topic => Topic}),
 
     case {EpisodeResult, ExperienceResult} of
         {{ok, Episodes}, {ok, Experiences}} ->
@@ -290,15 +290,15 @@ search_by_topic(Memory, UserId, Topic) ->
 %% @doc 获取时间线
 %%
 %% 返回指定时间范围内的所有事件，按时间排序。
--spec get_timeline(memory(), user_id(), map()) ->
+-spec get_timeline(store(), user_id(), map()) ->
     {ok, [#event{}]} | {error, term()}.
-get_timeline(Memory, UserId, TimeRange) ->
-    get_timeline(Memory, UserId, TimeRange, #{}).
+get_timeline(Store, UserId, TimeRange) ->
+    get_timeline(Store, UserId, TimeRange, #{}).
 
--spec get_timeline(memory(), user_id(), map(), map()) ->
+-spec get_timeline(store(), user_id(), map(), map()) ->
     {ok, [#event{}]} | {error, term()}.
-get_timeline(Memory, UserId, TimeRange, Opts) ->
-    case beamai_event_memory:find_events(Memory, UserId, Opts) of
+get_timeline(Store, UserId, TimeRange, Opts) ->
+    case beamai_event_memory:find_events(Store, UserId, Opts) of
         {ok, Events} ->
             Since = maps:get(since, TimeRange, 0),
             Until = maps:get(until, TimeRange, beamai_memory_utils:current_timestamp()),

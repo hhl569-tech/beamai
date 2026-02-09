@@ -13,10 +13,10 @@
 -module(beamai_skill_memory).
 
 -include_lib("beamai_memory/include/beamai_store.hrl").
--include_lib("beamai_memory/include/beamai_procedural_memory.hrl").
+-include_lib("beamai_cognition/include/beamai_procedural_memory.hrl").
 
 %% 类型别名
--type memory() :: beamai_memory:memory().
+-type store() :: beamai_store:store().
 -type user_id() :: binary().
 -type skill_id() :: binary().
 
@@ -77,9 +77,9 @@
 %% - examples: 示例列表
 %% - tags: 标签列表
 %% - source: 来源 (learned | predefined | imported)
--spec register_skill(memory(), user_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-register_skill(Memory, UserId, SkillData) ->
+-spec register_skill(store(), user_id(), map()) ->
+    {ok, store()} | {error, term()}.
+register_skill(Store, UserId, SkillData) ->
     Namespace = get_skill_namespace(UserId),
     SkillId = maps:get(id, SkillData, beamai_id:gen_id(<<"skill">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
@@ -112,14 +112,14 @@ register_skill(Memory, UserId, SkillData) ->
         Emb -> #{embedding => Emb}
     end,
 
-    beamai_memory:put(Memory, Namespace, SkillId, Value, StoreOpts).
+    beamai_store:put(Store, Namespace, SkillId, Value, StoreOpts).
 
 %% @doc 获取技能
--spec get_skill(memory(), user_id(), skill_id()) ->
+-spec get_skill(store(), user_id(), skill_id()) ->
     {ok, #skill{}} | {error, not_found | term()}.
-get_skill(Memory, UserId, SkillId) ->
+get_skill(Store, UserId, SkillId) ->
     Namespace = get_skill_namespace(UserId),
-    case beamai_memory:get(Memory, Namespace, SkillId) of
+    case beamai_store:get(Store, Namespace, SkillId) of
         {ok, #store_item{value = Value, embedding = Emb}} ->
             S = map_to_skill(Value),
             {ok, S#skill{embedding = Emb}};
@@ -135,12 +135,12 @@ get_skill(Memory, UserId, SkillId) ->
 %% - min_proficiency: 最小熟练度
 %% - query: 语义搜索查询
 %% - limit: 返回数量限制
--spec find_skills(memory(), user_id(), map()) ->
+-spec find_skills(store(), user_id(), map()) ->
     {ok, [#skill{}]} | {error, term()}.
-find_skills(Memory, UserId, Opts) ->
+find_skills(Store, UserId, Opts) ->
     Namespace = get_skill_namespace(UserId),
     SearchOpts = build_skill_filter(Opts),
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Skills = [begin
                 S = map_to_skill(Item#store_item.value),
@@ -154,16 +154,16 @@ find_skills(Memory, UserId, Opts) ->
     end.
 
 %% @doc 获取所有技能
--spec find_skills(memory(), user_id()) ->
+-spec find_skills(store(), user_id()) ->
     {ok, [#skill{}]} | {error, term()}.
-find_skills(Memory, UserId) ->
-    find_skills(Memory, UserId, #{}).
+find_skills(Store, UserId) ->
+    find_skills(Store, UserId, #{}).
 
 %% @doc 更新技能
--spec update_skill(memory(), user_id(), skill_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-update_skill(Memory, UserId, SkillId, Updates) ->
-    case get_skill(Memory, UserId, SkillId) of
+-spec update_skill(store(), user_id(), skill_id(), map()) ->
+    {ok, store()} | {error, term()}.
+update_skill(Store, UserId, SkillId, Updates) ->
+    case get_skill(Store, UserId, SkillId) of
         {ok, Skill} ->
             Timestamp = beamai_memory_utils:current_timestamp(),
             UpdatedSkill = apply_skill_updates(Skill, Updates, Timestamp),
@@ -173,7 +173,7 @@ update_skill(Memory, UserId, SkillId, Updates) ->
                 undefined -> #{};
                 Emb -> #{embedding => Emb}
             end,
-            beamai_memory:put(Memory, Namespace, SkillId, Value, StoreOpts);
+            beamai_store:put(Store, Namespace, SkillId, Value, StoreOpts);
         {error, _} = Error ->
             Error
     end.
@@ -184,10 +184,10 @@ update_skill(Memory, UserId, SkillId, Updates) ->
 %% - success: 是否成功（必需）
 %% - duration: 执行时长
 %% - notes: 备注
--spec record_skill_usage(memory(), user_id(), skill_id(), map()) ->
-    {ok, memory()} | {error, term()}.
-record_skill_usage(Memory, UserId, SkillId, Result) ->
-    case get_skill(Memory, UserId, SkillId) of
+-spec record_skill_usage(store(), user_id(), skill_id(), map()) ->
+    {ok, store()} | {error, term()}.
+record_skill_usage(Store, UserId, SkillId, Result) ->
+    case get_skill(Store, UserId, SkillId) of
         {ok, Skill} ->
             Timestamp = beamai_memory_utils:current_timestamp(),
             Success = maps:get(success, Result, true),
@@ -212,32 +212,32 @@ record_skill_usage(Memory, UserId, SkillId, Result) ->
                 last_used_at => Timestamp
             },
 
-            update_skill(Memory, UserId, SkillId, Updates);
+            update_skill(Store, UserId, SkillId, Updates);
         {error, _} = Error ->
             Error
     end.
 
 %% @doc 弃用技能
--spec deprecate_skill(memory(), user_id(), skill_id()) ->
-    {ok, memory()} | {error, term()}.
-deprecate_skill(Memory, UserId, SkillId) ->
-    update_skill(Memory, UserId, SkillId, #{status => ?SKILL_DEPRECATED}).
+-spec deprecate_skill(store(), user_id(), skill_id()) ->
+    {ok, store()} | {error, term()}.
+deprecate_skill(Store, UserId, SkillId) ->
+    update_skill(Store, UserId, SkillId, #{status => ?SKILL_DEPRECATED}).
 
 %% @doc 删除技能
--spec delete_skill(memory(), user_id(), skill_id()) ->
-    {ok, memory()} | {error, term()}.
-delete_skill(Memory, UserId, SkillId) ->
+-spec delete_skill(store(), user_id(), skill_id()) ->
+    {ok, store()} | {error, term()}.
+delete_skill(Store, UserId, SkillId) ->
     Namespace = get_skill_namespace(UserId),
-    beamai_memory:delete(Memory, Namespace, SkillId).
+    beamai_store:delete(Store, Namespace, SkillId).
 
 %%====================================================================
 %% 共享技能 API
 %%====================================================================
 
 %% @doc 注册共享技能
--spec register_shared_skill(memory(), map()) ->
-    {ok, memory()} | {error, term()}.
-register_shared_skill(Memory, SkillData) ->
+-spec register_shared_skill(store(), map()) ->
+    {ok, store()} | {error, term()}.
+register_shared_skill(Store, SkillData) ->
     Namespace = get_shared_skill_namespace(),
     SkillId = maps:get(id, SkillData, beamai_id:gen_id(<<"skill">>)),
     Timestamp = beamai_memory_utils:current_timestamp(),
@@ -270,15 +270,15 @@ register_shared_skill(Memory, SkillData) ->
         Emb -> #{embedding => Emb}
     end,
 
-    beamai_memory:put(Memory, Namespace, SkillId, Value, StoreOpts).
+    beamai_store:put(Store, Namespace, SkillId, Value, StoreOpts).
 
 %% @doc 查找共享技能
--spec find_shared_skills(memory(), map()) ->
+-spec find_shared_skills(store(), map()) ->
     {ok, [#skill{}]} | {error, term()}.
-find_shared_skills(Memory, Opts) ->
+find_shared_skills(Store, Opts) ->
     Namespace = get_shared_skill_namespace(),
     SearchOpts = build_skill_filter(Opts),
-    case beamai_memory:search(Memory, Namespace, SearchOpts) of
+    case beamai_store:search(Store, Namespace, SearchOpts) of
         {ok, Results} ->
             Skills = [begin
                 S = map_to_skill(Item#store_item.value),
@@ -290,20 +290,20 @@ find_shared_skills(Memory, Opts) ->
     end.
 
 %% @doc 获取所有共享技能
--spec find_shared_skills(memory()) ->
+-spec find_shared_skills(store()) ->
     {ok, [#skill{}]} | {error, term()}.
-find_shared_skills(Memory) ->
-    find_shared_skills(Memory, #{}).
+find_shared_skills(Store) ->
+    find_shared_skills(Store, #{}).
 
 %%====================================================================
 %% 高级查询 API
 %%====================================================================
 
 %% @doc 获取熟练的技能
--spec get_proficient_skills(memory(), user_id()) ->
+-spec get_proficient_skills(store(), user_id()) ->
     {ok, [#skill{}]} | {error, term()}.
-get_proficient_skills(Memory, UserId) ->
-    find_skills(Memory, UserId, #{min_proficiency => ?PROFICIENCY_PROFICIENT}).
+get_proficient_skills(Store, UserId) ->
+    find_skills(Store, UserId, #{min_proficiency => ?PROFICIENCY_PROFICIENT}).
 
 %%====================================================================
 %% 命名空间工具函数
@@ -344,7 +344,7 @@ skill_to_map(#skill{} = S) ->
         <<"name">> => S#skill.name,
         <<"description">> => S#skill.description,
         <<"category">> => S#skill.category,
-        <<"status">> => beamai_memory_types:skill_status_to_binary(S#skill.status),
+        <<"status">> => beamai_cognition_types:skill_status_to_binary(S#skill.status),
         <<"proficiency">> => S#skill.proficiency,
         <<"usage_count">> => S#skill.usage_count,
         <<"success_count">> => S#skill.success_count,
@@ -353,7 +353,7 @@ skill_to_map(#skill{} = S) ->
         <<"tools">> => S#skill.tools,
         <<"examples">> => S#skill.examples,
         <<"tags">> => S#skill.tags,
-        <<"source">> => beamai_memory_types:skill_source_to_binary(S#skill.source),
+        <<"source">> => beamai_cognition_types:skill_source_to_binary(S#skill.source),
         <<"source_ref">> => S#skill.source_ref,
         <<"last_used_at">> => S#skill.last_used_at,
         <<"created_at">> => S#skill.created_at,
@@ -370,7 +370,7 @@ map_to_skill(M) ->
         name = maps:get(<<"name">>, M),
         description = maps:get(<<"description">>, M),
         category = maps:get(<<"category">>, M, ?CAT_TOOL_USAGE),
-        status = beamai_memory_types:binary_to_skill_status(StatusBin),
+        status = beamai_cognition_types:binary_to_skill_status(StatusBin),
         proficiency = maps:get(<<"proficiency">>, M, ?DEFAULT_PROFICIENCY),
         usage_count = maps:get(<<"usage_count">>, M, 0),
         success_count = maps:get(<<"success_count">>, M, 0),
@@ -379,7 +379,7 @@ map_to_skill(M) ->
         tools = maps:get(<<"tools">>, M, []),
         examples = maps:get(<<"examples">>, M, []),
         tags = maps:get(<<"tags">>, M, []),
-        source = beamai_memory_types:binary_to_skill_source(SourceBin),
+        source = beamai_cognition_types:binary_to_skill_source(SourceBin),
         source_ref = maps:get(<<"source_ref">>, M, undefined),
         last_used_at = maps:get(<<"last_used_at">>, M, undefined),
         created_at = maps:get(<<"created_at">>, M),

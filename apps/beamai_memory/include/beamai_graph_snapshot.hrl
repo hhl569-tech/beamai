@@ -1,14 +1,14 @@
 %%%-------------------------------------------------------------------
-%%% @doc Checkpoint 记录和常量定义
+%%% @doc Graph Snapshot 记录和常量定义
 %%%
-%%% 定义 Graph Engine (Pregel) 专用的 Checkpoint 记录。
+%%% 定义 Graph Engine (Pregel) 专用的 Snapshot 记录。
 %%% 用于保存和恢复图计算执行状态。
 %%%
 %%% == 核心概念 ==
 %%%
 %%% - Run: 单次图执行，由 run_id 标识
-%%% - Checkpoint: 某一超步完成后的执行状态
-%%% - Version: 检查点在时间线中的版本号
+%%% - Snapshot: 某一超步完成后的执行状态快照
+%%% - Version: 快照在时间线中的版本号
 %%%
 %%% == 时间旅行模型 ==
 %%%
@@ -23,15 +23,15 @@
 %%% @end
 %%%-------------------------------------------------------------------
 
--ifndef(BEAMAI_CHECKPOINT_HRL).
--define(BEAMAI_CHECKPOINT_HRL, true).
+-ifndef(BEAMAI_GRAPH_SNAPSHOT_HRL).
+-define(BEAMAI_GRAPH_SNAPSHOT_HRL, true).
 
 %%====================================================================
-%% Graph Checkpoint 记录
+%% Graph Snapshot 记录
 %%====================================================================
 
-%% Graph Checkpoint - 面向 Graph Engine (Pregel)
--record(graph_checkpoint, {
+%% Graph Snapshot - 面向 Graph Engine (Pregel)
+-record(graph_snapshot, {
     %%--------------------------------------------------------------------
     %% 基础标识（时间线通用字段）
     %%--------------------------------------------------------------------
@@ -42,7 +42,7 @@
     %% 执行标识（所属者）
     run_id :: binary(),
 
-    %% 父检查点 ID（用于链式追溯）
+    %% 父快照 ID（用于链式追溯）
     parent_id :: binary() | undefined,
 
     %% 分支标识
@@ -93,11 +93,11 @@
     interrupted_vertices :: [atom()],
 
     %%--------------------------------------------------------------------
-    %% 检查点类型
+    %% 快照类型
     %%--------------------------------------------------------------------
 
     %% 类型: initial | superstep | error | interrupt | final
-    checkpoint_type :: checkpoint_type(),
+    snapshot_type :: graph_snapshot_type(),
 
     %%--------------------------------------------------------------------
     %% 恢复信息
@@ -131,8 +131,8 @@
     halt_voted := boolean()
 }.
 
-%% 检查点类型
--type checkpoint_type() ::
+%% 快照类型
+-type graph_snapshot_type() ::
     initial |       %% 图初始化
     superstep |     %% 超步完成
     error |         %% 执行出错
@@ -140,15 +140,15 @@
     final.          %% 图执行完成
 
 %%====================================================================
-%% 检查点配置
+%% 快照配置
 %%====================================================================
 
--record(checkpoint_config, {
+-record(graph_snapshot_config, {
     %% 执行 ID（必需）
     run_id :: binary(),
 
-    %% 最大检查点数量
-    max_checkpoints :: pos_integer(),
+    %% 最大快照数量
+    max_snapshots :: pos_integer(),
 
     %% 自动清理
     auto_prune :: boolean(),
@@ -162,20 +162,20 @@
 %%====================================================================
 
 %% 命名空间
--define(NS_GRAPH_CHECKPOINTS, <<"graph_checkpoints">>).
+-define(NS_GRAPH_SNAPSHOTS, <<"graph_snapshots">>).
 
 %% ID 前缀
--define(CHECKPOINT_ID_PREFIX, <<"gcp_">>).
+-define(GRAPH_SNAPSHOT_ID_PREFIX, <<"gsn_">>).
 
 %% 默认值
--define(DEFAULT_MAX_CHECKPOINTS, 100).
--define(DEFAULT_CHECKPOINT_BRANCH, <<"main">>).
+-define(DEFAULT_MAX_GRAPH_SNAPSHOTS, 100).
+-define(DEFAULT_GRAPH_SNAPSHOT_BRANCH, <<"main">>).
 
-%% 检查点类型常量
--define(CP_INITIAL, initial).
--define(CP_SUPERSTEP, superstep).
--define(CP_ERROR, error).
--define(CP_INTERRUPT, interrupt).
--define(CP_FINAL, final).
+%% 快照类型常量
+-define(GS_INITIAL, initial).
+-define(GS_SUPERSTEP, superstep).
+-define(GS_ERROR, error).
+-define(GS_INTERRUPT, interrupt).
+-define(GS_FINAL, final).
 
 -endif.

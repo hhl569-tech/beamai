@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Snapshot 记录和常量定义
+%%% @doc Process Snapshot 记录和常量定义
 %%%
 %%% 定义 Process Framework 专用的 Snapshot 记录。
 %%% 用于保存和恢复流程执行状态。
@@ -23,8 +23,8 @@
 %%% @end
 %%%-------------------------------------------------------------------
 
--ifndef(BEAMAI_SNAPSHOT_HRL).
--define(BEAMAI_SNAPSHOT_HRL, true).
+-ifndef(BEAMAI_PROCESS_SNAPSHOT_HRL).
+-define(BEAMAI_PROCESS_SNAPSHOT_HRL, true).
 
 %%====================================================================
 %% Process Snapshot 记录

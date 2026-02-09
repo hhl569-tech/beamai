@@ -246,11 +246,12 @@ build_context(Config, Messages, ExtraOpts) ->
 
     {ok, Context}.
 
-%% @doc 从 Memory 加载并构建上下文
--spec load_context(buffer_config(), beamai_memory:memory(), map()) ->
+%% @doc 从 Process Snapshot Manager 加载并构建上下文
+-spec load_context(buffer_config(), beamai_process_snapshot:manager(), map()) ->
     {ok, context()} | {error, term()}.
-load_context(Config, Memory, ThreadConfig) ->
-    case beamai_memory:load_snapshot(Memory, ThreadConfig) of
+load_context(Config, Mgr, ThreadConfig) ->
+    ThreadId = maps:get(thread_id, ThreadConfig),
+    case beamai_process_snapshot:get_latest(Mgr, ThreadId) of
         {ok, State} ->
             Messages = maps:get(messages, State, []),
             build_context(Config, Messages);
