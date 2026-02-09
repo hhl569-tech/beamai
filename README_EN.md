@@ -276,7 +276,7 @@ apps/
 └─────────────────────────────────────┘
 ```
 
-See [DEPENDENCIES_EN.md](doc/DEPENDENCIES_EN.md) for details
+See [DEPENDENCIES_EN.md](docs/DEPENDENCIES_EN.md) for details
 
 ## Core Concepts
 
@@ -430,11 +430,12 @@ BeamAI supports both Gun and Hackney HTTP backends, with Gun as the default (sup
 
 ### Core Documentation
 
-- **[doc/API_REFERENCE_EN.md](doc/API_REFERENCE_EN.md)** - API Reference
-- **[doc/MIDDLEWARE_EN.md](doc/MIDDLEWARE_EN.md)** - Middleware System Documentation
-- **[doc/CALLBACKS_EN.md](doc/CALLBACKS_EN.md)** - Callback System Documentation
-- **[doc/ARCHITECTURE_EN.md](doc/ARCHITECTURE_EN.md)** - Architecture Design
-- **[DEPENDENCIES_EN.md](doc/DEPENDENCIES_EN.md)** - Dependency Relationship Details
+- **[docs/API_REFERENCE_EN.md](docs/API_REFERENCE_EN.md)** - API Reference
+- **[docs/FILTER_EN.md](docs/FILTER_EN.md)** - Filter System Documentation
+- **[docs/MIDDLEWARE_EN.md](docs/MIDDLEWARE_EN.md)** - Middleware System Documentation
+- **[docs/CALLBACKS_EN.md](docs/CALLBACKS_EN.md)** - Callback System Documentation
+- **[docs/ARCHITECTURE_EN.md](docs/ARCHITECTURE_EN.md)** - Architecture Design
+- **[docs/DEPENDENCIES_EN.md](docs/DEPENDENCIES_EN.md)** - Dependency Relationship Details
 
 ### Module Documentation
 

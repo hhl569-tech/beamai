@@ -100,7 +100,40 @@ Kernel1 = beamai_kernel:add_tool(Kernel, SearchTool),
 }, beamai_context:new()).
 ```
 
-### 4. Process Framework（流程编排）
+### 4. Filter 过滤器
+
+```erlang
+%% 在 Kernel 上注册前置/后置过滤器
+K0 = beamai:kernel(),
+K1 = beamai:add_tool(K0, beamai:tool(<<"add">>,
+    fun(#{a := A, b := B}) -> {ok, A + B} end,
+    #{description => <<"Add two numbers">>,
+      parameters => #{
+          a => #{type => integer, required => true},
+          b => #{type => integer, required => true}
+      }})),
+
+%% 前置过滤器：参数验证
+K2 = beamai:add_filter(K1, <<"validate">>, pre_invocation,
+    fun(#{args := #{a := A}} = _Ctx) when A > 1000 ->
+        {error, {validation_failed, <<"a exceeds limit">>}};
+       (Ctx) ->
+        {continue, Ctx}
+    end),
+
+%% 后置过滤器：结果转换
+K3 = beamai:add_filter(K2, <<"transform">>, post_invocation,
+    fun(#{result := Result} = Ctx) ->
+        {continue, Ctx#{result => Result * 2}}
+    end),
+
+%% 调用（3 + 5 = 8，过滤器翻倍后 = 16）
+{ok, 16, _} = beamai:invoke_tool(K3, <<"add">>, #{a => 3, b => 5}, beamai:context()).
+```
+
+详见 [Filter 文档](docs/FILTER.md)。
+
+### 5. Process Framework（流程编排）
 
 ```erlang
 %% 使用 Process Builder 构建流程
@@ -117,7 +150,7 @@ Kernel1 = beamai_kernel:add_tool(Kernel, SearchTool),
 {ok, Result} = beamai_process_executor:run(Process, #{data => <<"test"/utf8>>}).
 ```
 
-### 5. Graph 引擎
+### 6. Graph 引擎
 
 ```erlang
 %% 创建图
@@ -136,7 +169,7 @@ Builder5 = graph_builder:set_finish_point(Builder4, finish),
 {ok, Result} = graph_runner:run(Graph, #{}).
 ```
 
-### 6. Memory 持久化
+### 7. Memory 持久化
 
 ```erlang
 %% 创建存储后端
@@ -148,7 +181,7 @@ ok = beamai_memory:save(Memory, <<"key1">>, #{value => 123}),
 {ok, #{value := 123}} = beamai_memory:load(Memory, <<"key1">>).
 ```
 
-### 7. Output Parser（结构化输出）
+### 8. Output Parser（结构化输出）
 
 ```erlang
 %% 创建 JSON 解析器
@@ -359,11 +392,12 @@ BeamAI 支持 Gun 和 Hackney 两种 HTTP 后端，默认使用 Gun（支持 HTT
 
 ### 核心文档
 
-- **[doc/API_REFERENCE.md](doc/API_REFERENCE.md)** - API 参考文档
-- **[doc/MIDDLEWARE.md](doc/MIDDLEWARE.md)** - Middleware 系统文档
-- **[doc/CALLBACKS.md](doc/CALLBACKS.md)** - Callback 回调系统文档
-- **[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)** - 架构设计
-- **[DEPENDENCIES.md](doc/DEPENDENCIES.md)** - 依赖关系详解
+- **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** - API 参考文档
+- **[docs/FILTER.md](docs/FILTER.md)** - Filter 过滤器系统文档
+- **[docs/MIDDLEWARE.md](docs/MIDDLEWARE.md)** - Middleware 系统文档
+- **[docs/CALLBACKS.md](docs/CALLBACKS.md)** - Callback 回调系统文档
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - 架构设计
+- **[docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)** - 依赖关系详解
 
 ### 模块文档
 
