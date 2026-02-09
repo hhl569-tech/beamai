@@ -56,7 +56,7 @@ chat(Config, Request) ->
     Headers = build_headers(Config),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?ANTHROPIC_TIMEOUT)},
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response:parser_anthropic()).
+    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_anthropic()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->

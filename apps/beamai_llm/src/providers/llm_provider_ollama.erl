@@ -63,7 +63,7 @@ chat(Config, Request) ->
     Headers = build_headers(),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?OLLAMA_TIMEOUT)},
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response:parser_ollama()).
+    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_ollama()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->

@@ -33,7 +33,7 @@
         %% Adapters
         llm_message_adapter,
         llm_tool_adapter,
-        llm_response_adapter
+        llm_response_parser
     ]},
     {licenses, ["Apache-2.0"]},
     {links, []}

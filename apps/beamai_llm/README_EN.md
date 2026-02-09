@@ -37,9 +37,9 @@ Large Language Model (LLM) client layer with support for multiple LLM providers.
 
 - **llm_message_adapter** - Message format adaptation
 - **llm_tool_adapter** - Tool format adaptation
-- **llm_response_adapter** - Response format adaptation
+- **llm_response_parser** - Provider response parsing (OpenAI/Anthropic/DashScope formats → unified `llm_response` structure)
 
-> **Note:** The `llm_response` module (unified LLM response accessors) has been moved to `beamai_core` for better architectural layering. All provider response parsing functions remain in this module.
+> **Note:** The core response data structure `llm_response` is in `beamai_core`, providing unified type definitions and accessors.
 
 ## API Documentation
 

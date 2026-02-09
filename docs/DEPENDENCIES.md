@@ -202,7 +202,7 @@ application:set_env(beamai_core, http_backend, beamai_http_hackney).
   - 阿里云百炼（llm_provider_bailian）- DashScope 原生 API
 - 消息适配器（llm_message_adapter）
 - 工具适配器（llm_tool_adapter）
-- 响应适配器（llm_response_adapter）
+- 响应解析器（llm_response_parser）
 
 #### beamai_rag（RAG 系统）
 

@@ -253,7 +253,7 @@ apps/
 ├── beamai_llm/         # LLM client
 │   ├── Chat           # beamai_chat_completion
 │   ├── Parser         # beamai_output_parser, beamai_parser_json
-│   ├── Adapters       # llm_message_adapter, llm_response_adapter, llm_tool_adapter
+│   ├── Adapters       # llm_message_adapter, llm_response_parser, llm_tool_adapter
 │   └── Providers      # OpenAI, Anthropic, DeepSeek, Zhipu, Bailian, Ollama
 │
 └── beamai_memory/      # Memory and context storage

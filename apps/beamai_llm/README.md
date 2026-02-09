@@ -38,9 +38,9 @@
 
 - **llm_message_adapter** - 消息格式适配
 - **llm_tool_adapter** - 工具格式适配
-- **llm_response_adapter** - 响应格式适配（兼容层）
+- **llm_response_parser** - Provider 响应解析（OpenAI/Anthropic/DashScope 等格式 → 统一 `llm_response` 结构）
 
-> **注意**: 核心响应结构 `llm_response` 已移至 `beamai_core`，提供统一的 LLM 响应访问接口。
+> **注意**: 核心响应数据结构 `llm_response` 位于 `beamai_core`，提供统一的类型定义和访问器。
 
 ## API 文档
 
@@ -398,11 +398,11 @@ llm_provider_common:parse_usage(Usage) -> #{prompt_tokens, completion_tokens, to
 
 ```erlang
 %% 通过 Parser 函数解析响应（由 llm_http_client 内部使用）
-llm_response:parser_openai()      %% OpenAI/DeepSeek/Zhipu 格式
-llm_response:parser_anthropic()   %% Anthropic 格式
-llm_response:parser_dashscope()   %% 阿里云百炼 DashScope 格式
-llm_response:parser_ollama()      %% Ollama 格式
-llm_response:parser_zhipu()       %% 智谱特定格式（含 reasoning_content）
+llm_response_parser:parser_openai()      %% OpenAI/DeepSeek/Zhipu 格式
+llm_response_parser:parser_anthropic()   %% Anthropic 格式
+llm_response_parser:parser_dashscope()   %% 阿里云百炼 DashScope 格式
+llm_response_parser:parser_ollama()      %% Ollama 格式
+llm_response_parser:parser_zhipu()       %% 智谱特定格式（含 reasoning_content）
 
 %% 统一访问接口
 Content = llm_response:content(Response),

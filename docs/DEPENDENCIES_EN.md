@@ -204,7 +204,7 @@ application:set_env(beamai_core, http_backend, beamai_http_hackney).
   - Alibaba Cloud Bailian (llm_provider_bailian) - DashScope native API
 - Message adapter (llm_message_adapter)
 - Tool adapter (llm_tool_adapter)
-- Response adapter (llm_response_adapter)
+- Response parser (llm_response_parser)
 
 #### beamai_rag (RAG System)
 

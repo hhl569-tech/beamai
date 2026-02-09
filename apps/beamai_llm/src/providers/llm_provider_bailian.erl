@@ -88,7 +88,7 @@ chat(Config, Request) ->
     Headers = build_headers(Config, false),
     Body = build_request_body(Config, Request),
     Opts = build_request_opts(Config),
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response:parser_dashscope()).
+    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_dashscope()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->

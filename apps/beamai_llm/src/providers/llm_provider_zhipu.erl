@@ -141,7 +141,7 @@ chat_openai(Config, Request) ->
     Headers = build_headers(Config),
     Body = build_openai_request_body(Config, Request),
     Opts = build_request_opts(Config),
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response:parser_zhipu()).
+    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_zhipu()).
 
 %% @private OpenAI 兼容模式流式聊天
 stream_chat_openai(Config, Request, Callback) ->
@@ -157,7 +157,7 @@ chat_anthropic(Config, Request) ->
     Headers = build_anthropic_headers(Config),
     Body = build_anthropic_request_body(Config, Request),
     Opts = build_request_opts(Config),
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response:parser_anthropic()).
+    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_anthropic()).
 
 %% @private Anthropic 兼容模式流式聊天
 stream_chat_anthropic(Config, Request, Callback) ->
@@ -198,13 +198,13 @@ get_async_result(Config, TaskId) ->
 
 %% @private 处理异步响应状态
 handle_async_response(#{<<"task_status">> := <<"SUCCESS">>} = Resp) ->
-    llm_response:from_zhipu(Resp);
+    llm_response_parser:from_zhipu(Resp);
 handle_async_response(#{<<"task_status">> := <<"PROCESSING">>} = Resp) ->
     {pending, Resp};
 handle_async_response(#{<<"task_status">> := <<"FAIL">>} = Resp) ->
     {error, {task_failed, Resp}};
 handle_async_response(Resp) ->
-    llm_response:from_zhipu(Resp).
+    llm_response_parser:from_zhipu(Resp).
 
 %% @private 执行 GET 请求（用于异步结果查询）
 %% 使用 beamai_http 作为底层 HTTP 客户端
