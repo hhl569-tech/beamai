@@ -50,7 +50,6 @@
         beamai_process_step_transform,
         beamai_process_worker,
         beamai_process_state,
-        beamai_process_memory_store,
         beamai_process_store_behaviour,
         beamai_process_sup,
         %% JSON-RPC

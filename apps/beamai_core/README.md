@@ -36,7 +36,6 @@ LLM 响应的统一抽象层：
 - **beamai_process_executor** - 流程执行器
 - **beamai_process_event** - 事件系统
 - **beamai_process_state** - 流程状态管理
-- **beamai_process_memory_store** - 流程状态持久化
 - **beamai_process_worker** - 流程工作进程
 - **beamai_process_sup** - 流程监督树
 

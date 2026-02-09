@@ -5,7 +5,8 @@
   {mod, {beamai_memory_app, []}},
   {applications,
    [kernel,
-    stdlib
+    stdlib,
+    beamai_core
    ]},
   %% agent_llm: beamai_buffer_summarizer 的 LLM 摘要功能需要
   {optional_applications, [beamai_llm]},

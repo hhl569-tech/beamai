@@ -36,7 +36,6 @@ Orchestratable process engine supporting step definitions, conditional branching
 - **beamai_process_executor** - Process executor
 - **beamai_process_event** - Event system
 - **beamai_process_state** - Process state management
-- **beamai_process_memory_store** - Process state persistence
 - **beamai_process_worker** - Process worker
 - **beamai_process_sup** - Process supervisor tree
 
