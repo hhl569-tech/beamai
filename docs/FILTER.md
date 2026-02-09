@@ -387,26 +387,21 @@ K1 = beamai:add_filter(K0, <<"cache">>, pre_invocation,
 
 ## 与 Middleware 的关系
 
-BeamAI 有两套拦截机制：
-
-| 特性 | Filter（本文档） | Middleware |
-|------|------------------|------------|
-| 所在模块 | beamai_core | beamai_extra (beamai_tools) |
-| 复杂度 | 轻量级，无状态 | 完整框架，有状态管理 |
-| 状态管理 | 无内部状态 | 支持 Middleware 内部状态 |
-| 预设配置 | 无 | 提供 production/development 等预设 |
-| 内置功能 | 无 | 调用限制、人工审批、重试、降级 |
-| 适用场景 | 简单拦截：日志、验证、转换 | 复杂控制：限流、重试、降级 |
+[beamai_extra](https://github.com/TTalkPro/beamai_extra) 扩展项目中提供了更高级的 Middleware 系统（位于 beamai_tools），支持有状态管理、预设配置、调用限制、人工审批、重试和降级等功能。
 
 Middleware 内部通过 `beamai_middleware_runner:to_filters/1` 转换为 Filter 注册到 Kernel，两者最终在同一个过滤器管道中执行。
 
-详见 [Middleware 系统文档](MIDDLEWARE.md)。
+| 特性 | Filter（本文档） | Middleware（beamai_extra） |
+|------|------------------|---------------------------|
+| 复杂度 | 轻量级，无状态 | 完整框架，有状态管理 |
+| 预设配置 | 无 | 提供 production/development 等预设 |
+| 内置功能 | 无 | 调用限制、人工审批、重试、降级 |
+| 适用场景 | 简单拦截：日志、验证、转换 | 复杂控制：限流、重试、降级 |
 
 ---
 
 ## 更多资源
 
 - [beamai_core README](../apps/beamai_core/README.md) - Kernel 架构文档
-- [Middleware 系统文档](MIDDLEWARE.md) - 高级 Middleware 系统
 - [API 参考](API_REFERENCE.md) - API 参考文档
 - [示例代码](../examples/src/example_filter.erl) - Filter 完整示例

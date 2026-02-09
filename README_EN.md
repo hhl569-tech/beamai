@@ -432,9 +432,7 @@ BeamAI supports both Gun and Hackney HTTP backends, with Gun as the default (sup
 
 - **[docs/API_REFERENCE_EN.md](docs/API_REFERENCE_EN.md)** - API Reference
 - **[docs/FILTER_EN.md](docs/FILTER_EN.md)** - Filter System Documentation
-- **[docs/MIDDLEWARE_EN.md](docs/MIDDLEWARE_EN.md)** - Middleware System Documentation
-- **[docs/CALLBACKS_EN.md](docs/CALLBACKS_EN.md)** - Callback System Documentation
-- **[docs/ARCHITECTURE_EN.md](docs/ARCHITECTURE_EN.md)** - Architecture Design
+- **[docs/OUTPUT_PARSER.md](docs/OUTPUT_PARSER.md)** - Output Parser Guide
 - **[docs/DEPENDENCIES_EN.md](docs/DEPENDENCIES_EN.md)** - Dependency Relationship Details
 
 ### Module Documentation

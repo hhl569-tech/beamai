@@ -387,26 +387,21 @@ See [examples/src/example_filter.erl](../examples/src/example_filter.erl) for mo
 
 ## Relationship with Middleware
 
-BeamAI has two interception mechanisms:
-
-| Feature | Filter (this document) | Middleware |
-|---------|----------------------|------------|
-| Module | beamai_core | beamai_extra (beamai_tools) |
-| Complexity | Lightweight, stateless | Full framework with state management |
-| State Management | No internal state | Supports Middleware internal state |
-| Presets | None | Provides production/development presets |
-| Built-in Features | None | Call limits, human approval, retry, fallback |
-| Use Cases | Simple interception: logging, validation, transformation | Complex control: rate limiting, retry, fallback |
+The [beamai_extra](https://github.com/TTalkPro/beamai_extra) extension project provides an advanced Middleware system (in beamai_tools) with stateful management, presets, call limits, human approval, retry, and fallback features.
 
 Middleware internally converts to Filters via `beamai_middleware_runner:to_filters/1` and registers with Kernel, so both execute in the same filter pipeline.
 
-See [Middleware System Documentation](MIDDLEWARE_EN.md) for details.
+| Feature | Filter (this document) | Middleware (beamai_extra) |
+|---------|----------------------|--------------------------|
+| Complexity | Lightweight, stateless | Full framework with state management |
+| Presets | None | Provides production/development presets |
+| Built-in Features | None | Call limits, human approval, retry, fallback |
+| Use Cases | Simple interception: logging, validation, transformation | Complex control: rate limiting, retry, fallback |
 
 ---
 
 ## More Resources
 
 - [beamai_core README](../apps/beamai_core/README_EN.md) - Kernel architecture documentation
-- [Middleware System Documentation](MIDDLEWARE_EN.md) - Advanced Middleware system
 - [API Reference](API_REFERENCE_EN.md) - API reference
 - [Example Code](../examples/src/example_filter.erl) - Complete Filter example

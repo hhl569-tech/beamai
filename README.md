@@ -394,9 +394,7 @@ BeamAI 支持 Gun 和 Hackney 两种 HTTP 后端，默认使用 Gun（支持 HTT
 
 - **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** - API 参考文档
 - **[docs/FILTER.md](docs/FILTER.md)** - Filter 过滤器系统文档
-- **[docs/MIDDLEWARE.md](docs/MIDDLEWARE.md)** - Middleware 系统文档
-- **[docs/CALLBACKS.md](docs/CALLBACKS.md)** - Callback 回调系统文档
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - 架构设计
+- **[docs/OUTPUT_PARSER.md](docs/OUTPUT_PARSER.md)** - Output Parser 指南
 - **[docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)** - 依赖关系详解
 
 ### 模块文档
