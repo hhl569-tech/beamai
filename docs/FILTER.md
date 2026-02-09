@@ -137,11 +137,11 @@ Filter 是 Kernel 工具调用和 Chat 请求的拦截器，可以：
 
 ```erlang
 %% 创建过滤器（默认优先级 0）
--spec new(Name :: binary(), Type :: filter_type(), Handler :: fun()) -> filter_def().
+-spec new(Name :: binary(), Type :: filter_type(), Handler :: fun()) -> filter_spec().
 beamai_filter:new(<<"my_filter">>, pre_invocation, fun(Ctx) -> {continue, Ctx} end).
 
 %% 创建过滤器（指定优先级，数值越小越先执行）
--spec new(Name :: binary(), Type :: filter_type(), Handler :: fun(), Priority :: integer()) -> filter_def().
+-spec new(Name :: binary(), Type :: filter_type(), Handler :: fun(), Priority :: integer()) -> filter_spec().
 beamai_filter:new(<<"my_filter">>, pre_invocation, Handler, 10).
 ```
 
@@ -171,7 +171,7 @@ beamai_filter:new(<<"my_filter">>, pre_invocation, Handler, 10).
 #### 过滤器定义类型
 
 ```erlang
--type filter_def() :: #{
+-type filter_spec() :: #{
     name := binary(),                                      %% 过滤器名称（调试标识）
     type := filter_type(),                                 %% 过滤器类型
     handler := fun((filter_context()) -> filter_result()), %% 处理函数

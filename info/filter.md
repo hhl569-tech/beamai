@@ -5,7 +5,7 @@
 Filter 是一个带有类型、优先级和处理函数的 map：
 
 ```erlang
--type filter_def() :: #{
+-type filter_spec() :: #{
     name := binary(),
     type := filter_type(),
     handler := fun((filter_context()) -> filter_result()),

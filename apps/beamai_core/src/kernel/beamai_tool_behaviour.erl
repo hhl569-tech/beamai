@@ -50,6 +50,6 @@
 %% 此回调为可选实现，不实现时模块不会注册任何过滤器。
 %%
 %% @returns 过滤器定义列表
--callback filters() -> [beamai_filter:filter_def()].
+-callback filters() -> [beamai_filter:filter_spec()].
 
 -optional_callbacks([tool_info/0, filters/0]).

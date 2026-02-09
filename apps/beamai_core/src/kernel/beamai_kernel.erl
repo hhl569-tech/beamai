@@ -39,7 +39,7 @@
     '__kernel__' := true,
     tools := #{binary() => beamai_tool:tool_spec()},
     llm_config := beamai_chat_completion:config() | undefined,
-    filters := [beamai_filter:filter_def()],
+    filters := [beamai_filter:filter_spec()],
     settings := kernel_settings()
 }.
 
@@ -149,7 +149,7 @@ add_service(Kernel, LlmConfig) ->
 %% @param Kernel Kernel 实例
 %% @param Filter 过滤器定义（通过 beamai_filter:new/3,4 创建）
 %% @returns 更新后的 Kernel
--spec add_filter(kernel(), beamai_filter:filter_def()) -> kernel().
+-spec add_filter(kernel(), beamai_filter:filter_spec()) -> kernel().
 add_filter(#{filters := Filters} = Kernel, Filter) ->
     Kernel#{filters => Filters ++ [Filter]}.
 

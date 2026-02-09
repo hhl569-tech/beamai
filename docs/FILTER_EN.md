@@ -137,11 +137,11 @@ Filters receive and pass data through a `filter_context` map:
 
 ```erlang
 %% Create filter (default priority 0)
--spec new(Name :: binary(), Type :: filter_type(), Handler :: fun()) -> filter_def().
+-spec new(Name :: binary(), Type :: filter_type(), Handler :: fun()) -> filter_spec().
 beamai_filter:new(<<"my_filter">>, pre_invocation, fun(Ctx) -> {continue, Ctx} end).
 
 %% Create filter (with priority; lower values execute first)
--spec new(Name :: binary(), Type :: filter_type(), Handler :: fun(), Priority :: integer()) -> filter_def().
+-spec new(Name :: binary(), Type :: filter_type(), Handler :: fun(), Priority :: integer()) -> filter_spec().
 beamai_filter:new(<<"my_filter">>, pre_invocation, Handler, 10).
 ```
 
@@ -171,7 +171,7 @@ beamai_filter:new(<<"my_filter">>, pre_invocation, Handler, 10).
 #### Filter Definition Types
 
 ```erlang
--type filter_def() :: #{
+-type filter_spec() :: #{
     name := binary(),                                      %% Filter name (debug identifier)
     type := filter_type(),                                 %% Filter type
     handler := fun((filter_context()) -> filter_result()), %% Handler function

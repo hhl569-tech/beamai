@@ -20,9 +20,9 @@
 -export([sort_filters/1]).
 
 %% Types
--export_type([filter_def/0, filter_type/0, filter_context/0, filter_result/0]).
+-export_type([filter_spec/0, filter_type/0, filter_context/0, filter_result/0]).
 
--type filter_def() :: #{
+-type filter_spec() :: #{
     name := binary(),
     type := filter_type(),
     handler := fun((filter_context()) -> filter_result()),
@@ -55,7 +55,7 @@
 %% @param Type 过滤器类型（pre_invocation | post_invocation | pre_chat | post_chat）
 %% @param Handler 过滤器处理函数，接收 filter_context，返回 filter_result
 %% @returns 过滤器定义 Map
--spec new(binary(), filter_type(), fun((filter_context()) -> filter_result())) -> filter_def().
+-spec new(binary(), filter_type(), fun((filter_context()) -> filter_result())) -> filter_spec().
 new(Name, Type, Handler) ->
     new(Name, Type, Handler, 0).
 
@@ -68,7 +68,7 @@ new(Name, Type, Handler) ->
 %% @param Handler 处理函数
 %% @param Priority 优先级（整数，越小越先执行）
 %% @returns 过滤器定义 Map
--spec new(binary(), filter_type(), fun((filter_context()) -> filter_result()), integer()) -> filter_def().
+-spec new(binary(), filter_type(), fun((filter_context()) -> filter_result()), integer()) -> filter_spec().
 new(Name, Type, Handler, Priority) ->
     #{
         name => Name,
@@ -89,7 +89,7 @@ new(Name, Type, Handler, Priority) ->
 %% @param Args 调用参数
 %% @param Context 执行上下文
 %% @returns {ok, 过滤后参数, 过滤后上下文} | {skip, 跳过值} | {error, 原因}
--spec apply_pre_filters([filter_def()], beamai_tool:tool_spec(), beamai_tool:args(), beamai_context:t()) ->
+-spec apply_pre_filters([filter_spec()], beamai_tool:tool_spec(), beamai_tool:args(), beamai_context:t()) ->
     {ok, beamai_tool:args(), beamai_context:t()} | {skip, term()} | {error, term()}.
 apply_pre_filters(Filters, ToolSpec, Args, Context) ->
     PreFilters = get_filters_by_type(Filters, pre_invocation),
@@ -122,7 +122,7 @@ apply_pre_filters(Filters, ToolSpec, Args, Context) ->
 %% @param Result 函数执行结果
 %% @param Context 执行上下文
 %% @returns {ok, 过滤后结果, 过滤后上下文} | {error, 原因}
--spec apply_post_filters([filter_def()], beamai_tool:tool_spec(), term(), beamai_context:t()) ->
+-spec apply_post_filters([filter_spec()], beamai_tool:tool_spec(), term(), beamai_context:t()) ->
     {ok, term(), beamai_context:t()} | {error, term()}.
 apply_post_filters(Filters, ToolSpec, Result, Context) ->
     PostFilters = get_filters_by_type(Filters, post_invocation),
@@ -154,7 +154,7 @@ apply_post_filters(Filters, ToolSpec, Result, Context) ->
 %% @param Messages 消息列表
 %% @param Context 执行上下文
 %% @returns {ok, 过滤后消息列表, 过滤后上下文} | {error, 原因}
--spec apply_pre_chat_filters([filter_def()], [beamai_context:message()], beamai_context:t()) ->
+-spec apply_pre_chat_filters([filter_spec()], [beamai_context:message()], beamai_context:t()) ->
     {ok, [beamai_context:message()], beamai_context:t()} | {error, term()}.
 apply_pre_chat_filters(Filters, Messages, Context) ->
     PreChatFilters = get_filters_by_type(Filters, pre_chat),
@@ -183,7 +183,7 @@ apply_pre_chat_filters(Filters, Messages, Context) ->
 %% @param Response LLM 响应 Map
 %% @param Context 执行上下文
 %% @returns {ok, 过滤后响应, 过滤后上下文} | {error, 原因}
--spec apply_post_chat_filters([filter_def()], term(), beamai_context:t()) ->
+-spec apply_post_chat_filters([filter_spec()], term(), beamai_context:t()) ->
     {ok, term(), beamai_context:t()} | {error, term()}.
 apply_post_chat_filters(Filters, Response, Context) ->
     PostChatFilters = get_filters_by_type(Filters, post_chat),
@@ -206,7 +206,7 @@ apply_post_chat_filters(Filters, Response, Context) ->
 %% @doc 按优先级排序过滤器列表
 %%
 %% 优先级缺失时默认为 0。数值越小越先执行。
--spec sort_filters([filter_def()]) -> [filter_def()].
+-spec sort_filters([filter_spec()]) -> [filter_spec()].
 sort_filters(Filters) ->
     lists:sort(fun(#{priority := P1}, #{priority := P2}) ->
         P1 =< P2

@@ -119,7 +119,7 @@ add_llm(Kernel, LlmConfig) ->
 %%====================================================================
 
 %% @doc 注册已构建的过滤器到 Kernel
--spec add_filter(beamai_kernel:kernel(), beamai_filter:filter_def()) -> beamai_kernel:kernel().
+-spec add_filter(beamai_kernel:kernel(), beamai_filter:filter_spec()) -> beamai_kernel:kernel().
 add_filter(Kernel, Filter) ->
     beamai_kernel:add_filter(Kernel, Filter).
 
