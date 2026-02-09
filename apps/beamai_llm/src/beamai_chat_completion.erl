@@ -8,7 +8,7 @@
 %% - Retry logic with exponential backoff
 %% - Streaming support with token callbacks
 
--behaviour(beamai_llm_behaviour).
+-behaviour(beamai_chat_behaviour).
 
 -include_lib("beamai_core/include/beamai_common.hrl").
 
@@ -25,6 +25,7 @@
 -type provider() :: openai | anthropic | ollama | zhipu | bailian | deepseek | mock | {custom, module()}.
 -type config() :: #{
     provider := provider(),
+    module := module(),
     '__llm_config__' := true,
     atom() => term()
 }.
@@ -46,6 +47,7 @@ create(Provider, Opts) ->
     DefaultConfig = Module:default_config(),
     BaseConfig = #{
         provider => Provider,
+        module => ?MODULE,
         '__llm_config__' => true
     },
     maps:merge(maps:merge(DefaultConfig, BaseConfig), Opts).

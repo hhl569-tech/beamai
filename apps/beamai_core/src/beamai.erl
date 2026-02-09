@@ -100,7 +100,7 @@ add_tool_module(Kernel, Module) ->
 %%       model => <<"claude-sonnet-4-20250514">>,
 %%       api_key => os:getenv("ANTHROPIC_API_KEY")
 %%   })
--spec add_llm(beamai_kernel:kernel(), beamai_chat_completion:provider(), map()) -> beamai_kernel:kernel().
+-spec add_llm(beamai_kernel:kernel(), beamai_chat_behaviour:provider(), map()) -> beamai_kernel:kernel().
 add_llm(Kernel, Provider, Opts) ->
     LlmConfig = beamai_chat_completion:create(Provider, Opts),
     beamai_kernel:add_service(Kernel, LlmConfig).
@@ -110,7 +110,7 @@ add_llm(Kernel, Provider, Opts) ->
 %% 示例:
 %%   LLM = beamai_chat_completion:create(openai, #{model => <<"gpt-4">>, api_key => Key}),
 %%   K1 = beamai:add_llm(K0, LLM)
--spec add_llm(beamai_kernel:kernel(), beamai_chat_completion:config()) -> beamai_kernel:kernel().
+-spec add_llm(beamai_kernel:kernel(), beamai_chat_behaviour:config()) -> beamai_kernel:kernel().
 add_llm(Kernel, LlmConfig) ->
     beamai_kernel:add_service(Kernel, LlmConfig).
 

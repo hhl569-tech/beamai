@@ -38,7 +38,7 @@
 -type kernel() :: #{
     '__kernel__' := true,
     tools := #{binary() => beamai_tool:tool_spec()},
-    llm_config := beamai_chat_completion:config() | undefined,
+    llm_config := beamai_chat_behaviour:config() | undefined,
     filters := [beamai_filter:filter_spec()],
     settings := kernel_settings()
 }.
@@ -138,7 +138,7 @@ maybe_add_filters(Kernel, Module) ->
 %% @param Kernel Kernel 实例
 %% @param LlmConfig LLM 配置 Map
 %% @returns 更新后的 Kernel
--spec add_service(kernel(), beamai_chat_completion:config()) -> kernel().
+-spec add_service(kernel(), beamai_chat_behaviour:config()) -> kernel().
 add_service(Kernel, LlmConfig) ->
     Kernel#{llm_config => LlmConfig}.
 
@@ -284,7 +284,7 @@ get_tool_schemas(Kernel, Provider) ->
 %% @doc 获取 Kernel 的 LLM 服务配置
 %%
 %% 未配置 LLM 时返回 error。
--spec get_service(kernel()) -> {ok, beamai_chat_completion:config()} | error.
+-spec get_service(kernel()) -> {ok, beamai_chat_behaviour:config()} | error.
 get_service(#{llm_config := undefined}) -> error;
 get_service(#{llm_config := Config}) -> {ok, Config}.
 
@@ -393,7 +393,8 @@ run_chat_pipeline(LlmConfig, Filters, Messages, Opts, Context) ->
 
 %% @private 执行 LLM 请求并应用后置过滤器
 execute_llm_and_post_filter(LlmConfig, Filters, Messages, Opts, Context) ->
-    case beamai_chat_completion:chat(LlmConfig, Messages, Opts) of
+    Module = maps:get(module, LlmConfig, beamai_chat_completion),
+    case Module:chat(LlmConfig, Messages, Opts) of
         {ok, Response} ->
             case beamai_filter:apply_post_chat_filters(Filters, Response, Context) of
                 {ok, FinalResp, FinalCtx} -> {ok, FinalResp, FinalCtx};

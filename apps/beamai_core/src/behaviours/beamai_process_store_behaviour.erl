@@ -145,3 +145,48 @@
 %% @returns {ok, 快照摘要列表} | {error, 原因}
 -callback list_snapshots(Ref :: store_ref(), Opts :: list_opts()) ->
     {ok, [snapshot_info()]} | {error, term()}.
+
+%%====================================================================
+%% 可选回调 - 分支管理
+%%====================================================================
+
+%% @doc 从当前快照创建分支
+-callback branch(Ref :: store_ref(), BranchName :: binary(), Opts :: map()) ->
+    {ok, #{branch_thread_id := binary(), snapshot_id := binary()}} | {error, term()}.
+
+%% @doc 加载分支的最新快照
+-callback load_branch(Ref :: store_ref(), BranchThreadId :: binary(), Opts :: map()) ->
+    {ok, process_snapshot()} | {error, term()}.
+
+%% @doc 列出所有分支
+-callback list_branches(Ref :: store_ref(), Opts :: map()) ->
+    {ok, [map()]} | {error, term()}.
+
+%% @doc 获取执行谱系（从当前快照回溯到根）
+-callback get_lineage(Ref :: store_ref(), Opts :: map()) ->
+    {ok, [map()]} | {error, term()}.
+
+%%====================================================================
+%% 可选回调 - 时间旅行
+%%====================================================================
+
+%% @doc 回退 N 步
+-callback go_back(Ref :: store_ref(), Steps :: pos_integer()) ->
+    {ok, process_snapshot()} | {error, term()}.
+
+%% @doc 前进 N 步
+-callback go_forward(Ref :: store_ref(), Steps :: pos_integer()) ->
+    {ok, process_snapshot()} | {error, term()}.
+
+%% @doc 跳转到指定快照
+-callback goto(Ref :: store_ref(), SnapshotId :: binary()) ->
+    {ok, process_snapshot()} | {error, term()}.
+
+%% @doc 列出执行历史
+-callback list_history(Ref :: store_ref()) ->
+    {ok, [map()]} | {error, term()}.
+
+-optional_callbacks([
+    branch/3, load_branch/3, list_branches/2, get_lineage/2,
+    go_back/2, go_forward/2, goto/2, list_history/1
+]).

@@ -50,41 +50,25 @@
     restore_branch/4,
     list_branches/2,
     get_lineage/2,
-    diff_branches/3,
 
     %% Time Travel API
+    go_back/3,
     go_back/4,
-    go_back/5,
+    go_forward/3,
     go_forward/4,
-    go_forward/5,
+    goto_snapshot/3,
     goto_snapshot/4,
-    goto_snapshot/5,
-    list_history/2
+    list_history/1
 ]).
 
 %%====================================================================
 %% 类型定义
 %%====================================================================
 
--type branch_info() :: #{
-    thread_id := binary(),
-    snapshot_id := binary(),
-    branch_name => binary(),
-    process_name => atom(),
-    process_state => atom(),
-    timestamp := integer()
-}.
+%% 存储后端引用：{实现模块, 不透明引用}
+-type store() :: {module(), term()}.
 
--type snapshot_info() :: #{
-    snapshot_id := binary(),
-    thread_id := binary(),
-    process_name => atom(),
-    process_state => atom(),
-    step_id => atom(),
-    timestamp := integer()
-}.
-
--export_type([branch_info/0, snapshot_info/0]).
+-export_type([store/0]).
 
 %%====================================================================
 %% Builder API
@@ -268,172 +252,112 @@ run_sync(ProcessSpec, Opts) ->
 %% Branch API
 %%====================================================================
 
-%% @doc 从指定快照创建分支
+%% @doc 从当前快照创建分支
 %%
-%% 从指定 thread 的最新快照创建一个新分支，用于探索替代执行路径。
+%% 委托到 Store 实现模块的 branch/3 回调。
 %%
-%% Mgr: beamai_process_snapshot:manager()
-%% SnapshotConfig: #{thread_id => binary()}，标识源快照所在线程
-%% BranchOpts: #{branch_name => binary(), thread_id => binary()}
-%%
-%% 返回新分支的 thread_id 和初始 snapshot_id。
--spec branch_from(beamai_process_snapshot:manager(), map(), map()) ->
+%% Store: {Module, Ref}，存储后端引用
+%% BranchName: 分支名称
+%% BranchOpts: 分支选项（如自定义 thread_id）
+-spec branch_from(store(), binary(), map()) ->
     {ok, #{branch_thread_id := binary(), snapshot_id := binary()}} | {error, term()}.
-branch_from(Mgr, SnapshotConfig, BranchOpts) ->
-    ThreadId = maps:get(thread_id, SnapshotConfig),
-    BranchName = maps:get(branch_name, BranchOpts, <<"branch">>),
-    BranchThreadId = maps:get(thread_id, BranchOpts,
-                              generate_branch_thread_id(ThreadId, BranchName)),
-
-    %% 获取源线程的最新快照
-    case beamai_process_snapshot:get_latest(Mgr, ThreadId) of
-        {ok, Snapshot} ->
-            SnapshotId = beamai_process_snapshot:get_id(Snapshot),
-            %% 从快照创建分支
-            case beamai_process_snapshot:fork_from(Mgr, SnapshotId, BranchName, BranchThreadId) of
-                {ok, BranchSnapshot, _NewMgr} ->
-                    BranchSnapshotId = beamai_process_snapshot:get_id(BranchSnapshot),
-                    {ok, #{branch_thread_id => BranchThreadId,
-                           snapshot_id => BranchSnapshotId}};
-                {error, _} = Error -> Error
-            end;
-        {error, _} = Error -> Error
-    end.
+branch_from({Module, Ref}, BranchName, BranchOpts) ->
+    Module:branch(Ref, BranchName, BranchOpts).
 
 %% @doc 从分支恢复执行（启动新 runtime）
 %%
 %% 从分支的最新快照恢复流程执行状态，用提供的 ProcessSpec 替换
 %% 快照中的 process_spec（因为函数引用无法序列化），然后启动新的 runtime。
 %%
-%% Mgr: beamai_process_snapshot:manager()
-%% BranchConfig: #{thread_id => binary()}，标识分支线程
+%% Store: {Module, Ref}，存储后端引用
+%% BranchThreadId: 分支线程 ID
 %% ProcessSpec: 编译后的流程定义（包含函数引用）
 %% Opts: runtime 启动选项
--spec restore_branch(beamai_process_snapshot:manager(), map(),
+-spec restore_branch(store(), binary(),
                      beamai_process_builder:process_spec(), map()) ->
     {ok, pid()} | {error, term()}.
-restore_branch(Mgr, BranchConfig, ProcessSpec, Opts) ->
-    ThreadId = maps:get(thread_id, BranchConfig),
-    case beamai_process_snapshot:get_latest(Mgr, ThreadId) of
-        {ok, Values} ->
-            %% Values 即 process snapshot map
-            %% 替换 process_spec（传入的版本包含函数引用）
-            Snapshot = Values#{process_spec => ProcessSpec},
-            restore(Snapshot, Opts);
+restore_branch({Module, Ref}, BranchThreadId, ProcessSpec, Opts) ->
+    case Module:load_branch(Ref, BranchThreadId, #{}) of
+        {ok, State} ->
+            restore_from_memory_state(State, ProcessSpec, Opts);
         {error, _} = Error -> Error
     end.
 
 %% @doc 列出所有分支
--spec list_branches(beamai_process_snapshot:manager(), map()) ->
-    {ok, [branch_info()]} | {error, term()}.
-list_branches(Mgr, _Opts) ->
-    Branches = beamai_process_snapshot:list_branches(Mgr),
-    BranchInfos = [memory_branch_to_info(B) || B <- Branches],
-    {ok, BranchInfos}.
+-spec list_branches(store(), map()) ->
+    {ok, [map()]} | {error, term()}.
+list_branches({Module, Ref}, Opts) ->
+    Module:list_branches(Ref, Opts).
 
 %% @doc 获取执行谱系（从当前快照回溯到根）
--spec get_lineage(beamai_process_snapshot:manager(), map()) ->
-    {ok, [snapshot_info()]} | {error, term()}.
-get_lineage(Mgr, Config) ->
-    ThreadId = maps:get(thread_id, Config),
-    case beamai_process_snapshot:get_latest(Mgr, ThreadId) of
-        {ok, Snapshot} ->
-            SnapshotId = beamai_process_snapshot:get_id(Snapshot),
-            case beamai_process_snapshot:get_lineage(Mgr, SnapshotId) of
-                {ok, States} ->
-                    Infos = [state_to_snapshot_info(S) || S <- States],
-                    {ok, Infos};
-                {error, _} = Error -> Error
-            end;
-        {error, _} = Error -> Error
-    end.
-
-%% @doc 比较两个分支/线程的快照差异
-%%
-%% Config1, Config2 各包含 #{thread_id => binary()}，
-%% 比较两个线程最新快照的状态差异。
--spec diff_branches(beamai_process_snapshot:manager(), map(), map()) ->
-    {ok, map()} | {error, term()}.
-diff_branches(Mgr, Config1, Config2) ->
-    beamai_process_snapshot:diff(Mgr, Config1, Config2).
+-spec get_lineage(store(), map()) ->
+    {ok, [map()]} | {error, term()}.
+get_lineage({Module, Ref}, Opts) ->
+    Module:get_lineage(Ref, Opts).
 
 %%====================================================================
 %% Time Travel API
 %%====================================================================
 
 %% @doc 回退 N 步并恢复执行（默认选项）
-%%
-%% 回退 N 个快照，加载过去的流程状态，
-%% 替换 process_spec 后启动新的 runtime。
--spec go_back(beamai_process_snapshot:manager(), map(), pos_integer(),
+-spec go_back(store(), pos_integer(),
               beamai_process_builder:process_spec()) ->
     {ok, pid()} | {error, term()}.
-go_back(Mgr, Config, Steps, ProcessSpec) ->
-    go_back(Mgr, Config, Steps, ProcessSpec, #{}).
+go_back(Store, Steps, ProcessSpec) ->
+    go_back(Store, Steps, ProcessSpec, #{}).
 
 %% @doc 回退 N 步并恢复执行（自定义选项）
--spec go_back(beamai_process_snapshot:manager(), map(), pos_integer(),
+-spec go_back(store(), pos_integer(),
               beamai_process_builder:process_spec(), map()) ->
     {ok, pid()} | {error, term()}.
-go_back(Mgr, Config, Steps, ProcessSpec, Opts) ->
-    ThreadId = maps:get(thread_id, Config),
-    case beamai_process_snapshot:go_back(Mgr, ThreadId, Steps) of
-        {ok, PastState, _NewMgr} ->
+go_back({Module, Ref}, Steps, ProcessSpec, Opts) ->
+    case Module:go_back(Ref, Steps) of
+        {ok, PastState} ->
             restore_from_memory_state(PastState, ProcessSpec, Opts);
         {error, _} = Error -> Error
     end.
 
 %% @doc 前进 N 步并恢复执行（默认选项）
-%%
-%% 前进 N 个快照（从当前位置向未来方向），
-%% 加载目标状态后启动新的 runtime。
--spec go_forward(beamai_process_snapshot:manager(), map(), pos_integer(),
+-spec go_forward(store(), pos_integer(),
                  beamai_process_builder:process_spec()) ->
     {ok, pid()} | {error, term()}.
-go_forward(Mgr, Config, Steps, ProcessSpec) ->
-    go_forward(Mgr, Config, Steps, ProcessSpec, #{}).
+go_forward(Store, Steps, ProcessSpec) ->
+    go_forward(Store, Steps, ProcessSpec, #{}).
 
 %% @doc 前进 N 步并恢复执行（自定义选项）
--spec go_forward(beamai_process_snapshot:manager(), map(), pos_integer(),
+-spec go_forward(store(), pos_integer(),
                  beamai_process_builder:process_spec(), map()) ->
     {ok, pid()} | {error, term()}.
-go_forward(Mgr, Config, Steps, ProcessSpec, Opts) ->
-    ThreadId = maps:get(thread_id, Config),
-    case beamai_process_snapshot:go_forward(Mgr, ThreadId, Steps) of
-        {ok, FutureState, _NewMgr} ->
+go_forward({Module, Ref}, Steps, ProcessSpec, Opts) ->
+    case Module:go_forward(Ref, Steps) of
+        {ok, FutureState} ->
             restore_from_memory_state(FutureState, ProcessSpec, Opts);
         {error, _} = Error -> Error
     end.
 
 %% @doc 跳转到指定快照并恢复执行（默认选项）
-%%
-%% 跳转到指定 SnapshotId 的快照，加载其状态后启动新的 runtime。
--spec goto_snapshot(beamai_process_snapshot:manager(), map(), binary(),
+-spec goto_snapshot(store(), binary(),
                     beamai_process_builder:process_spec()) ->
     {ok, pid()} | {error, term()}.
-goto_snapshot(Mgr, Config, SnapshotId, ProcessSpec) ->
-    goto_snapshot(Mgr, Config, SnapshotId, ProcessSpec, #{}).
+goto_snapshot(Store, SnapshotId, ProcessSpec) ->
+    goto_snapshot(Store, SnapshotId, ProcessSpec, #{}).
 
 %% @doc 跳转到指定快照并恢复执行（自定义选项）
--spec goto_snapshot(beamai_process_snapshot:manager(), map(), binary(),
+-spec goto_snapshot(store(), binary(),
                     beamai_process_builder:process_spec(), map()) ->
     {ok, pid()} | {error, term()}.
-goto_snapshot(Mgr, Config, SnapshotId, ProcessSpec, Opts) ->
-    ThreadId = maps:get(thread_id, Config),
-    case beamai_process_snapshot:goto(Mgr, ThreadId, SnapshotId) of
-        {ok, TargetState, _NewMgr} ->
+goto_snapshot({Module, Ref}, SnapshotId, ProcessSpec, Opts) ->
+    case Module:goto(Ref, SnapshotId) of
+        {ok, TargetState} ->
             restore_from_memory_state(TargetState, ProcessSpec, Opts);
         {error, _} = Error -> Error
     end.
 
 %% @doc 列出执行历史
-%%
-%% 返回指定线程的快照历史列表，可用于选择要跳转到的目标。
--spec list_history(beamai_process_snapshot:manager(), map()) ->
+-spec list_history(store()) ->
     {ok, [map()]} | {error, term()}.
-list_history(Mgr, Config) ->
-    ThreadId = maps:get(thread_id, Config),
-    beamai_process_snapshot:get_history(Mgr, ThreadId).
+list_history({Module, Ref}) ->
+    Module:list_history(Ref).
 
 %%====================================================================
 %% 内部函数
@@ -448,35 +372,3 @@ list_history(Mgr, Config) ->
 restore_from_memory_state(State, ProcessSpec, Opts) ->
     Snapshot = State#{process_spec => ProcessSpec},
     restore(Snapshot, Opts).
-
-%%====================================================================
-%% Branch 内部函数
-%%====================================================================
-
-%% @private 生成分支 thread_id
--spec generate_branch_thread_id(binary(), binary()) -> binary().
-generate_branch_thread_id(ParentThreadId, BranchName) ->
-    Ts = integer_to_binary(erlang:system_time(microsecond)),
-    <<ParentThreadId/binary, "_branch_", BranchName/binary, "_", Ts/binary>>.
-
-%% @private 将 memory 分支信息转换为 branch_info()
--spec memory_branch_to_info(map()) -> branch_info().
-memory_branch_to_info(MemoryBranch) ->
-    #{
-        thread_id => maps:get(branch_id, MemoryBranch, <<>>),
-        snapshot_id => maps:get(head_snapshot_id, MemoryBranch, <<>>),
-        branch_name => maps:get(branch_id, MemoryBranch, <<>>),
-        timestamp => maps:get(created_at, MemoryBranch, 0)
-    }.
-
-%% @private 将 memory state 转换为 snapshot_info()
--spec state_to_snapshot_info(map()) -> snapshot_info().
-state_to_snapshot_info(State) ->
-    #{
-        snapshot_id => maps:get(snapshot_id, State, undefined),
-        thread_id => maps:get(thread_id, State, undefined),
-        process_name => maps:get(process_name, State, undefined),
-        process_state => maps:get(current_state, State, undefined),
-        step_id => maps:get(paused_step, State, undefined),
-        timestamp => maps:get(timestamp, State, 0)
-    }.

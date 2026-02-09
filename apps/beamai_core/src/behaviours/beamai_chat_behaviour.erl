@@ -1,12 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc LLM 行为接口定义
+%%% @doc Chat Completion 行为接口定义
 %%%
-%%% 定义 LLM Chat Completion 的标准接口。
+%%% 定义 Chat Completion 服务的标准接口。
 %%% 默认实现：beamai_chat_completion（位于 beamai_llm 应用）
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(beamai_llm_behaviour).
+-module(beamai_chat_behaviour).
 
 %% Types
 -export_type([config/0, provider/0]).
@@ -19,6 +19,7 @@
 
 -type config() :: #{
     provider := provider(),
+    module := module(),
     '__llm_config__' := true,
     atom() => term()
 }.

@@ -4,7 +4,7 @@
     {registered, [beamai_core_sup, beamai_http_pool, beamai_process_sup, beamai_process_pool, beamai_dispatch_pool]},
     {mod, {beamai_core_app, []}},
     {applications, [kernel, stdlib, jsx, uuid, hackney, poolboy]},
-    {optional_applications, [gun, beamai_llm, beamai_memory]},
+    {optional_applications, [gun, beamai_llm]},
     {env, [
         %% Process pool 配置（默认启用，大小 CPU*2）
         {process_pool_enabled, true},
@@ -32,7 +32,7 @@
         beamai_prompt,
         llm_response,
         %% 行为接口
-        beamai_llm_behaviour,
+        beamai_chat_behaviour,
         beamai_http_behaviour,
         beamai_step_behaviour,
         %% HTTP 客户端
