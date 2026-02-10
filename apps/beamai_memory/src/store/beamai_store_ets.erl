@@ -127,10 +127,8 @@ init(Opts) ->
 
 %% @private 处理同步调用
 handle_call({put, Namespace, Key, Value, Opts}, _From, State) ->
-    case do_put(Namespace, Key, Value, Opts, State) of
-        {ok, NewState} -> {reply, ok, NewState};
-        {error, _} = Error -> {reply, Error, State}
-    end;
+    {ok, NewState} = do_put(Namespace, Key, Value, Opts, State),
+    {reply, ok, NewState};
 
 handle_call({get, Namespace, Key}, _From, State) ->
     Result = do_get(Namespace, Key, State),
@@ -151,10 +149,8 @@ handle_call({list_namespaces, Prefix, Opts}, _From, State) ->
     {reply, Result, State};
 
 handle_call({batch, Operations}, _From, State) ->
-    case do_batch(Operations, State) of
-        {ok, Results, NewState} -> {reply, {ok, Results}, NewState};
-        {error, _} = Error -> {reply, Error, State}
-    end;
+    {ok, Results, NewState} = do_batch(Operations, State),
+    {reply, {ok, Results}, NewState};
 
 handle_call(stats, _From, State) ->
     {reply, do_stats(State), State};
@@ -455,34 +451,25 @@ safe_drop(List, N) -> lists:nthtail(N, List).
 batch_execute([], State, Results) ->
     {ok, lists:reverse(Results), State};
 batch_execute([Op | Rest], State, Results) ->
-    case execute_op(Op, State) of
-        {ok, Result, NewState} ->
-            batch_execute(Rest, NewState, [Result | Results]);
-        {error, _} = Error ->
-            Error
-    end.
+    {ok, Result, NewState} = execute_op(Op, State),
+    batch_execute(Rest, NewState, [Result | Results]).
 
 %% @private 执行单个操作
 -spec execute_op(beamai_store:batch_op(), #state{}) ->
-    {ok, term(), #state{}} | {error, term()}.
+    {ok, term(), #state{}}.
 execute_op({put, Ns, Key, Value}, State) ->
-    case do_put(Ns, Key, Value, #{}, State) of
-        {ok, NewState} -> {ok, ok, NewState};
-        Error -> Error
-    end;
+    {ok, NewState} = do_put(Ns, Key, Value, #{}, State),
+    {ok, ok, NewState};
 execute_op({put, Ns, Key, Value, Opts}, State) ->
-    case do_put(Ns, Key, Value, Opts, State) of
-        {ok, NewState} -> {ok, ok, NewState};
-        Error -> Error
-    end;
+    {ok, NewState} = do_put(Ns, Key, Value, Opts, State),
+    {ok, ok, NewState};
 execute_op({get, Ns, Key}, State) ->
     Result = do_get(Ns, Key, State),
     {ok, Result, State};
 execute_op({delete, Ns, Key}, State) ->
     case do_delete(Ns, Key, State) of
         {ok, NewState} -> {ok, ok, NewState};
-        {error, not_found} -> {ok, {error, not_found}, State};
-        Error -> Error
+        {error, not_found} -> {ok, {error, not_found}, State}
     end.
 
 %% @private 淘汰最旧的条目（LRU 策略）

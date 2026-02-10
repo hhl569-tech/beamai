@@ -32,6 +32,8 @@
 
 -behaviour(beamai_graph_store_behaviour).
 
+-include_lib("beamai_memory/include/beamai_graph_snapshot.hrl").
+
 %% Behaviour 回调
 -export([
     save_snapshot/3,
@@ -90,9 +92,9 @@ save_snapshot({Mgr, RunConfig}, Snapshot, SaveOpts) ->
         saved_at => erlang:system_time(millisecond)
     },
 
-    case beamai_graph_snapshot:save_from_state(Mgr, RunId, State, #{}) of
+    case beamai_graph_snapshot:save_from_pregel(Mgr, RunId, State, #{}) of
         {ok, SnapshotRecord, _NewMgr} ->
-            {ok, SnapshotRecord};
+            {ok, beamai_graph_snapshot:entry_id(SnapshotRecord)};
         {error, _} = Error ->
             Error
     end.
@@ -152,14 +154,8 @@ list_snapshots({Mgr, RunConfig}, ListOpts) ->
 
     case RunId of
         undefined ->
-            %% 没有指定 run_id，列出所有
-            case beamai_graph_snapshot:list_all(Mgr, Opts2) of
-                {ok, Snapshots} ->
-                    Infos = [snapshot_to_info(S) || S <- Snapshots],
-                    {ok, Infos};
-                {error, _} = Error ->
-                    Error
-            end;
+            %% 没有指定 run_id，返回空列表
+            {ok, []};
         _ ->
             case beamai_graph_snapshot:get_history(Mgr, RunId, Opts2) of
                 {ok, Snapshots} ->
@@ -183,23 +179,24 @@ load_run_latest({Mgr, _RunConfig}, RunId) ->
 %% @doc 删除运行的所有快照
 -spec delete_run(store_ref(), binary()) -> ok | {error, term()}.
 delete_run({Mgr, _RunConfig}, RunId) ->
-    case beamai_graph_snapshot:delete_thread(Mgr, RunId) of
-        {ok, _NewMgr} -> ok;
-        {error, _} = Error -> Error
+    case beamai_graph_snapshot:get_history(Mgr, RunId, #{}) of
+        {ok, Snapshots} ->
+            lists:foreach(fun(S) ->
+                Id = beamai_graph_snapshot:entry_id(S),
+                beamai_graph_snapshot:delete(Mgr, Id)
+            end, Snapshots),
+            ok;
+        {error, _} = Error ->
+            Error
     end.
 
 %% @doc 列出所有运行
 -spec list_runs(store_ref(), beamai_graph_store_behaviour:list_opts()) ->
     {ok, [#{run_id := binary(), snapshot_count := non_neg_integer(), latest_superstep := non_neg_integer()}]} |
     {error, term()}.
-list_runs({Mgr, _RunConfig}, _Opts) ->
-    case beamai_graph_snapshot:list_threads(Mgr) of
-        {ok, Threads} ->
-            Runs = [thread_to_run_info(Mgr, T) || T <- Threads],
-            {ok, Runs};
-        {error, _} = Error ->
-            Error
-    end.
+list_runs({_Mgr, _RunConfig}, _Opts) ->
+    %% TODO: beamai_graph_snapshot 尚未提供 list_threads API
+    {ok, []}.
 
 %%====================================================================
 %% 分支 API
@@ -212,7 +209,7 @@ branch({Mgr, _RunConfig}, SnapshotId, BranchName) ->
     BranchId = generate_branch_id(BranchName),
     case beamai_graph_snapshot:fork_from(Mgr, SnapshotId, BranchName, BranchId) of
         {ok, ForkedSnapshot, _NewMgr} ->
-            ForkedId = beamai_graph_snapshot:get_id(ForkedSnapshot),
+            ForkedId = beamai_graph_snapshot:entry_id(ForkedSnapshot),
             {ok, #{branch_id => BranchId, snapshot_id => ForkedId}};
         {error, _} = Error ->
             Error
@@ -291,62 +288,42 @@ list_history({Mgr, _RunConfig}, RunId) ->
 %%====================================================================
 
 %% @private 将快照转换为 snapshot_info
--spec snapshot_to_info(map()) -> beamai_graph_store_behaviour:snapshot_info().
-snapshot_to_info(Snapshot) ->
+-spec snapshot_to_info(#graph_snapshot{}) -> map().
+snapshot_to_info(#graph_snapshot{} = Snapshot) ->
     #{
-        id => beamai_graph_snapshot:get_id(Snapshot),
-        run_id => maps:get(run_id, Snapshot, <<>>),
-        superstep => maps:get(superstep, Snapshot, 0),
-        iteration => maps:get(iteration, Snapshot, 0),
-        timestamp => maps:get(saved_at, Snapshot, 0),
-        trigger => maps:get(trigger, Snapshot, superstep_completed),
-        graph_name => maps:get(graph_name, Snapshot, undefined),
-        type => maps:get(type, Snapshot, step),
-        active_count => length(maps:get(active_vertices, Snapshot, [])),
-        completed_count => length(maps:get(completed_vertices, Snapshot, []))
+        id => beamai_graph_snapshot:entry_id(Snapshot),
+        run_id => Snapshot#graph_snapshot.run_id,
+        superstep => beamai_graph_snapshot:get_superstep(Snapshot),
+        iteration => Snapshot#graph_snapshot.iteration,
+        timestamp => Snapshot#graph_snapshot.created_at,
+        trigger => Snapshot#graph_snapshot.snapshot_type,
+        graph_name => Snapshot#graph_snapshot.graph_name,
+        type => Snapshot#graph_snapshot.snapshot_type,
+        active_count => length(beamai_graph_snapshot:get_active_vertices(Snapshot)),
+        completed_count => length(Snapshot#graph_snapshot.completed_vertices)
     }.
 
-%% @private 将 thread 信息转换为 run info
--spec thread_to_run_info(beamai_graph_snapshot:manager(), map()) ->
-    #{run_id := binary(), snapshot_count := non_neg_integer(), latest_superstep := non_neg_integer()}.
-thread_to_run_info(Mgr, #{thread_id := ThreadId} = _Thread) ->
-    case beamai_graph_snapshot:get_history(Mgr, ThreadId, #{}) of
-        {ok, Snapshots} ->
-            LatestSuperstep = case Snapshots of
-                [] -> 0;
-                [Latest | _] -> maps:get(superstep, Latest, 0)
-            end,
-            #{
-                run_id => ThreadId,
-                snapshot_count => length(Snapshots),
-                latest_superstep => LatestSuperstep
-            };
-        _ ->
-            #{run_id => ThreadId, snapshot_count => 0, latest_superstep => 0}
-    end.
-
 %% @private 将分支信息转换为 branch info
--spec branch_to_info(map()) -> #{branch_id := binary(), name := binary(), snapshot_count := non_neg_integer()}.
+-spec branch_to_info(beamai_snapshot:branch()) -> #{branch_id := binary(), name := binary(), snapshot_count := non_neg_integer()}.
 branch_to_info(Branch) ->
     #{
-        branch_id => maps:get(thread_id, Branch, <<>>),
+        branch_id => maps:get(id, Branch, <<>>),
         name => maps:get(name, Branch, <<>>),
-        snapshot_count => maps:get(count, Branch, 0)
+        snapshot_count => maps:get(entry_count, Branch, 0)
     }.
 
 %% @private 检查分支是否属于指定 run
--spec is_branch_of_run(map(), binary()) -> boolean().
-is_branch_of_run(#{parent_run_id := ParentRunId}, RunId) ->
-    ParentRunId =:= RunId;
-is_branch_of_run(_, _) ->
-    false.
+-spec is_branch_of_run(beamai_snapshot:branch(), binary()) -> boolean().
+is_branch_of_run(#{parent_branch_id := ParentBranchId}, RunId) ->
+    ParentBranchId =:= RunId.
 
 %% @private 按超步查找快照
--spec find_by_superstep([map()], non_neg_integer()) -> {ok, map()} | not_found.
+-spec find_by_superstep([beamai_graph_snapshot:graph_snapshot()], non_neg_integer()) ->
+    {ok, beamai_graph_snapshot:graph_snapshot()} | not_found.
 find_by_superstep([], _Superstep) ->
     not_found;
 find_by_superstep([Snapshot | Rest], Superstep) ->
-    case maps:get(superstep, Snapshot, -1) of
+    case beamai_graph_snapshot:get_superstep(Snapshot) of
         Superstep -> {ok, Snapshot};
         _ -> find_by_superstep(Rest, Superstep)
     end.

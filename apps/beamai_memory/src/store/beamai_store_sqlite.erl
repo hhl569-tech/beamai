@@ -69,7 +69,7 @@
 
 -record(state, {
     %% 数据库连接
-    db :: esqlite3:connection(),
+    db :: term(),
     %% 数据库路径
     db_path :: string(),
     %% 配置
@@ -210,7 +210,7 @@ handle_info(_Info, State) ->
 
 %% @private 终止
 terminate(_Reason, #state{db = Db}) ->
-    esqlite3:close(Db),
+    _ = esqlite3:close(Db),
     ok.
 
 %%====================================================================
@@ -359,12 +359,10 @@ do_batch(Operations, #state{db = Db} = State) ->
 do_stats(#state{db = Db, db_path = DbPath}) ->
     ItemCount = case esqlite3:q(Db, "SELECT COUNT(*) FROM store_items", []) of
         [[Count]] -> Count;
-        [{Count}] -> Count;
         _ -> 0
     end,
     NsCount = case esqlite3:q(Db, "SELECT COUNT(DISTINCT namespace) FROM store_items", []) of
         [[Count2]] -> Count2;
-        [{Count2}] -> Count2;
         _ -> 0
     end,
     #{
@@ -386,7 +384,7 @@ do_clear(#state{db = Db}) ->
 %%====================================================================
 
 %% @private 配置 SQLite
--spec configure_sqlite(esqlite3:connection(), pos_integer(), pos_integer()) -> ok.
+-spec configure_sqlite(term(), pos_integer(), pos_integer()) -> ok.
 configure_sqlite(Db, BusyTimeout, CacheSize) ->
     _ = esqlite3:q(Db, "PRAGMA journal_mode = WAL", []),
     _ = esqlite3:q(Db, "PRAGMA synchronous = NORMAL", []),
@@ -398,7 +396,7 @@ configure_sqlite(Db, BusyTimeout, CacheSize) ->
     ok.
 
 %% @private 创建表和索引
--spec create_schema(esqlite3:connection()) -> ok.
+-spec create_schema(term()) -> ok.
 create_schema(Db) ->
     ok = exec_sql(Db, ?CREATE_TABLE_SQL),
     ok = exec_sql(Db, ?CREATE_INDEX_NS_SQL),
@@ -406,10 +404,9 @@ create_schema(Db) ->
     ok.
 
 %% @private 执行 SQL
--spec exec_sql(esqlite3:connection(), string()) -> ok | {error, term()}.
+-spec exec_sql(term(), string()) -> ok | {error, term()}.
 exec_sql(Db, Sql) ->
     case esqlite3:q(Db, Sql, []) of
-        ok -> ok;
         [] -> ok;
         {error, Reason} -> {error, Reason}
     end.
@@ -439,22 +436,20 @@ string_to_namespace(String) ->
     binary:split(String, <<"/">>, [global]).
 
 %% @private 从行中提取命名空间
-extract_ns([Ns]) -> Ns;
-extract_ns({Ns}) -> Ns;
-extract_ns(Ns) when is_binary(Ns) -> Ns.
+extract_ns([Ns]) when is_binary(Ns) -> Ns;
+extract_ns([Ns]) -> iolist_to_binary(io_lib:format("~p", [Ns])).
 
 %%====================================================================
 %% 内部函数 - 查询
 %%====================================================================
 
 %% @private 获取 created_at
--spec get_created_at(esqlite3:connection(), binary()) ->
+-spec get_created_at(term(), binary()) ->
     {ok, integer()} | {error, not_found}.
 get_created_at(Db, FullKey) ->
     Sql = "SELECT created_at FROM store_items WHERE full_key = ?1",
     case esqlite3:q(Db, Sql, [FullKey]) of
         [[CreatedAt]] -> {ok, CreatedAt};
-        [{CreatedAt}] -> {ok, CreatedAt};
         [] -> {error, not_found};
         _ -> {error, not_found}
     end.

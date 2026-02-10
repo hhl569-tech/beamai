@@ -34,8 +34,8 @@
 %%%-------------------------------------------------------------------
 -module(beamai_conversation_buffer).
 
-%% 实现对话缓冲行为
--behaviour(beamai_buffer_behaviour).
+%% 对话缓冲模块（beamai_buffer_behaviour 尚未定义）
+%% -behaviour(beamai_buffer_behaviour).
 
 %%====================================================================
 %% 类型定义
@@ -252,8 +252,9 @@ build_context(Config, Messages, ExtraOpts) ->
 load_context(Config, Mgr, ThreadConfig) ->
     ThreadId = maps:get(thread_id, ThreadConfig),
     case beamai_process_snapshot:get_latest(Mgr, ThreadId) of
-        {ok, State} ->
-            Messages = maps:get(messages, State, []),
+        {ok, Snapshot} ->
+            StateMap = beamai_process_snapshot:entry_state(Snapshot),
+            Messages = maps:get(messages, StateMap, []),
             build_context(Config, Messages);
         {error, _} = Error ->
             Error

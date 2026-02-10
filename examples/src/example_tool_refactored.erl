@@ -91,18 +91,11 @@ run(Opts) ->
     end, WeatherTools),
     io:format("~n"),
 
-    %% 5. 添加 LLM 服务（使用 GLM-4.7，兼容 OpenAI API）
-    io:format("[5] Adding LLM service (GLM-4.7 via OpenAI provider)...~n"),
-    ApiKey = maps:get(api_key, Opts),
-    BaseUrl = maps:get(base_url, Opts, <<"https://open.bigmodel.cn/api/paas/v4">>),
-    Model = maps:get(model, Opts, <<"glm-4-flash">>),
-
-    K2 = beamai:add_llm(K1, openai, #{
-        api_key => ApiKey,
-        base_url => BaseUrl,
-        model => Model
-    }),
-    io:format("    LLM configured: ~s~n~n", [Model]),
+    %% 5. 添加 LLM 服务
+    io:format("[5] Adding LLM service...~n"),
+    LLMConfig = maps:get(llm_config, Opts, default_llm_config(Opts)),
+    K2 = beamai:add_llm(K1, LLMConfig),
+    io:format("    LLM configured~n~n"),
 
     %% 6. 使用 chat_with_tools 进行对话
     io:format("[6] Testing chat_with_tools...~n"),
@@ -153,3 +146,11 @@ get_time(Args) ->
     {{Y, M, D}, {H, Mi, S}} = calendar:universal_time(),
     TimeStr = io_lib:format("~4..0B-~2..0B-~2..0B ~2..0B:~2..0B:~2..0B", [Y, M, D, H, Mi, S]),
     {ok, #{timezone => Timezone, time => iolist_to_binary(TimeStr)}}.
+
+%%====================================================================
+%% Internal
+%%====================================================================
+
+default_llm_config(Opts) ->
+    ApiKey = maps:get(api_key, Opts),
+    example_llm_config:anthropic(#{api_key => ApiKey}).

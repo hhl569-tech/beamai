@@ -59,6 +59,7 @@ anthropic() ->
 %% @doc 创建 Anthropic 兼容 LLM 配置
 %%
 %% 通过 Zhipu 的 Anthropic 兼容 URL 调用，provider 为 anthropic。
+%% Base URL 优先从环境变量 ZHIPU_ANTHROPIC_BASE_URL 读取。
 %%
 %% Opts 支持:
 %%   - api_key: API Key (必填)
@@ -66,9 +67,13 @@ anthropic() ->
 %%   - max_tokens: 最大 token 数 (默认 2048)
 -spec anthropic(map()) -> beamai_chat_completion:config().
 anthropic(Opts) ->
+    BaseUrl = case os:getenv("ZHIPU_ANTHROPIC_BASE_URL") of
+        false -> ?ZHIPU_ANTHROPIC_BASE_URL;
+        Url -> list_to_binary(Url)
+    end,
     beamai_chat_completion:create(anthropic, #{
         api_key => maps:get(api_key, Opts),
-        base_url => ?ZHIPU_ANTHROPIC_BASE_URL,
+        base_url => BaseUrl,
         model => maps:get(model, Opts, ?ANTHROPIC_DEFAULT_MODEL),
         max_tokens => maps:get(max_tokens, Opts, ?DEFAULT_MAX_TOKENS)
     }).

@@ -25,8 +25,7 @@
 
 -include_lib("beamai_memory/include/beamai_state_store.hrl").
 
-%% 行为回调定义
--export([behaviour_info/1]).
+%% 行为回调 (通过 -callback 声明)
 
 %% 管理器操作
 -export([
@@ -112,38 +111,32 @@
 %% 行为回调
 %%====================================================================
 
-%% @doc 行为回调定义
-behaviour_info(callbacks) ->
-    [
-        %% 条目访问器
-        {entry_id, 1},
-        {entry_owner_id, 1},
-        {entry_parent_id, 1},
-        {entry_version, 1},
-        {entry_branch_id, 1},
-        {entry_created_at, 1},
-        {entry_state, 1},
+%% 条目访问器
+-callback entry_id(Entry :: term()) -> binary() | undefined.
+-callback entry_owner_id(Entry :: term()) -> binary().
+-callback entry_parent_id(Entry :: term()) -> binary() | undefined.
+-callback entry_version(Entry :: term()) -> non_neg_integer().
+-callback entry_branch_id(Entry :: term()) -> binary().
+-callback entry_created_at(Entry :: term()) -> integer().
+-callback entry_state(Entry :: term()) -> map().
 
-        %% 条目修改器
-        {set_entry_id, 2},
-        {set_entry_parent_id, 2},
-        {set_entry_version, 2},
-        {set_entry_branch_id, 2},
+%% 条目修改器
+-callback set_entry_id(Entry :: term(), Id :: binary()) -> term().
+-callback set_entry_parent_id(Entry :: term(), ParentId :: binary() | undefined) -> term().
+-callback set_entry_version(Entry :: term(), Version :: non_neg_integer()) -> term().
+-callback set_entry_branch_id(Entry :: term(), BranchId :: binary()) -> term().
 
-        %% 工厂函数
-        {new_entry, 3},
+%% 工厂函数
+-callback new_entry(OwnerId :: binary(), State :: map(), Config :: map()) -> term().
 
-        %% 转换函数
-        {entry_to_state_entry, 1},
-        {state_entry_to_entry, 1},
+%% 转换函数
+-callback entry_to_state_entry(Entry :: term()) -> #state_entry{}.
+-callback state_entry_to_entry(StateEntry :: #state_entry{}) -> term().
 
-        %% 配置
-        {namespace, 0},
-        {id_prefix, 0},
-        {entry_type, 0}
-    ];
-behaviour_info(_) ->
-    undefined.
+%% 配置
+-callback namespace() -> binary().
+-callback id_prefix() -> binary().
+-callback entry_type() -> atom().
 
 %%====================================================================
 %% 管理器操作

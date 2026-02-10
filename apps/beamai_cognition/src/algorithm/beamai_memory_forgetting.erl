@@ -187,7 +187,7 @@ forget(Memories, MaxCount, Strategy) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec batch_forget(
-    {binary(), [memory()]},
+    #{binary() => [memory()]},
     pos_integer() | map(),
     forgetting_strategy(),
     forgetting_opts()

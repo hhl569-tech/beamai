@@ -198,23 +198,23 @@ build_state(Engine, RuntimeState, Opts) ->
 %% @private 处理单步结果
 handle_step_result({continue, #{type := interrupt} = Info}, S) ->
     S1 = maybe_snapshot(interrupted, S),
-    notify_caller({graph_interrupted, self(), Info}, S1),
+    _ = notify_caller({graph_interrupted, self(), Info}, S1),
     {noreply, S1#state{runtime_state = interrupted}};
 
 handle_step_result({continue, #{type := error} = Info}, S) ->
     S1 = maybe_snapshot(error, S),
-    notify_caller({graph_error, self(), Info}, S1),
+    _ = notify_caller({graph_error, self(), Info}, S1),
     {noreply, S1#state{runtime_state = error}};
 
 handle_step_result({continue, _Info}, S) ->
     S1 = maybe_snapshot(superstep_completed, S),
-    self() ! run_step,
+    _ = self() ! run_step,
     {noreply, S1};
 
 handle_step_result({done, _Reason, _Info}, #state{engine = Engine} = S) ->
     S1 = maybe_snapshot(completed, S),
     FinalCtx = beamai_graph_engine:context(Engine),
-    notify_caller({graph_completed, self(), FinalCtx}, S1),
+    _ = notify_caller({graph_completed, self(), FinalCtx}, S1),
     {noreply, S1#state{runtime_state = completed}}.
 
 %%====================================================================

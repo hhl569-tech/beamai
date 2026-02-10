@@ -305,19 +305,13 @@ do_chat(Context, Messages) ->
             end
     end.
 
-do_chat_with_tools(Context, Messages, Plugins) ->
+do_chat_with_tools(Context, Messages, ToolSpecs) ->
     case beamai_context:get_kernel(Context) of
         undefined ->
             {error, no_kernel_in_context};
         Kernel ->
-            %% 将 plugins 注册到 kernel
-            K1 = lists:foldl(
-                fun({Name, Functions}, KAcc) ->
-                    beamai_kernel:add_plugin(KAcc, Name, Functions)
-                end,
-                Kernel,
-                Plugins
-            ),
+            %% 将工具注册到 kernel
+            K1 = beamai_kernel:add_tools(Kernel, ToolSpecs),
             case beamai_kernel:invoke(K1, Messages, #{}) of
                 {ok, #{content := Content}, Ctx} ->
                     ToolCalls = extract_tool_calls(Ctx),

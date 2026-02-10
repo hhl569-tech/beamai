@@ -99,7 +99,8 @@
     context := beamai_context:t(),
     pending_deltas := [delta()] | undefined,
     pending_activations := [vertex_id()] | undefined,
-    vertices := #{vertex_id() => vertex()}
+    vertices := #{vertex_id() => vertex()},
+    resume_data => #{vertex_id() => term()}
 }.
 
 %% Snapshot 类型
@@ -128,9 +129,10 @@
 -type restore_opts() :: #{
     superstep := non_neg_integer(),
     context := beamai_context:t(),
-    pending_deltas => [delta()],
-    pending_activations => [vertex_id()],
-    vertices => #{vertex_id() => vertex()}
+    pending_deltas => [delta()] | undefined,
+    pending_activations => [vertex_id()] | undefined,
+    vertices => #{vertex_id() => vertex()},
+    resume_data => #{vertex_id() => term()}
 }.
 
 %% 执行选项
@@ -149,7 +151,9 @@
     supersteps := non_neg_integer(),
     stats := #{atom() => term()},
     failed_count => non_neg_integer(),
-    failed_vertices => [{vertex_id(), term()}]
+    failed_vertices => [{vertex_id(), term()}],
+    interrupted_count => non_neg_integer(),
+    interrupted_vertices => [{vertex_id(), term()}]
 }.
 
 %%====================================================================
@@ -161,7 +165,11 @@
     type := snapshot_type(),
     pregel_snapshot := snapshot_data(),
     context := beamai_context:t(),
-    iteration := non_neg_integer()
+    iteration := non_neg_integer(),
+    run_id => binary(),
+    active_vertices => [vertex_id()],
+    completed_vertices => [vertex_id()],
+    superstep => non_neg_integer()
 }.
 
 %% Snapshot 策略类型
@@ -879,14 +887,9 @@ handle_pregel_result({ok, FinalState}, _InitialState, _Options) ->
     #{status => completed, final_state => FinalState, iterations => 0};
 handle_pregel_result({error, {partial_result, PartialState, max_iterations_exceeded}}, _InitialState, Options) ->
     MaxIter = maps:get(max_iterations, Options, 100),
-    #{status => max_iterations, final_state => PartialState, iterations => MaxIter};
+    #{status => max_iterations, final_state => PartialState, iterations => MaxIter, error => max_iterations_exceeded};
 handle_pregel_result({error, {partial_result, PartialState, Reason}}, _InitialState, _Options) ->
-    #{status => error, final_state => PartialState, iterations => 0, error => Reason};
-handle_pregel_result({error, max_iterations_exceeded}, InitialState, Options) ->
-    MaxIter = maps:get(max_iterations, Options, 100),
-    #{status => max_iterations, final_state => InitialState, iterations => MaxIter, error => max_iterations_exceeded};
-handle_pregel_result({error, Reason}, InitialState, _Options) ->
-    #{status => error, final_state => InitialState, iterations => 0, error => Reason}.
+    #{status => error, final_state => PartialState, iterations => 0, error => Reason}.
 
 %%====================================================================
 %% Snapshot 数据构建
@@ -1123,8 +1126,7 @@ trigger_from_type(initial) -> superstep_completed;
 trigger_from_type(step) -> superstep_completed;
 trigger_from_type(error) -> error_occurred;
 trigger_from_type(interrupt) -> interrupted;
-trigger_from_type(final) -> completed;
-trigger_from_type(stopped) -> stopped.
+trigger_from_type(final) -> completed.
 
 %%====================================================================
 %% 内部辅助函数

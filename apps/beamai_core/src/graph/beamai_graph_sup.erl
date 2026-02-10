@@ -31,7 +31,7 @@ start_link() ->
 %% @param InitialState 初始全局状态
 %% @param Opts 启动选项
 %% @returns {ok, Pid} | {error, Reason}
--spec start_runtime(beamai_graph_builder:graph(), beamai_graph_engine:state(), map()) ->
+-spec start_runtime(beamai_graph_builder:graph(), beamai_context:t(), map()) ->
     {ok, pid()} | {error, term()}.
 start_runtime(Graph, InitialState, Opts) ->
     supervisor:start_child(?MODULE, [Graph, InitialState, Opts]).

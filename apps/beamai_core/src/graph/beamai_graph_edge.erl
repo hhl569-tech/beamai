@@ -27,7 +27,7 @@
 
 %% 类型定义
 -type node_id() :: beamai_graph_node:node_id().
--type router_fun() :: fun((beamai_graph_engine:state()) -> node_id() | [node_id()]).
+-type router_fun() :: fun((beamai_context:t()) -> node_id() | [node_id()]).
 -type route_map() :: #{term() => node_id()}.
 
 -type edge() :: #{
@@ -121,7 +121,7 @@ router(#{type := direct}) -> undefined.
 
 %% @doc 解析边，获取下一个节点
 %% 根据当前状态确定目标节点
--spec resolve(edge(), beamai_graph_engine:state()) -> {ok, node_id() | [node_id()]} | {error, term()}.
+-spec resolve(edge(), beamai_context:t()) -> {ok, node_id() | [node_id()] | {dispatches, [beamai_graph_dispatch:dispatch()]}} | {error, term()}.
 resolve(#{type := direct, to := To}, _State) ->
     {ok, To};
 resolve(#{type := fanout, targets := Targets}, _State) ->
@@ -130,7 +130,7 @@ resolve(#{type := conditional} = Edge, State) ->
     resolve_conditional(Edge, State).
 
 %% @doc 解析条件边
--spec resolve_conditional(edge(), beamai_graph_engine:state()) -> {ok, node_id() | [node_id()]} | {error, term()}.
+-spec resolve_conditional(edge(), beamai_context:t()) -> {ok, node_id() | [node_id()] | {dispatches, [beamai_graph_dispatch:dispatch()]}} | {error, term()}.
 resolve_conditional(#{router := Router} = Edge, State) ->
     try Router(State) of
         Result ->

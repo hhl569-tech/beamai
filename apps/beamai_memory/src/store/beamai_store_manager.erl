@@ -286,7 +286,7 @@ count(#store_manager{} = Manager, Namespace) ->
 -spec stats(store_manager()) -> map().
 stats(#store_manager{context_store = CtxStore, persistent_store = PersistStore}) ->
     #{
-        has_persistent => has_persistent(#store_manager{persistent_store = PersistStore}),
+        has_persistent => PersistStore =/= undefined,
         context_store => format_store_ref(CtxStore),
         persistent_store => case PersistStore of
             undefined -> undefined;

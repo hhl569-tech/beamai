@@ -207,7 +207,17 @@ get_lineage({Mgr, ThreadConfig}, Opts) ->
 -spec diff(store_ref(), map(), map()) ->
     {ok, map()} | {error, term()}.
 diff({Mgr, _ThreadConfig}, Config1, Config2) ->
-    beamai_process_snapshot:diff(Mgr, Config1, Config2).
+    ThreadId1 = maps:get(thread_id, Config1),
+    ThreadId2 = maps:get(thread_id, Config2),
+    case {beamai_process_snapshot:get_latest(Mgr, ThreadId1),
+          beamai_process_snapshot:get_latest(Mgr, ThreadId2)} of
+        {{ok, Snapshot1}, {ok, Snapshot2}} ->
+            beamai_process_snapshot:compare(Mgr,
+                beamai_process_snapshot:get_id(Snapshot1),
+                beamai_process_snapshot:get_id(Snapshot2));
+        {{error, _} = Error, _} -> Error;
+        {_, {error, _} = Error} -> Error
+    end.
 
 %%====================================================================
 %% 时间旅行 API

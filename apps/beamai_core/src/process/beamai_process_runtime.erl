@@ -256,14 +256,14 @@ apply_effect({paused, StepId, _Reason}, S) ->
     maybe_snapshot(paused, StepId, S);
 
 apply_effect(completed, #state{caller = Caller, engine = Engine} = S) ->
-    case Caller of
+    _ = case Caller of
         undefined -> ok;
         Pid -> Pid ! {process_completed, self(), beamai_process_engine:steps_state(Engine)}
     end,
     maybe_snapshot(completed, undefined, S);
 
 apply_effect({failed, Reason}, #state{caller = Caller} = S) ->
-    case Caller of
+    _ = case Caller of
         undefined -> ok;
         Pid -> Pid ! {process_failed, self(), Reason}
     end,

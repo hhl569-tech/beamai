@@ -40,7 +40,7 @@
 %% @doc 确保 gun 已启动
 -spec ensure_started() -> ok.
 ensure_started() ->
-    application:ensure_all_started(gun),
+    _ = application:ensure_all_started(gun),
     ok.
 
 %% @doc 发送 HTTP 请求（同步封装）

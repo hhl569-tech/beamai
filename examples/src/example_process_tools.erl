@@ -138,10 +138,11 @@ ensure_started() ->
 
 build_weather_kernel(LLMConfig) ->
     K0 = beamai:kernel(),
-    K1 = beamai:add_plugin(K0, <<"weather">>, [
-        beamai:function(<<"get_current_weather">>,
+    K1 = beamai:add_tools(K0, [
+        beamai:tool(<<"get_current_weather">>,
             fun(Args) -> get_weather(Args) end,
             #{description => <<"Get the current weather for a given city">>,
+              tag => <<"weather">>,
               parameters => #{
                   city => #{type => string,
                            description => <<"City name, e.g. Beijing, Tokyo, New York">>,
@@ -151,16 +152,15 @@ build_weather_kernel(LLMConfig) ->
     beamai:add_llm(K1, LLMConfig).
 
 weather_plugins() ->
-    [{<<"weather">>, [
-        beamai:function(<<"get_current_weather">>,
-            fun(Args) -> get_weather(Args) end,
-            #{description => <<"Get the current weather for a given city">>,
-              parameters => #{
-                  city => #{type => string,
-                           description => <<"City name, e.g. Beijing, Tokyo, New York">>,
-                           required => true}
-              }})
-    ]}].
+    [beamai:tool(<<"get_current_weather">>,
+        fun(Args) -> get_weather(Args) end,
+        #{description => <<"Get the current weather for a given city">>,
+          tag => <<"weather">>,
+          parameters => #{
+              city => #{type => string,
+                       description => <<"City name, e.g. Beijing, Tokyo, New York">>,
+                       required => true}
+          }})].
 
 get_weather(Args) ->
     City = maps:get(city, Args, maps:get(<<"city">>, Args, <<"unknown">>)),

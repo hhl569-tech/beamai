@@ -32,7 +32,7 @@
 %% @doc 确保 hackney 已启动
 -spec ensure_started() -> ok.
 ensure_started() ->
-    application:ensure_all_started(hackney),
+    _ = application:ensure_all_started(hackney),
     ok.
 
 %% @doc 发送 HTTP 请求
@@ -111,7 +111,7 @@ stream_receive_loop(ClientRef, Acc, Handler, Timeout) ->
                 Code when Code >= 200, Code < 300 ->
                     stream_receive_loop(ClientRef, Acc, Handler, Timeout);
                 Code ->
-                    hackney:close(ClientRef),
+                    _ = hackney:close(ClientRef),
                     {error, {http_error, Code}}
             end;
         {hackney_response, ClientRef, {headers, _Headers}} ->
@@ -123,13 +123,13 @@ stream_receive_loop(ClientRef, Acc, Handler, Timeout) ->
                 {continue, NewAcc} ->
                     stream_receive_loop(ClientRef, NewAcc, Handler, Timeout);
                 {done, FinalAcc} ->
-                    hackney:close(ClientRef),
+                    _ = hackney:close(ClientRef),
                     {ok, FinalAcc}
             end;
         {hackney_response, ClientRef, {error, Reason}} ->
             {error, Reason}
     after Timeout ->
-        hackney:close(ClientRef),
+        _ = hackney:close(ClientRef),
         {error, timeout}
     end.
 

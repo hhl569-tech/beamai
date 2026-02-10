@@ -76,11 +76,6 @@
     properties => parameters_schema()
 }.
 
--type return_schema() :: #{
-    type => atom(),
-    description => binary()
-}.
-
 -type filter_ref() :: binary() | atom().
 
 %%====================================================================
@@ -195,11 +190,7 @@ to_openai_schema(#{name := Name, description := Desc, parameters := Params}) ->
             <<"description">> => Desc,
             <<"parameters">> => Params
         }
-    };
-to_openai_schema(#{name := Name, description := Desc}) ->
-    to_openai_schema(#{name => Name, description => Desc, parameters => default_params()});
-to_openai_schema(#{name := Name}) ->
-    to_openai_schema(#{name => Name, description => <<"Tool: ", Name/binary>>, parameters => default_params()}).
+    }.
 
 %% @private 转换为 Anthropic tool use 格式
 to_anthropic_schema(#{name := Name, description := Desc, parameters := Params}) ->
@@ -207,13 +198,7 @@ to_anthropic_schema(#{name := Name, description := Desc, parameters := Params}) 
         <<"name">> => Name,
         <<"description">> => Desc,
         <<"input_schema">> => Params
-    };
-to_anthropic_schema(#{name := Name, description := Desc}) ->
-    to_anthropic_schema(#{name => Name, description => Desc, parameters => default_params()}).
-
-%% @private 默认空参数 schema
-default_params() ->
-    #{type => object, properties => #{}, required => []}.
+    }.
 
 %%====================================================================
 %% API - 查询

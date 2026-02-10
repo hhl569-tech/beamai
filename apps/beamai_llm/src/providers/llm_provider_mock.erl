@@ -33,9 +33,10 @@ validate_config(_Config) ->
 %% @doc Mock chat - 返回简单响应
 chat(_Messages, _Config) ->
     {ok, #{
+        id => <<"mock-response-id">>,
+        model => <<"mock-model">>,
         content => <<"This is a mock response.">>,
-        role => assistant,
-        finish_reason => stop,
+        finish_reason => <<"stop">>,
         usage => #{
             prompt_tokens => 10,
             completion_tokens => 5,
