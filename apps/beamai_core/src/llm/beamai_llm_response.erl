@@ -45,7 +45,7 @@
 
 %% 统一访问接口
 -export([id/1, model/1, provider/1]).
--export([content/1, content_blocks/1, reasoning_content/1]).
+-export([content/1, content_blocks/1, thinking/1, reasoning_content/1]).
 -export([tool_calls/1, has_tool_calls/1]).
 -export([finish_reason/1, is_complete/1, needs_tool_call/1]).
 -export([usage/1, input_tokens/1, output_tokens/1, total_tokens/1]).
@@ -78,6 +78,8 @@
 
 -type content_block() ::
     #{type := text, text := binary()} |
+    #{type := thinking, thinking := binary(), signature := binary()} |
+    #{type := redacted_thinking, data := binary()} |
     #{type := tool_use, id := binary(), name := binary(), input := map()}.
 
 -type tool_call() :: #{
@@ -93,6 +95,8 @@
     length_limit |       % 达到长度限制
     content_filtered |   % 内容过滤
     stop_sequence |      % 停止序列触发
+    pause_turn |         % 长运行暂停（Anthropic）
+    refusal |            % 内容策略拒绝（Anthropic）
     error |              % 错误
     unknown.             % 未知
 
@@ -151,6 +155,17 @@ content(_) -> null.
 -spec content_blocks(response()) -> [content_block()].
 content_blocks(#{content_blocks := Blocks}) -> Blocks;
 content_blocks(_) -> [].
+
+%% @doc 获取 thinking 内容（Anthropic extended thinking）
+%% 从 content_blocks 中提取 thinking 块的文本，合并返回
+-spec thinking(response()) -> binary() | null.
+thinking(#{content_blocks := Blocks}) ->
+    ThinkingTexts = [T || #{type := thinking, thinking := T} <- Blocks],
+    case ThinkingTexts of
+        [] -> null;
+        _ -> iolist_to_binary(ThinkingTexts)
+    end;
+thinking(_) -> null.
 
 %% @doc 获取推理内容（智谱 GLM-4.6+ 特有）
 %% 返回 reasoning_content，如果不存在则返回 null

@@ -305,6 +305,12 @@ extract_anthropic_content([#{<<"type">> := <<"text">>, <<"text">> := T} | Rest],
     Block = #{type => text, text => T},
     NewContent = <<Content/binary, T/binary>>,
     extract_anthropic_content(Rest, NewContent, ToolCalls, [Block | Blocks]);
+extract_anthropic_content([#{<<"type">> := <<"thinking">>, <<"thinking">> := T, <<"signature">> := Sig} | Rest], Content, ToolCalls, Blocks) ->
+    Block = #{type => thinking, thinking => T, signature => Sig},
+    extract_anthropic_content(Rest, Content, ToolCalls, [Block | Blocks]);
+extract_anthropic_content([#{<<"type">> := <<"redacted_thinking">>, <<"data">> := Data} | Rest], Content, ToolCalls, Blocks) ->
+    Block = #{type => redacted_thinking, data => Data},
+    extract_anthropic_content(Rest, Content, ToolCalls, [Block | Blocks]);
 extract_anthropic_content([#{<<"type">> := <<"tool_use">>} = B | Rest], Content, ToolCalls, Blocks) ->
     Id = maps:get(<<"id">>, B, <<>>),
     Name = maps:get(<<"name">>, B, <<>>),
@@ -338,23 +344,28 @@ parse_usage_anthropic(Usage, _Raw) ->
 
 %% @private 提取 Anthropic 特有的 usage 详情
 extract_anthropic_usage_details(Usage) ->
-    Details = #{},
-    %% Cache tokens
-    Details1 = case maps:get(<<"cache_creation_input_tokens">>, Usage, undefined) of
-        undefined -> Details;
-        CacheCreation -> Details#{cache_creation_input_tokens => CacheCreation}
-    end,
-    Details2 = case maps:get(<<"cache_read_input_tokens">>, Usage, undefined) of
-        undefined -> Details1;
-        CacheRead -> Details1#{cache_read_input_tokens => CacheRead}
-    end,
-    Details2.
+    Fields = [
+        {<<"cache_creation_input_tokens">>, cache_creation_input_tokens},
+        {<<"cache_read_input_tokens">>, cache_read_input_tokens},
+        {<<"cache_creation">>, cache_creation},
+        {<<"server_tool_use">>, server_tool_use},
+        {<<"service_tier">>, service_tier},
+        {<<"inference_geo">>, inference_geo}
+    ],
+    lists:foldl(fun({JsonKey, AtomKey}, Acc) ->
+        case maps:get(JsonKey, Usage, undefined) of
+            undefined -> Acc;
+            Value -> Acc#{AtomKey => Value}
+        end
+    end, #{}, Fields).
 
 %% @private 标准化 Anthropic stop_reason
 normalize_finish_reason_anthropic(<<"end_turn">>) -> complete;
 normalize_finish_reason_anthropic(<<"tool_use">>) -> tool_use;
 normalize_finish_reason_anthropic(<<"max_tokens">>) -> length_limit;
 normalize_finish_reason_anthropic(<<"stop_sequence">>) -> stop_sequence;
+normalize_finish_reason_anthropic(<<"pause_turn">>) -> pause_turn;
+normalize_finish_reason_anthropic(<<"refusal">>) -> refusal;
 normalize_finish_reason_anthropic(<<>>) -> unknown;
 normalize_finish_reason_anthropic(null) -> unknown;
 normalize_finish_reason_anthropic(_) -> unknown.

@@ -1,8 +1,16 @@
 %%%-------------------------------------------------------------------
 %%% @doc Anthropic Claude LLM Provider 实现
 %%%
-%%% 支持 Anthropic Claude API（Claude 3 系列）。
+%%% 支持 Anthropic Claude API（Claude 4 系列）。
 %%% 使用 beamai_llm_http_client 处理公共 HTTP 逻辑。
+%%%
+%%% 支持的功能：
+%%%   - 基本对话 (chat/stream_chat)
+%%%   - 工具调用 (tools + tool_choice)
+%%%   - Extended Thinking (thinking 配置)
+%%%   - 采样参数 (temperature, top_p, top_k)
+%%%   - 停止序列 (stop_sequences)
+%%%   - 用户元数据 (metadata)
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
@@ -19,9 +27,9 @@
 %% 默认值
 -define(ANTHROPIC_BASE_URL, <<"https://api.anthropic.com">>).
 -define(ANTHROPIC_ENDPOINT, <<"/v1/messages">>).
--define(ANTHROPIC_MODEL, <<"claude-3-5-sonnet-20241022">>).
+-define(ANTHROPIC_MODEL, <<"claude-sonnet-4-5-20250929">>).
 -define(ANTHROPIC_TIMEOUT, 60000).
--define(ANTHROPIC_MAX_TOKENS, 4096).
+-define(ANTHROPIC_MAX_TOKENS, 8192).
 -define(API_VERSION, <<"2023-06-01">>).
 
 %%====================================================================
@@ -94,6 +102,13 @@ build_request_body(Config, Request) ->
     ?BUILD_BODY_PIPELINE(Base, [
         fun(B) -> maybe_add_system(B, SystemPrompt) end,
         fun(B) -> maybe_add_tools(B, Request) end,
+        fun(B) -> maybe_add_tool_choice(B, Request) end,
+        fun(B) -> maybe_add_thinking(B, Config) end,
+        fun(B) -> maybe_add_temperature(B, Config) end,
+        fun(B) -> maybe_add_top_p(B, Config) end,
+        fun(B) -> maybe_add_top_k(B, Config) end,
+        fun(B) -> maybe_add_stop_sequences(B, Config, Request) end,
+        fun(B) -> maybe_add_metadata(B, Config) end,
         fun(B) -> maybe_add_stream(B, Request) end
     ]).
 
@@ -114,6 +129,69 @@ maybe_add_tools(Body, #{tools := Tools}) when Tools =/= [] ->
 maybe_add_tools(Body, _) ->
     Body.
 
+%% @private 添加 tool_choice（Anthropic 格式）
+%% 支持: auto | any | none | {tool, Name}
+maybe_add_tool_choice(Body, #{tool_choice := auto}) ->
+    Body#{<<"tool_choice">> => #{<<"type">> => <<"auto">>}};
+maybe_add_tool_choice(Body, #{tool_choice := any}) ->
+    Body#{<<"tool_choice">> => #{<<"type">> => <<"any">>}};
+maybe_add_tool_choice(Body, #{tool_choice := none}) ->
+    Body#{<<"tool_choice">> => #{<<"type">> => <<"none">>}};
+maybe_add_tool_choice(Body, #{tool_choice := {tool, Name}}) when is_binary(Name) ->
+    Body#{<<"tool_choice">> => #{<<"type">> => <<"tool">>, <<"name">> => Name}};
+maybe_add_tool_choice(Body, #{tool_choice := Choice}) when is_map(Choice) ->
+    %% 直接传入 map 格式（高级用法）
+    Body#{<<"tool_choice">> => Choice};
+maybe_add_tool_choice(Body, _) ->
+    Body.
+
+%% @private 添加 Extended Thinking 配置
+%% Config 中 thinking => #{type => enabled, budget_tokens => N}
+%% 或简写 thinking => N（budget_tokens 数值）
+maybe_add_thinking(Body, #{thinking := #{type := enabled, budget_tokens := Budget}}) ->
+    Body#{<<"thinking">> => #{<<"type">> => <<"enabled">>, <<"budget_tokens">> => Budget}};
+maybe_add_thinking(Body, #{thinking := #{type := disabled}}) ->
+    Body#{<<"thinking">> => #{<<"type">> => <<"disabled">>}};
+maybe_add_thinking(Body, #{thinking := #{type := adaptive}}) ->
+    Body#{<<"thinking">> => #{<<"type">> => <<"adaptive">>}};
+maybe_add_thinking(Body, #{thinking := Budget}) when is_integer(Budget), Budget >= 1024 ->
+    Body#{<<"thinking">> => #{<<"type">> => <<"enabled">>, <<"budget_tokens">> => Budget}};
+maybe_add_thinking(Body, _) ->
+    Body.
+
+%% @private 添加温度参数
+maybe_add_temperature(Body, #{temperature := T}) when is_number(T) ->
+    Body#{<<"temperature">> => T};
+maybe_add_temperature(Body, _) ->
+    Body.
+
+%% @private 添加 top_p 参数
+maybe_add_top_p(Body, #{top_p := P}) when is_number(P) ->
+    Body#{<<"top_p">> => P};
+maybe_add_top_p(Body, _) ->
+    Body.
+
+%% @private 添加 top_k 参数
+maybe_add_top_k(Body, #{top_k := K}) when is_integer(K) ->
+    Body#{<<"top_k">> => K};
+maybe_add_top_k(Body, _) ->
+    Body.
+
+%% @private 添加停止序列（从 Config 或 Request 获取）
+maybe_add_stop_sequences(Body, Config, Request) ->
+    case maps:get(stop_sequences, Request, maps:get(stop_sequences, Config, undefined)) of
+        undefined -> Body;
+        Seqs when is_list(Seqs), Seqs =/= [] ->
+            Body#{<<"stop_sequences">> => Seqs};
+        _ -> Body
+    end.
+
+%% @private 添加元数据（user_id 等）
+maybe_add_metadata(Body, #{metadata := Meta}) when is_map(Meta), map_size(Meta) > 0 ->
+    Body#{<<"metadata">> => Meta};
+maybe_add_metadata(Body, _) ->
+    Body.
+
 %% @private 添加流式标志
 maybe_add_stream(Body, #{stream := true}) -> Body#{<<"stream">> => true};
 maybe_add_stream(Body, _) -> Body.
@@ -125,8 +203,16 @@ maybe_add_stream(Body, _) -> Body.
 %% @private Anthropic 格式事件累加器
 %% Anthropic 使用不同的事件类型：message_start, content_block_delta, message_delta
 accumulate_event(#{<<"type">> := <<"content_block_delta">>, <<"delta">> := Delta}, Acc) ->
-    Text = maps:get(<<"text">>, Delta, <<>>),
-    Acc#{content => <<(maps:get(content, Acc))/binary, Text/binary>>};
+    case maps:get(<<"type">>, Delta, <<"text_delta">>) of
+        <<"text_delta">> ->
+            Text = maps:get(<<"text">>, Delta, <<>>),
+            Acc#{content => <<(maps:get(content, Acc, <<>>))/binary, Text/binary>>};
+        <<"thinking_delta">> ->
+            Thinking = maps:get(<<"thinking">>, Delta, <<>>),
+            Acc#{thinking => <<(maps:get(thinking, Acc, <<>>))/binary, Thinking/binary>>};
+        _ ->
+            Acc
+    end;
 accumulate_event(#{<<"type">> := <<"message_start">>, <<"message">> := Msg}, Acc) ->
     Acc#{
         id => maps:get(<<"id">>, Msg, <<>>),

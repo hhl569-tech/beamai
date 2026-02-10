@@ -142,18 +142,51 @@ to_anthropic_message(#{role := tool, content := Content, tool_call_id := Id}) ->
             <<"content">> => Content
         }]
     };
-to_anthropic_message(#{role := assistant, tool_calls := Calls}) when is_list(Calls), Calls =/= [] ->
-    %% 包含工具调用的助手消息
+to_anthropic_message(#{role := assistant, tool_calls := Calls} = Msg) when is_list(Calls), Calls =/= [] ->
+    %% 包含工具调用的助手消息（可能也有 thinking blocks）
+    ThinkingBlocks = format_thinking_blocks(Msg),
     #{
         <<"role">> => <<"assistant">>,
-        <<"content">> => [format_tool_use_anthropic(C) || C <- Calls]
+        <<"content">> => ThinkingBlocks ++ [format_tool_use_anthropic(C) || C <- Calls]
     };
-to_anthropic_message(#{role := Role, content := Content}) ->
-    #{<<"role">> => format_role_anthropic(Role), <<"content">> => Content}.
+to_anthropic_message(#{role := Role, content := Content} = Msg) ->
+    case maps:get(content_blocks, Msg, []) of
+        Blocks when is_list(Blocks), Blocks =/= [] ->
+            %% 有 content_blocks 时保留完整结构（含 thinking 块）
+            HasThinking = lists:any(fun(#{type := T}) -> T =:= thinking orelse T =:= redacted_thinking; (_) -> false end, Blocks),
+            case HasThinking of
+                true ->
+                    #{<<"role">> => format_role_anthropic(Role),
+                      <<"content">> => [format_content_block_anthropic(B) || B <- Blocks]};
+                false ->
+                    #{<<"role">> => format_role_anthropic(Role), <<"content">> => Content}
+            end;
+        _ ->
+            #{<<"role">> => format_role_anthropic(Role), <<"content">> => Content}
+    end.
 
 format_role_anthropic(user) -> <<"user">>;
 format_role_anthropic(assistant) -> <<"assistant">>;
 format_role_anthropic(_) -> <<"user">>.
+
+%% @private 格式化 content_block 为 Anthropic API 格式
+format_content_block_anthropic(#{type := text, text := T}) ->
+    #{<<"type">> => <<"text">>, <<"text">> => T};
+format_content_block_anthropic(#{type := thinking, thinking := T, signature := Sig}) ->
+    #{<<"type">> => <<"thinking">>, <<"thinking">> => T, <<"signature">> => Sig};
+format_content_block_anthropic(#{type := redacted_thinking, data := Data}) ->
+    #{<<"type">> => <<"redacted_thinking">>, <<"data">> => Data};
+format_content_block_anthropic(#{type := tool_use, id := Id, name := Name, input := Input}) ->
+    #{<<"type">> => <<"tool_use">>, <<"id">> => Id, <<"name">> => Name, <<"input">> => Input};
+format_content_block_anthropic(_) ->
+    #{<<"type">> => <<"text">>, <<"text">> => <<>>}.
+
+%% @private 从消息中提取 thinking blocks 并格式化
+format_thinking_blocks(#{content_blocks := Blocks}) when is_list(Blocks) ->
+    [format_content_block_anthropic(B) || B = #{type := T} <- Blocks,
+     T =:= thinking orelse T =:= redacted_thinking];
+format_thinking_blocks(_) ->
+    [].
 
 format_tool_use_anthropic(#{id := Id, name := Name, arguments := Args}) ->
     #{
@@ -182,11 +215,21 @@ from_anthropic_message(#{<<"role">> := <<"user">>, <<"content">> := Content}) wh
         ToolResults -> ToolResults
     end;
 from_anthropic_message(#{<<"role">> := <<"assistant">>, <<"content">> := Content}) when is_list(Content) ->
-    %% 检查是否包含工具使用
-    case extract_tool_uses(Content) of
-        [] -> [#{role => assistant, content => extract_text(Content)}];
-        ToolCalls -> [#{role => assistant, content => extract_text(Content), tool_calls => ToolCalls}]
-    end;
+    %% 检查是否包含工具使用和 thinking blocks
+    ToolCalls = extract_tool_uses(Content),
+    ContentBlocks = extract_content_blocks(Content),
+    Text = extract_text(Content),
+    Base = #{role => assistant, content => Text},
+    Base1 = case ToolCalls of
+        [] -> Base;
+        _ -> Base#{tool_calls => ToolCalls}
+    end,
+    HasThinking = lists:any(fun(#{type := T}) -> T =:= thinking orelse T =:= redacted_thinking; (_) -> false end, ContentBlocks),
+    Base2 = case HasThinking of
+        true -> Base1#{content_blocks => ContentBlocks};
+        false -> Base1
+    end,
+    [Base2];
 from_anthropic_message(#{<<"role">> := RoleBin, <<"content">> := Content}) ->
     Role = safe_binary_to_role(RoleBin),
     [#{role => Role, content => Content}].
@@ -204,6 +247,19 @@ extract_tool_uses(Content) ->
            arguments => jsx:encode(maps:get(<<"input">>, C, #{}))
        }}
      || C <- Content, maps:get(<<"type">>, C, <<>>) =:= <<"tool_use">>].
+
+extract_content_blocks(Content) when is_list(Content) ->
+    lists:filtermap(fun
+        (#{<<"type">> := <<"text">>, <<"text">> := T}) ->
+            {true, #{type => text, text => T}};
+        (#{<<"type">> := <<"thinking">>, <<"thinking">> := T, <<"signature">> := Sig}) ->
+            {true, #{type => thinking, thinking => T, signature => Sig}};
+        (#{<<"type">> := <<"redacted_thinking">>, <<"data">> := Data}) ->
+            {true, #{type => redacted_thinking, data => Data}};
+        (#{<<"type">> := <<"tool_use">>, <<"id">> := Id, <<"name">> := Name, <<"input">> := Input}) ->
+            {true, #{type => tool_use, id => Id, name => Name, input => Input}};
+        (_) -> false
+    end, Content).
 
 extract_text(Content) when is_list(Content) ->
     Texts = [maps:get(<<"text">>, C, <<>>) || C <- Content,
