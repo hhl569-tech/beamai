@@ -24,7 +24,7 @@
 %%%
 %%% ```erlang
 %%% %% 获取 Provider 模块
-%%% Module = llm_provider_openai,
+%%% Module = beamai_llm_provider_openai,
 %%%
 %%% %% 验证配置
 %%% ok = Module:validate_config(Config),
@@ -40,7 +40,7 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_provider_behaviour).
+-module(beamai_llm_provider_behaviour).
 
 %% 类型导出
 -export_type([

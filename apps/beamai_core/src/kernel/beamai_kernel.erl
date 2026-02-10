@@ -305,17 +305,17 @@ tool_calling_loop(Kernel, LlmConfig, Filters, Msgs, Opts, Context, SysPrompts, N
     LlmMsgs = SysPrompts ++ Msgs,
     case run_chat_pipeline(LlmConfig, Filters, LlmMsgs, Opts, Context) of
         {ok, Response, Ctx0} ->
-            %% 使用 llm_response 访问器统一处理响应
-            case llm_response:has_tool_calls(Response) of
+            %% 使用 beamai_llm_response 访问器统一处理响应
+            case beamai_llm_response:has_tool_calls(Response) of
                 true ->
-                    TCs = llm_response:tool_calls(Response),
+                    TCs = beamai_llm_response:tool_calls(Response),
                     AssistantMsg = beamai_message:tool_calls(TCs),
                     Ctx1 = track_message(Ctx0, AssistantMsg),
                     {ToolResults, Ctx2} = execute_tool_calls(Kernel, TCs, Ctx1),
                     NewMsgs = Msgs ++ [AssistantMsg | ToolResults],
                     tool_calling_loop(Kernel, LlmConfig, Filters, NewMsgs, Opts, Ctx2, SysPrompts, N - 1);
                 false ->
-                    Content = llm_response:content(Response),
+                    Content = beamai_llm_response:content(Response),
                     case Content of
                         null ->
                             {ok, Response, Ctx0};

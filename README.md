@@ -246,7 +246,7 @@ apps/
 ├── beamai_llm/         # LLM 客户端
 │   ├── Chat           # beamai_chat_completion
 │   ├── Parser         # beamai_output_parser, beamai_parser_json
-│   ├── Adapters       # llm_message_adapter, llm_response_parser, llm_tool_adapter
+│   ├── Adapters       # beamai_llm_message_adapter, beamai_beamai_llm_response_parser, beamai_llm_tool_adapter
 │   └── Providers      # OpenAI, Anthropic, DeepSeek, Zhipu, Bailian, Ollama
 │
 ├── beamai_memory/      # 纯存储引擎
@@ -424,12 +424,12 @@ LLM = beamai_chat_completion:create(zhipu, #{
 
 | Provider | 模块 | API 模式 | 说明 |
 |----------|------|----------|------|
-| `anthropic` | llm_provider_anthropic | Anthropic | Anthropic Claude API |
-| `openai` | llm_provider_openai | OpenAI | OpenAI API |
-| `deepseek` | llm_provider_deepseek | OpenAI 兼容 | DeepSeek API |
-| `zhipu` | llm_provider_zhipu | OpenAI 兼容 | 智谱 AI (GLM 系列) |
-| `bailian` | llm_provider_bailian | DashScope 原生 | 阿里云百炼 (通义千问系列) |
-| `ollama` | llm_provider_ollama | OpenAI 兼容 | Ollama 本地模型 |
+| `anthropic` | beamai_llm_provider_anthropic | Anthropic | Anthropic Claude API |
+| `openai` | beamai_llm_provider_openai | OpenAI | OpenAI API |
+| `deepseek` | beamai_llm_provider_deepseek | OpenAI 兼容 | DeepSeek API |
+| `zhipu` | beamai_llm_provider_zhipu | OpenAI 兼容 | 智谱 AI (GLM 系列) |
+| `bailian` | beamai_llm_provider_bailian | DashScope 原生 | 阿里云百炼 (通义千问系列) |
+| `ollama` | beamai_llm_provider_ollama | OpenAI 兼容 | Ollama 本地模型 |
 
 ### HTTP 后端配置
 

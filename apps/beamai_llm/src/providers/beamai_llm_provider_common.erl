@@ -30,22 +30,22 @@
 %%% -module(llm_provider_xxx).
 %%%
 %%% build_url(Config, DefaultEndpoint) ->
-%%%     llm_provider_common:build_url(Config, DefaultEndpoint, ?XXX_BASE_URL).
+%%%     beamai_llm_provider_common:build_url(Config, DefaultEndpoint, ?XXX_BASE_URL).
 %%%
 %%% build_headers(Config) ->
-%%%     llm_provider_common:build_bearer_auth_headers(Config).
+%%%     beamai_llm_provider_common:build_bearer_auth_headers(Config).
 %%%
 %%% build_request_body(Config, Request) ->
 %%%     Base = #{...},
 %%%     ?BUILD_BODY_PIPELINE(Base, [
-%%%         fun(B) -> llm_provider_common:maybe_add_stream(B, Request) end,
-%%%         fun(B) -> llm_provider_common:maybe_add_tools(B, Request) end
+%%%         fun(B) -> beamai_llm_provider_common:maybe_add_stream(B, Request) end,
+%%%         fun(B) -> beamai_llm_provider_common:maybe_add_tools(B, Request) end
 %%%     ]).
 %%% ```
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_provider_common).
+-module(beamai_llm_provider_common).
 
 %% API 导出
 -export([
@@ -132,7 +132,7 @@ maybe_add_stream(Body, _) -> Body.
 %% @returns 更新后的请求体 map
 -spec maybe_add_tools(map(), map()) -> map().
 maybe_add_tools(Body, #{tools := Tools}) when Tools =/= [] ->
-    FormattedTools = llm_tool_adapter:to_openai(Tools),
+    FormattedTools = beamai_llm_tool_adapter:to_openai(Tools),
     ToolChoice = maps:get(tool_choice, Body, <<"auto">>),
     Body#{<<"tools">> => FormattedTools, <<"tool_choice">> => ToolChoice};
 maybe_add_tools(Body, _) ->
@@ -161,7 +161,7 @@ maybe_add_top_p(Body, _) ->
 %% 从 delta 中提取 content 并追加到累加器。
 %% 同时提取 id、model 和 finish_reason。
 %%
-%% 此函数作为 llm_http_client:stream_request 的 accumulator 参数使用。
+%% 此函数作为 beamai_llm_http_client:stream_request 的 accumulator 参数使用。
 %%
 %% @param Event 解析后的 SSE 事件 map
 %% @param Acc 当前累加器 map（需包含 content 字段）

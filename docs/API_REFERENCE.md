@@ -235,12 +235,12 @@ beamai_chat_completion:stream_chat(Config, Messages, Callback, Opts).
 
 | Provider | Module | API Mode | Features |
 |----------|--------|----------|----------|
-| `openai` | llm_provider_openai | OpenAI | Chat, streaming, tool calling |
-| `anthropic` | llm_provider_anthropic | Anthropic | Chat, streaming, tool calling |
-| `deepseek` | llm_provider_deepseek | OpenAI compatible | Chat, streaming, tool calling |
-| `zhipu` | llm_provider_zhipu | OpenAI compatible | Chat, streaming, tool calling, async |
-| `bailian` | llm_provider_bailian | DashScope native | Chat, streaming, tool calling, web search |
-| `ollama` | llm_provider_ollama | OpenAI compatible | Chat, streaming |
+| `openai` | beamai_llm_provider_openai | OpenAI | Chat, streaming, tool calling |
+| `anthropic` | beamai_llm_provider_anthropic | Anthropic | Chat, streaming, tool calling |
+| `deepseek` | beamai_llm_provider_deepseek | OpenAI compatible | Chat, streaming, tool calling |
+| `zhipu` | beamai_llm_provider_zhipu | OpenAI compatible | Chat, streaming, tool calling, async |
+| `bailian` | beamai_llm_provider_bailian | DashScope native | Chat, streaming, tool calling, web search |
+| `ollama` | beamai_llm_provider_ollama | OpenAI compatible | Chat, streaming |
 
 ### DeepSeek Detailed Description
 
@@ -382,7 +382,7 @@ GraphMgr = beamai_graph_snapshot:new(StateStore).
 ### LLM Response
 
 ```erlang
--type llm_response() :: #{
+-type beamai_llm_response() :: #{
     id := binary(),
     model := binary(),
     content := binary() | null,

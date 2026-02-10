@@ -309,7 +309,7 @@ test_process_single_llm_step(Config) ->
     LlmConfig = ?config(llm_config, Config),
 
     P0 = beamai_process:builder(single_llm),
-    P1 = beamai_process:add_step(P0, llm_step, llm_test_step, #{
+    P1 = beamai_process:add_step(P0, llm_step, beamai_llm_test_step, #{
         type => llm_call,
         llm_config => LlmConfig,
         output_event => llm_done
@@ -336,12 +336,12 @@ test_process_two_step_chain(Config) ->
     LlmConfig = ?config(llm_config, Config),
 
     P0 = beamai_process:builder(two_step_chain),
-    P1 = beamai_process:add_step(P0, generator, llm_test_step, #{
+    P1 = beamai_process:add_step(P0, generator, beamai_llm_test_step, #{
         type => llm_call,
         llm_config => LlmConfig,
         output_event => generated
     }),
-    P2 = beamai_process:add_step(P1, transformer, llm_test_step, #{
+    P2 = beamai_process:add_step(P1, transformer, beamai_llm_test_step, #{
         type => llm_transform,
         llm_config => LlmConfig,
         instruction => <<"Translate the following text to Chinese:">>,
@@ -374,7 +374,7 @@ test_process_pause_resume(Config) ->
     LlmConfig = ?config(llm_config, Config),
 
     P0 = beamai_process:builder(pause_resume),
-    P1 = beamai_process:add_step(P0, review_step, llm_test_step, #{
+    P1 = beamai_process:add_step(P0, review_step, beamai_llm_test_step, #{
         type => llm_pause,
         llm_config => LlmConfig,
         output_event => approved
@@ -418,7 +418,7 @@ test_process_snapshot_save_load(Config) ->
 
     %% 运行一个 process 获取结果
     P0 = beamai_process:builder(snap_save_load),
-    P1 = beamai_process:add_step(P0, llm_step, llm_test_step, #{
+    P1 = beamai_process:add_step(P0, llm_step, beamai_llm_test_step, #{
         type => llm_call,
         llm_config => LlmConfig,
         output_event => done

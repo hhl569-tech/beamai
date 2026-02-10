@@ -2,12 +2,12 @@
 %%% @doc Anthropic Claude LLM Provider 实现
 %%%
 %%% 支持 Anthropic Claude API（Claude 3 系列）。
-%%% 使用 llm_http_client 处理公共 HTTP 逻辑。
+%%% 使用 beamai_llm_http_client 处理公共 HTTP 逻辑。
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_provider_anthropic).
--behaviour(llm_provider_behaviour).
+-module(beamai_llm_provider_anthropic).
+-behaviour(beamai_llm_provider_behaviour).
 
 -include_lib("beamai_core/include/beamai_common.hrl").
 
@@ -56,7 +56,7 @@ chat(Config, Request) ->
     Headers = build_headers(Config),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?ANTHROPIC_TIMEOUT)},
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_anthropic()).
+    beamai_llm_http_client:request(Url, Headers, Body, Opts, beamai_llm_response_parser:parser_anthropic()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->
@@ -64,7 +64,7 @@ stream_chat(Config, Request, Callback) ->
     Headers = build_headers(Config),
     Body = build_request_body(Config, Request#{stream => true}),
     Opts = #{timeout => maps:get(timeout, Config, ?ANTHROPIC_TIMEOUT)},
-    llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event/2).
+    beamai_llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event/2).
 
 %%====================================================================
 %% 请求构建（Provider 特定）
@@ -72,7 +72,7 @@ stream_chat(Config, Request, Callback) ->
 
 %% @private 构建请求 URL（使用公共模块）
 build_url(Config, DefaultEndpoint) ->
-    llm_provider_common:build_url(Config, DefaultEndpoint, ?ANTHROPIC_BASE_URL).
+    beamai_llm_provider_common:build_url(Config, DefaultEndpoint, ?ANTHROPIC_BASE_URL).
 
 %% @private 构建请求头（Anthropic 特有的 x-api-key 和 anthropic-version）
 build_headers(#{api_key := ApiKey}) ->
@@ -89,7 +89,7 @@ build_request_body(Config, Request) ->
     Base = #{
         <<"model">> => maps:get(model, Config, ?ANTHROPIC_MODEL),
         <<"max_tokens">> => maps:get(max_tokens, Config, ?ANTHROPIC_MAX_TOKENS),
-        <<"messages">> => llm_message_adapter:to_anthropic(UserMessages)
+        <<"messages">> => beamai_llm_message_adapter:to_anthropic(UserMessages)
     },
     ?BUILD_BODY_PIPELINE(Base, [
         fun(B) -> maybe_add_system(B, SystemPrompt) end,
@@ -110,7 +110,7 @@ maybe_add_system(Body, SystemPrompt) -> Body#{<<"system">> => SystemPrompt}.
 
 %% @private 添加工具定义
 maybe_add_tools(Body, #{tools := Tools}) when Tools =/= [] ->
-    Body#{<<"tools">> => llm_tool_adapter:to_anthropic(Tools)};
+    Body#{<<"tools">> => beamai_llm_tool_adapter:to_anthropic(Tools)};
 maybe_add_tools(Body, _) ->
     Body.
 

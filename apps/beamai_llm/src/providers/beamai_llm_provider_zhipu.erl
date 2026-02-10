@@ -2,7 +2,7 @@
 %%% @doc 智谱 AI (Zhipu/BigModel) LLM Provider 实现
 %%%
 %%% 支持智谱 AI 的对话补全 API，包括 OpenAI 兼容和 Anthropic 兼容两种模式。
-%%% 使用 llm_http_client 处理公共 HTTP 逻辑。
+%%% 使用 beamai_llm_http_client 处理公共 HTTP 逻辑。
 %%%
 %%% API 文档: https://docs.bigmodel.cn/api-reference/
 %%%
@@ -60,8 +60,8 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_provider_zhipu).
--behaviour(llm_provider_behaviour).
+-module(beamai_llm_provider_zhipu).
+-behaviour(beamai_llm_provider_behaviour).
 
 -include_lib("beamai_core/include/beamai_common.hrl").
 
@@ -141,7 +141,7 @@ chat_openai(Config, Request) ->
     Headers = build_headers(Config),
     Body = build_openai_request_body(Config, Request),
     Opts = build_request_opts(Config),
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_zhipu()).
+    beamai_llm_http_client:request(Url, Headers, Body, Opts, beamai_llm_response_parser:parser_zhipu()).
 
 %% @private OpenAI 兼容模式流式聊天
 stream_chat_openai(Config, Request, Callback) ->
@@ -149,7 +149,7 @@ stream_chat_openai(Config, Request, Callback) ->
     Headers = build_headers(Config),
     Body = build_openai_request_body(Config, Request#{stream => true}),
     Opts = build_request_opts(Config),
-    llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event_openai/2).
+    beamai_llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event_openai/2).
 
 %% @private Anthropic 兼容模式聊天
 chat_anthropic(Config, Request) ->
@@ -157,7 +157,7 @@ chat_anthropic(Config, Request) ->
     Headers = build_anthropic_headers(Config),
     Body = build_anthropic_request_body(Config, Request),
     Opts = build_request_opts(Config),
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_anthropic()).
+    beamai_llm_http_client:request(Url, Headers, Body, Opts, beamai_llm_response_parser:parser_anthropic()).
 
 %% @private Anthropic 兼容模式流式聊天
 stream_chat_anthropic(Config, Request, Callback) ->
@@ -165,7 +165,7 @@ stream_chat_anthropic(Config, Request, Callback) ->
     Headers = build_anthropic_headers(Config),
     Body = build_anthropic_request_body(Config, Request#{stream => true}),
     Opts = build_request_opts(Config),
-    llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event_anthropic/2).
+    beamai_llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event_anthropic/2).
 
 %%====================================================================
 %% 扩展 API - 异步调用
@@ -179,7 +179,7 @@ async_chat(Config, Request) ->
     Headers = build_headers(Config),
     Body = build_openai_request_body(Config, Request),
     Opts = build_request_opts(Config),
-    case llm_http_client:request(Url, Headers, Body, Opts) of
+    case beamai_llm_http_client:request(Url, Headers, Body, Opts) of
         {ok, #{<<"id">> := TaskId}} -> {ok, TaskId};
         {ok, Response} -> {error, {unexpected_response, Response}};
         Error -> Error
@@ -198,13 +198,13 @@ get_async_result(Config, TaskId) ->
 
 %% @private 处理异步响应状态
 handle_async_response(#{<<"task_status">> := <<"SUCCESS">>} = Resp) ->
-    llm_response_parser:from_zhipu(Resp);
+    beamai_llm_response_parser:from_zhipu(Resp);
 handle_async_response(#{<<"task_status">> := <<"PROCESSING">>} = Resp) ->
     {pending, Resp};
 handle_async_response(#{<<"task_status">> := <<"FAIL">>} = Resp) ->
     {error, {task_failed, Resp}};
 handle_async_response(Resp) ->
-    llm_response_parser:from_zhipu(Resp).
+    beamai_llm_response_parser:from_zhipu(Resp).
 
 %% @private 执行 GET 请求（用于异步结果查询）
 %% 使用 beamai_http 作为底层 HTTP 客户端
@@ -246,11 +246,11 @@ build_anthropic_url(Config) ->
 
 %% @private 构建通用 URL（用于异步 API）
 build_url(Config, DefaultEndpoint) ->
-    llm_provider_common:build_url(Config, DefaultEndpoint, ?ZHIPU_BASE_URL).
+    beamai_llm_provider_common:build_url(Config, DefaultEndpoint, ?ZHIPU_BASE_URL).
 
 %% @private 构建 OpenAI 兼容模式请求头
 build_headers(Config) ->
-    llm_provider_common:build_bearer_auth_headers(Config).
+    beamai_llm_provider_common:build_bearer_auth_headers(Config).
 
 %% @private 构建 Anthropic 兼容模式请求头
 build_anthropic_headers(#{api_key := ApiKey}) ->
@@ -272,14 +272,14 @@ build_openai_request_body(Config, Request) ->
     Messages = maps:get(messages, Request, []),
     Base = #{
         <<"model">> => maps:get(model, Config, ?ZHIPU_MODEL),
-        <<"messages">> => llm_message_adapter:to_openai(Messages),
+        <<"messages">> => beamai_llm_message_adapter:to_openai(Messages),
         <<"max_tokens">> => maps:get(max_tokens, Config, ?ZHIPU_MAX_TOKENS),
         <<"temperature">> => maps:get(temperature, Config, ?ZHIPU_TEMPERATURE)
     },
     ?BUILD_BODY_PIPELINE(Base, [
-        fun(B) -> llm_provider_common:maybe_add_stream(B, Request) end,
-        fun(B) -> llm_provider_common:maybe_add_tools(B, Request) end,
-        fun(B) -> llm_provider_common:maybe_add_top_p(B, Config) end
+        fun(B) -> beamai_llm_provider_common:maybe_add_stream(B, Request) end,
+        fun(B) -> beamai_llm_provider_common:maybe_add_tools(B, Request) end,
+        fun(B) -> beamai_llm_provider_common:maybe_add_top_p(B, Config) end
     ]).
 
 %% @private 构建 Anthropic 兼容模式请求体
@@ -289,7 +289,7 @@ build_anthropic_request_body(Config, Request) ->
     Base = #{
         <<"model">> => maps:get(model, Config, ?ZHIPU_MODEL),
         <<"max_tokens">> => maps:get(max_tokens, Config, ?ZHIPU_MAX_TOKENS),
-        <<"messages">> => llm_message_adapter:to_anthropic(UserMessages)
+        <<"messages">> => beamai_llm_message_adapter:to_anthropic(UserMessages)
     },
     ?BUILD_BODY_PIPELINE(Base, [
         fun(B) -> maybe_add_system(B, SystemPrompt) end,
@@ -310,7 +310,7 @@ maybe_add_system(Body, SystemPrompt) -> Body#{<<"system">> => SystemPrompt}.
 
 %% @private 添加工具定义（Anthropic 格式）
 maybe_add_anthropic_tools(Body, #{tools := Tools}) when Tools =/= [] ->
-    Body#{<<"tools">> => llm_tool_adapter:to_anthropic(Tools)};
+    Body#{<<"tools">> => beamai_llm_tool_adapter:to_anthropic(Tools)};
 maybe_add_anthropic_tools(Body, _) ->
     Body.
 

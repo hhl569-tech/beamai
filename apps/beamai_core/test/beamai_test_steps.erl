@@ -2,7 +2,7 @@
 %%% @doc Test helper step modules for process framework tests
 %%% @end
 %%%-------------------------------------------------------------------
--module(test_steps).
+-module(beamai_test_steps).
 
 -behaviour(beamai_step_behaviour).
 

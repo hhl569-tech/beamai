@@ -213,15 +213,15 @@ application:set_env(beamai_core, http_backend, beamai_http_hackney).
 **提供功能**:
 - LLM 客户端（llm_client）
 - 多提供商支持
-  - OpenAI（llm_provider_openai）
-  - Anthropic（llm_provider_anthropic）
-  - DeepSeek（llm_provider_deepseek）- OpenAI 兼容 API
-  - Ollama（llm_provider_ollama）
-  - 智谱 AI（llm_provider_zhipu）
-  - 阿里云百炼（llm_provider_bailian）- DashScope 原生 API
-- 消息适配器（llm_message_adapter）
-- 工具适配器（llm_tool_adapter）
-- 响应解析器（llm_response_parser）
+  - OpenAI（beamai_llm_provider_openai）
+  - Anthropic（beamai_llm_provider_anthropic）
+  - DeepSeek（beamai_llm_provider_deepseek）- OpenAI 兼容 API
+  - Ollama（beamai_llm_provider_ollama）
+  - 智谱 AI（beamai_llm_provider_zhipu）
+  - 阿里云百炼（beamai_llm_provider_bailian）- DashScope 原生 API
+- 消息适配器（beamai_llm_message_adapter）
+- 工具适配器（beamai_llm_tool_adapter）
+- 响应解析器（beamai_llm_response_parser）
 
 #### beamai_rag（RAG 系统）
 

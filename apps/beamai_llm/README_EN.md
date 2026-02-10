@@ -8,38 +8,38 @@ Large Language Model (LLM) client layer with support for multiple LLM providers.
 
 | Provider | Module | API Mode | Description |
 |----------|--------|----------|-------------|
-| OpenAI | `llm_provider_openai` | OpenAI | GPT-4, GPT-3.5-turbo, etc. |
-| Anthropic | `llm_provider_anthropic` | Anthropic | Claude 3, Claude 2, etc. |
-| DeepSeek | `llm_provider_deepseek` | OpenAI Compatible | deepseek-chat, deepseek-reasoner |
-| Ollama | `llm_provider_ollama` | OpenAI Compatible | Local model deployment |
-| Zhipu AI | `llm_provider_zhipu` | OpenAI Compatible | GLM-4.7 and other Chinese models |
-| Alibaba Cloud Bailian | `llm_provider_bailian` | DashScope Native | Qwen series (qwen-plus, qwen-max, etc.) |
+| OpenAI | `beamai_llm_provider_openai` | OpenAI | GPT-4, GPT-3.5-turbo, etc. |
+| Anthropic | `beamai_llm_provider_anthropic` | Anthropic | Claude 3, Claude 2, etc. |
+| DeepSeek | `beamai_llm_provider_deepseek` | OpenAI Compatible | deepseek-chat, deepseek-reasoner |
+| Ollama | `beamai_llm_provider_ollama` | OpenAI Compatible | Local model deployment |
+| Zhipu AI | `beamai_llm_provider_zhipu` | OpenAI Compatible | GLM-4.7 and other Chinese models |
+| Alibaba Cloud Bailian | `beamai_llm_provider_bailian` | DashScope Native | Qwen series (qwen-plus, qwen-max, etc.) |
 
 ## Module Overview
 
 ### Clients
 
 - **llm_client** - LLM client main entry point
-- **llm_http_client** - HTTP request handling
-- **llm_helper** - Helper functions
+- **beamai_llm_http_client** - HTTP request handling
+- **beamai_llm_helper** - Helper functions
 
 ### Providers
 
-- **llm_provider_behaviour** - Provider behavior definition
-- **llm_provider_openai** - OpenAI implementation
-- **llm_provider_anthropic** - Anthropic implementation
-- **llm_provider_deepseek** - DeepSeek implementation (OpenAI compatible API)
-- **llm_provider_ollama** - Ollama implementation
-- **llm_provider_zhipu** - Zhipu AI implementation
-- **llm_provider_bailian** - Alibaba Cloud Bailian implementation (DashScope native API)
+- **beamai_llm_provider_behaviour** - Provider behavior definition
+- **beamai_llm_provider_openai** - OpenAI implementation
+- **beamai_llm_provider_anthropic** - Anthropic implementation
+- **beamai_llm_provider_deepseek** - DeepSeek implementation (OpenAI compatible API)
+- **beamai_llm_provider_ollama** - Ollama implementation
+- **beamai_llm_provider_zhipu** - Zhipu AI implementation
+- **beamai_llm_provider_bailian** - Alibaba Cloud Bailian implementation (DashScope native API)
 
 ### Adapters
 
-- **llm_message_adapter** - Message format adaptation
-- **llm_tool_adapter** - Tool format adaptation
-- **llm_response_parser** - Provider response parsing (OpenAI/Anthropic/DashScope formats → unified `llm_response` structure)
+- **beamai_llm_message_adapter** - Message format adaptation
+- **beamai_llm_tool_adapter** - Tool format adaptation
+- **beamai_llm_response_parser** - Provider response parsing (OpenAI/Anthropic/DashScope formats → unified `beamai_llm_response` structure)
 
-> **Note:** The core response data structure `llm_response` is in `beamai_core`, providing unified type definitions and accessors.
+> **Note:** The core response data structure `beamai_llm_response` is in `beamai_core`, providing unified type definitions and accessors.
 
 ## API Documentation
 

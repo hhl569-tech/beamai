@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc llm_response_parser 模块单元测试
+%%% @doc beamai_llm_response_parser 模块单元测试
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_response_parser_tests).
+-module(beamai_llm_response_parser_tests).
 -include_lib("eunit/include/eunit.hrl").
 
 %%====================================================================
@@ -29,35 +29,35 @@ from_openai_basic_test() ->
             <<"total_tokens">> => 30
         }
     },
-    {ok, Resp} = llm_response_parser:from_openai(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_openai(Raw),
 
     %% 基本字段
-    ?assertEqual(<<"chatcmpl-123">>, llm_response:id(Resp)),
-    ?assertEqual(<<"gpt-4">>, llm_response:model(Resp)),
-    ?assertEqual(openai, llm_response:provider(Resp)),
+    ?assertEqual(<<"chatcmpl-123">>, beamai_llm_response:id(Resp)),
+    ?assertEqual(<<"gpt-4">>, beamai_llm_response:model(Resp)),
+    ?assertEqual(openai, beamai_llm_response:provider(Resp)),
 
     %% 内容
-    ?assertEqual(<<"Hello, world!">>, llm_response:content(Resp)),
-    ?assertEqual([#{type => text, text => <<"Hello, world!">>}], llm_response:content_blocks(Resp)),
+    ?assertEqual(<<"Hello, world!">>, beamai_llm_response:content(Resp)),
+    ?assertEqual([#{type => text, text => <<"Hello, world!">>}], beamai_llm_response:content_blocks(Resp)),
 
     %% 工具调用
-    ?assertEqual([], llm_response:tool_calls(Resp)),
-    ?assertEqual(false, llm_response:has_tool_calls(Resp)),
+    ?assertEqual([], beamai_llm_response:tool_calls(Resp)),
+    ?assertEqual(false, beamai_llm_response:has_tool_calls(Resp)),
 
     %% 状态
-    ?assertEqual(complete, llm_response:finish_reason(Resp)),
-    ?assertEqual(true, llm_response:is_complete(Resp)),
-    ?assertEqual(false, llm_response:needs_tool_call(Resp)),
+    ?assertEqual(complete, beamai_llm_response:finish_reason(Resp)),
+    ?assertEqual(true, beamai_llm_response:is_complete(Resp)),
+    ?assertEqual(false, beamai_llm_response:needs_tool_call(Resp)),
 
     %% Token 统计
-    ?assertEqual(10, llm_response:input_tokens(Resp)),
-    ?assertEqual(20, llm_response:output_tokens(Resp)),
-    ?assertEqual(30, llm_response:total_tokens(Resp)),
+    ?assertEqual(10, beamai_llm_response:input_tokens(Resp)),
+    ?assertEqual(20, beamai_llm_response:output_tokens(Resp)),
+    ?assertEqual(30, beamai_llm_response:total_tokens(Resp)),
 
     %% 原始数据
-    ?assertEqual(Raw, llm_response:raw(Resp)),
-    ?assertEqual(<<"gpt-4">>, llm_response:raw_get(Resp, <<"model">>)),
-    ?assertEqual(1234567890, llm_response:raw_get(Resp, [<<"created">>])).
+    ?assertEqual(Raw, beamai_llm_response:raw(Resp)),
+    ?assertEqual(<<"gpt-4">>, beamai_llm_response:raw_get(Resp, <<"model">>)),
+    ?assertEqual(1234567890, beamai_llm_response:raw_get(Resp, [<<"created">>])).
 
 from_openai_with_tool_calls_test() ->
     Raw = #{
@@ -84,14 +84,14 @@ from_openai_with_tool_calls_test() ->
             <<"total_tokens">> => 40
         }
     },
-    {ok, Resp} = llm_response_parser:from_openai(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_openai(Raw),
 
-    ?assertEqual(null, llm_response:content(Resp)),
-    ?assertEqual(true, llm_response:has_tool_calls(Resp)),
-    ?assertEqual(tool_use, llm_response:finish_reason(Resp)),
-    ?assertEqual(true, llm_response:needs_tool_call(Resp)),
+    ?assertEqual(null, beamai_llm_response:content(Resp)),
+    ?assertEqual(true, beamai_llm_response:has_tool_calls(Resp)),
+    ?assertEqual(tool_use, beamai_llm_response:finish_reason(Resp)),
+    ?assertEqual(true, beamai_llm_response:needs_tool_call(Resp)),
 
-    [ToolCall] = llm_response:tool_calls(Resp),
+    [ToolCall] = beamai_llm_response:tool_calls(Resp),
     ?assertEqual(<<"call_abc123">>, maps:get(id, ToolCall)),
     ?assertEqual(<<"get_weather">>, maps:get(name, ToolCall)),
     ?assertEqual(#{<<"city">> => <<"Beijing">>}, maps:get(arguments, ToolCall)),
@@ -107,13 +107,13 @@ from_openai_length_limit_test() ->
         }],
         <<"usage">> => #{}
     },
-    {ok, Resp} = llm_response_parser:from_openai(Raw),
-    ?assertEqual(length_limit, llm_response:finish_reason(Resp)),
-    ?assertEqual(false, llm_response:is_complete(Resp)).
+    {ok, Resp} = beamai_llm_response_parser:from_openai(Raw),
+    ?assertEqual(length_limit, beamai_llm_response:finish_reason(Resp)),
+    ?assertEqual(false, beamai_llm_response:is_complete(Resp)).
 
 from_openai_error_test() ->
     Raw = #{<<"error">> => #{<<"message">> => <<"Rate limit exceeded">>}},
-    ?assertMatch({error, {api_error, _}}, llm_response_parser:from_openai(Raw)).
+    ?assertMatch({error, {api_error, _}}, beamai_llm_response_parser:from_openai(Raw)).
 
 %%====================================================================
 %% Anthropic 格式测试
@@ -134,25 +134,25 @@ from_anthropic_basic_test() ->
             <<"output_tokens">> => 20
         }
     },
-    {ok, Resp} = llm_response_parser:from_anthropic(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_anthropic(Raw),
 
     %% 基本字段
-    ?assertEqual(<<"msg_123">>, llm_response:id(Resp)),
-    ?assertEqual(<<"claude-3-5-sonnet-20241022">>, llm_response:model(Resp)),
-    ?assertEqual(anthropic, llm_response:provider(Resp)),
+    ?assertEqual(<<"msg_123">>, beamai_llm_response:id(Resp)),
+    ?assertEqual(<<"claude-3-5-sonnet-20241022">>, beamai_llm_response:model(Resp)),
+    ?assertEqual(anthropic, beamai_llm_response:provider(Resp)),
 
     %% 内容
-    ?assertEqual(<<"Hello, world!">>, llm_response:content(Resp)),
-    ?assertEqual([#{type => text, text => <<"Hello, world!">>}], llm_response:content_blocks(Resp)),
+    ?assertEqual(<<"Hello, world!">>, beamai_llm_response:content(Resp)),
+    ?assertEqual([#{type => text, text => <<"Hello, world!">>}], beamai_llm_response:content_blocks(Resp)),
 
     %% 状态
-    ?assertEqual(complete, llm_response:finish_reason(Resp)),
-    ?assertEqual(true, llm_response:is_complete(Resp)),
+    ?assertEqual(complete, beamai_llm_response:finish_reason(Resp)),
+    ?assertEqual(true, beamai_llm_response:is_complete(Resp)),
 
     %% Token 统计
-    ?assertEqual(10, llm_response:input_tokens(Resp)),
-    ?assertEqual(20, llm_response:output_tokens(Resp)),
-    ?assertEqual(30, llm_response:total_tokens(Resp)).
+    ?assertEqual(10, beamai_llm_response:input_tokens(Resp)),
+    ?assertEqual(20, beamai_llm_response:output_tokens(Resp)),
+    ?assertEqual(30, beamai_llm_response:total_tokens(Resp)).
 
 from_anthropic_with_tool_use_test() ->
     Raw = #{
@@ -173,20 +173,20 @@ from_anthropic_with_tool_use_test() ->
             <<"output_tokens">> => 30
         }
     },
-    {ok, Resp} = llm_response_parser:from_anthropic(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_anthropic(Raw),
 
-    ?assertEqual(<<"Let me check the weather.">>, llm_response:content(Resp)),
-    ?assertEqual(true, llm_response:has_tool_calls(Resp)),
-    ?assertEqual(tool_use, llm_response:finish_reason(Resp)),
-    ?assertEqual(true, llm_response:needs_tool_call(Resp)),
+    ?assertEqual(<<"Let me check the weather.">>, beamai_llm_response:content(Resp)),
+    ?assertEqual(true, beamai_llm_response:has_tool_calls(Resp)),
+    ?assertEqual(tool_use, beamai_llm_response:finish_reason(Resp)),
+    ?assertEqual(true, beamai_llm_response:needs_tool_call(Resp)),
 
-    [ToolCall] = llm_response:tool_calls(Resp),
+    [ToolCall] = beamai_llm_response:tool_calls(Resp),
     ?assertEqual(<<"toolu_abc123">>, maps:get(id, ToolCall)),
     ?assertEqual(<<"get_weather">>, maps:get(name, ToolCall)),
     ?assertEqual(#{<<"city">> => <<"Shanghai">>}, maps:get(arguments, ToolCall)),
 
     %% 检查内容块保留了顺序
-    Blocks = llm_response:content_blocks(Resp),
+    Blocks = beamai_llm_response:content_blocks(Resp),
     ?assertEqual(2, length(Blocks)),
     [TextBlock, ToolBlock] = Blocks,
     ?assertEqual(text, maps:get(type, TextBlock)),
@@ -205,9 +205,9 @@ from_anthropic_with_cache_tokens_test() ->
             <<"cache_read_input_tokens">> => 20
         }
     },
-    {ok, Resp} = llm_response_parser:from_anthropic(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_anthropic(Raw),
 
-    Usage = llm_response:usage(Resp),
+    Usage = beamai_llm_response:usage(Resp),
     ?assertEqual(100, maps:get(input_tokens, Usage)),
     ?assertEqual(50, maps:get(output_tokens, Usage)),
 
@@ -217,7 +217,7 @@ from_anthropic_with_cache_tokens_test() ->
     ?assertEqual(20, maps:get(cache_read_input_tokens, Details)),
 
     %% 通过原始数据访问
-    ?assertEqual(80, llm_response:raw_get(Resp, [<<"usage">>, <<"cache_creation_input_tokens">>])).
+    ?assertEqual(80, beamai_llm_response:raw_get(Resp, [<<"usage">>, <<"cache_creation_input_tokens">>])).
 
 from_anthropic_max_tokens_test() ->
     Raw = #{
@@ -227,13 +227,13 @@ from_anthropic_max_tokens_test() ->
         <<"stop_reason">> => <<"max_tokens">>,
         <<"usage">> => #{}
     },
-    {ok, Resp} = llm_response_parser:from_anthropic(Raw),
-    ?assertEqual(length_limit, llm_response:finish_reason(Resp)),
-    ?assertEqual(false, llm_response:is_complete(Resp)).
+    {ok, Resp} = beamai_llm_response_parser:from_anthropic(Raw),
+    ?assertEqual(length_limit, beamai_llm_response:finish_reason(Resp)),
+    ?assertEqual(false, beamai_llm_response:is_complete(Resp)).
 
 from_anthropic_error_test() ->
     Raw = #{<<"error">> => #{<<"type">> => <<"rate_limit_error">>}},
-    ?assertMatch({error, {api_error, _}}, llm_response_parser:from_anthropic(Raw)).
+    ?assertMatch({error, {api_error, _}}, beamai_llm_response_parser:from_anthropic(Raw)).
 
 %%====================================================================
 %% 通用接口测试
@@ -251,15 +251,15 @@ from_provider_test() ->
     },
 
     %% OpenAI 兼容的 providers
-    {ok, Resp1} = llm_response_parser:from_provider(OpenAIRaw, openai),
-    ?assertEqual(openai, llm_response:provider(Resp1)),
+    {ok, Resp1} = beamai_llm_response_parser:from_provider(OpenAIRaw, openai),
+    ?assertEqual(openai, beamai_llm_response:provider(Resp1)),
 
-    {ok, Resp2} = llm_response_parser:from_provider(OpenAIRaw, deepseek),
-    ?assertEqual(openai, llm_response:provider(Resp2)),  % 使用 OpenAI 解析器
+    {ok, Resp2} = beamai_llm_response_parser:from_provider(OpenAIRaw, deepseek),
+    ?assertEqual(openai, beamai_llm_response:provider(Resp2)),  % 使用 OpenAI 解析器
 
     %% Zhipu 有专用解析器，设置正确的 provider
-    {ok, Resp3} = llm_response_parser:from_provider(OpenAIRaw, zhipu),
-    ?assertEqual(zhipu, llm_response:provider(Resp3)).
+    {ok, Resp3} = beamai_llm_response_parser:from_provider(OpenAIRaw, zhipu),
+    ?assertEqual(zhipu, beamai_llm_response:provider(Resp3)).
 
 %%====================================================================
 %% 边界情况测试
@@ -273,9 +273,9 @@ empty_content_test() ->
         <<"stop_reason">> => <<"end_turn">>,
         <<"usage">> => #{}
     },
-    {ok, Resp} = llm_response_parser:from_anthropic(Raw),
-    ?assertEqual(null, llm_response:content(Resp)),
-    ?assertEqual([], llm_response:content_blocks(Resp)).
+    {ok, Resp} = beamai_llm_response_parser:from_anthropic(Raw),
+    ?assertEqual(null, beamai_llm_response:content(Resp)),
+    ?assertEqual([], beamai_llm_response:content_blocks(Resp)).
 
 malformed_json_arguments_test() ->
     Raw = #{
@@ -296,8 +296,8 @@ malformed_json_arguments_test() ->
         }],
         <<"usage">> => #{}
     },
-    {ok, Resp} = llm_response_parser:from_openai(Raw),
-    [ToolCall] = llm_response:tool_calls(Resp),
+    {ok, Resp} = beamai_llm_response_parser:from_openai(Raw),
+    [ToolCall] = beamai_llm_response:tool_calls(Resp),
     %% 解析失败应返回空 map
     ?assertEqual(#{}, maps:get(arguments, ToolCall)),
     %% 但原始参数仍然保留
@@ -324,12 +324,12 @@ from_zhipu_basic_test() ->
             <<"total_tokens">> => 30
         }
     },
-    {ok, Resp} = llm_response_parser:from_zhipu(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_zhipu(Raw),
 
-    ?assertEqual(zhipu, llm_response:provider(Resp)),
-    ?assertEqual(<<"glm-4.7">>, llm_response:model(Resp)),
-    ?assertEqual(<<"Hello from GLM!">>, llm_response:content(Resp)),
-    ?assertEqual(complete, llm_response:finish_reason(Resp)).
+    ?assertEqual(zhipu, beamai_llm_response:provider(Resp)),
+    ?assertEqual(<<"glm-4.7">>, beamai_llm_response:model(Resp)),
+    ?assertEqual(<<"Hello from GLM!">>, beamai_llm_response:content(Resp)),
+    ?assertEqual(complete, beamai_llm_response:finish_reason(Resp)).
 
 from_zhipu_with_reasoning_content_test() ->
     Raw = #{
@@ -345,12 +345,12 @@ from_zhipu_with_reasoning_content_test() ->
         }],
         <<"usage">> => #{}
     },
-    {ok, Resp} = llm_response_parser:from_zhipu(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_zhipu(Raw),
 
     %% 当 content 为空但有 reasoning_content，使用 reasoning_content
-    ?assertEqual(<<"This is the thinking process...">>, llm_response:content(Resp)),
+    ?assertEqual(<<"This is the thinking process...">>, beamai_llm_response:content(Resp)),
     %% 可以通过 reasoning_content/1 访问
-    ?assertEqual(<<"This is the thinking process...">>, llm_response:reasoning_content(Resp)).
+    ?assertEqual(<<"This is the thinking process...">>, beamai_llm_response:reasoning_content(Resp)).
 
 %%====================================================================
 %% Ollama 格式测试
@@ -369,14 +369,14 @@ from_ollama_native_format_test() ->
         <<"prompt_eval_count">> => 15,
         <<"eval_count">> => 25
     },
-    {ok, Resp} = llm_response_parser:from_ollama(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_ollama(Raw),
 
-    ?assertEqual(ollama, llm_response:provider(Resp)),
-    ?assertEqual(<<"llama3.2">>, llm_response:model(Resp)),
-    ?assertEqual(<<"Hello from Ollama!">>, llm_response:content(Resp)),
-    ?assertEqual(complete, llm_response:finish_reason(Resp)),
-    ?assertEqual(15, llm_response:input_tokens(Resp)),
-    ?assertEqual(25, llm_response:output_tokens(Resp)).
+    ?assertEqual(ollama, beamai_llm_response:provider(Resp)),
+    ?assertEqual(<<"llama3.2">>, beamai_llm_response:model(Resp)),
+    ?assertEqual(<<"Hello from Ollama!">>, beamai_llm_response:content(Resp)),
+    ?assertEqual(complete, beamai_llm_response:finish_reason(Resp)),
+    ?assertEqual(15, beamai_llm_response:input_tokens(Resp)),
+    ?assertEqual(25, beamai_llm_response:output_tokens(Resp)).
 
 from_ollama_openai_format_test() ->
     %% Ollama 也支持 OpenAI 兼容格式
@@ -393,10 +393,10 @@ from_ollama_openai_format_test() ->
             <<"total_tokens">> => 15
         }
     },
-    {ok, Resp} = llm_response_parser:from_ollama(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_ollama(Raw),
 
-    ?assertEqual(ollama, llm_response:provider(Resp)),
-    ?assertEqual(<<"OpenAI format">>, llm_response:content(Resp)).
+    ?assertEqual(ollama, beamai_llm_response:provider(Resp)),
+    ?assertEqual(<<"OpenAI format">>, beamai_llm_response:content(Resp)).
 
 %%====================================================================
 %% DashScope 格式测试
@@ -420,14 +420,14 @@ from_dashscope_basic_test() ->
             <<"total_tokens">> => 50
         }
     },
-    {ok, Resp} = llm_response_parser:from_dashscope(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_dashscope(Raw),
 
-    ?assertEqual(bailian, llm_response:provider(Resp)),
-    ?assertEqual(<<"req-12345">>, llm_response:id(Resp)),
-    ?assertEqual(<<"Hello from Qwen!">>, llm_response:content(Resp)),
-    ?assertEqual(complete, llm_response:finish_reason(Resp)),
-    ?assertEqual(20, llm_response:input_tokens(Resp)),
-    ?assertEqual(30, llm_response:output_tokens(Resp)).
+    ?assertEqual(bailian, beamai_llm_response:provider(Resp)),
+    ?assertEqual(<<"req-12345">>, beamai_llm_response:id(Resp)),
+    ?assertEqual(<<"Hello from Qwen!">>, beamai_llm_response:content(Resp)),
+    ?assertEqual(complete, beamai_llm_response:finish_reason(Resp)),
+    ?assertEqual(20, beamai_llm_response:input_tokens(Resp)),
+    ?assertEqual(30, beamai_llm_response:output_tokens(Resp)).
 
 from_dashscope_legacy_format_test() ->
     %% DashScope 旧格式：text 直接在 output 下
@@ -442,7 +442,7 @@ from_dashscope_legacy_format_test() ->
             <<"output_tokens">> => 15
         }
     },
-    {ok, Resp} = llm_response_parser:from_dashscope(Raw),
+    {ok, Resp} = beamai_llm_response_parser:from_dashscope(Raw),
 
-    ?assertEqual(bailian, llm_response:provider(Resp)),
-    ?assertEqual(<<"Legacy format response">>, llm_response:content(Resp)).
+    ?assertEqual(bailian, beamai_llm_response:provider(Resp)),
+    ?assertEqual(<<"Legacy format response">>, beamai_llm_response:content(Resp)).

@@ -22,7 +22,7 @@ BeamAI 框架的核心模块，提供 Kernel 架构、Process Framework、Graph 
 
 LLM 响应的统一抽象层：
 
-- **llm_response** - LLM 统一响应访问器，抽象不同 Provider 的响应差异
+- **beamai_llm_response** - LLM 统一响应访问器，抽象不同 Provider 的响应差异
 
 ### Process Framework 子系统
 

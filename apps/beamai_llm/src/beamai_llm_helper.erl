@@ -18,14 +18,14 @@
 %%%   创建 LLM 配置（推荐）:
 %%%     LLM = beamai_chat_completion:create(anthropic, #{api_key =&gt; API_KEY, model =&gt; &lt;&lt;"glm-4.7"&gt;&gt;})
 %%%   调用专家分析:
-%%%     Result = llm_helper:call_expert(Expert, Question, LLM)
+%%%     Result = beamai_llm_helper:call_expert(Expert, Question, LLM)
 %%%   生成综合建议:
-%%%     Result = llm_helper:synthesize(TechAnalysis, BizAnalysis, UxAnalysis, LLM)
+%%%     Result = beamai_llm_helper:synthesize(TechAnalysis, BizAnalysis, UxAnalysis, LLM)
 %%% </pre>
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_helper).
+-module(beamai_llm_helper).
 
 %% API 导出
 -export([call_expert/3]).

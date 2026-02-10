@@ -11,7 +11,7 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_http_client).
+-module(beamai_llm_http_client).
 
 -include_lib("beamai_core/include/beamai_common.hrl").
 

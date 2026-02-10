@@ -10,8 +10,8 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_provider_deepseek).
--behaviour(llm_provider_behaviour).
+-module(beamai_llm_provider_deepseek).
+-behaviour(beamai_llm_provider_behaviour).
 
 -include_lib("beamai_core/include/beamai_common.hrl").
 
@@ -61,7 +61,7 @@ chat(Config, Request) ->
     Headers = build_headers(Config),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?DEEPSEEK_TIMEOUT)},
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_openai()).
+    beamai_llm_http_client:request(Url, Headers, Body, Opts, beamai_llm_response_parser:parser_openai()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->
@@ -69,7 +69,7 @@ stream_chat(Config, Request, Callback) ->
     Headers = build_headers(Config),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?DEEPSEEK_TIMEOUT)},
-    llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event/2).
+    beamai_llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event/2).
 
 %%====================================================================
 %% 请求构建（使用公共模块）
@@ -77,25 +77,25 @@ stream_chat(Config, Request, Callback) ->
 
 %% @private 构建请求 URL
 build_url(Config, DefaultEndpoint) ->
-    llm_provider_common:build_url(Config, DefaultEndpoint, ?DEEPSEEK_BASE_URL).
+    beamai_llm_provider_common:build_url(Config, DefaultEndpoint, ?DEEPSEEK_BASE_URL).
 
 %% @private 构建请求头
 build_headers(Config) ->
-    llm_provider_common:build_bearer_auth_headers(Config).
+    beamai_llm_provider_common:build_bearer_auth_headers(Config).
 
 %% @private 构建请求体（使用管道模式）
 build_request_body(Config, Request) ->
     Messages = maps:get(messages, Request, []),
     Base = #{
         <<"model">> => maps:get(model, Config, ?DEEPSEEK_MODEL),
-        <<"messages">> => llm_message_adapter:to_openai(Messages),
+        <<"messages">> => beamai_llm_message_adapter:to_openai(Messages),
         <<"max_tokens">> => maps:get(max_tokens, Config, ?DEEPSEEK_MAX_TOKENS),
         <<"temperature">> => maps:get(temperature, Config, ?DEEPSEEK_TEMPERATURE)
     },
     ?BUILD_BODY_PIPELINE(Base, [
-        fun(B) -> llm_provider_common:maybe_add_stream(B, Request) end,
-        fun(B) -> llm_provider_common:maybe_add_tools(B, Request) end,
-        fun(B) -> llm_provider_common:maybe_add_top_p(B, Config) end,
+        fun(B) -> beamai_llm_provider_common:maybe_add_stream(B, Request) end,
+        fun(B) -> beamai_llm_provider_common:maybe_add_tools(B, Request) end,
+        fun(B) -> beamai_llm_provider_common:maybe_add_top_p(B, Config) end,
         fun(B) -> maybe_add_response_format(B, Request) end
     ]).
 
@@ -111,4 +111,4 @@ maybe_add_response_format(Body, _) ->
 
 %% @private DeepSeek/OpenAI 格式事件累加器
 accumulate_event(Event, Acc) ->
-    llm_provider_common:accumulate_openai_event(Event, Acc).
+    beamai_llm_provider_common:accumulate_openai_event(Event, Acc).

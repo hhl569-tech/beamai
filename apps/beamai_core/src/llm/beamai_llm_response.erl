@@ -20,25 +20,25 @@
 %%%
 %%% ```erlang
 %%% %% 通过 new/1 构造
-%%% Resp = llm_response:new(#{id => <<"123">>, content => <<"Hello">>}),
+%%% Resp = beamai_llm_response:new(#{id => <<"123">>, content => <<"Hello">>}),
 %%%
 %%% %% 统一接口访问
-%%% Content = llm_response:content(Resp),
-%%% ToolCalls = llm_response:tool_calls(Resp),
-%%% Usage = llm_response:usage(Resp),
+%%% Content = beamai_llm_response:content(Resp),
+%%% ToolCalls = beamai_llm_response:tool_calls(Resp),
+%%% Usage = beamai_llm_response:usage(Resp),
 %%%
 %%% %% 获取 Provider 特有信息
-%%% Raw = llm_response:raw(Resp),
+%%% Raw = beamai_llm_response:raw(Resp),
 %%% CacheTokens = maps:get(<<"cache_creation_input_tokens">>,
 %%%                        maps:get(<<"usage">>, Raw, #{}), 0).
 %%% ```
 %%%
 %%% Provider 特定的响应解析（from_openai/1, from_anthropic/1 等）
-%%% 已迁移至 beamai_llm 的 llm_response_parser 模块。
+%%% 已迁移至 beamai_llm 的 beamai_llm_response_parser 模块。
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_response).
+-module(beamai_llm_response).
 
 %% 构造函数
 -export([new/1]).

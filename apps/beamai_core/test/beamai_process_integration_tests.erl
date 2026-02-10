@@ -34,8 +34,8 @@ cleanup(Pid) ->
 
 facade_builder_subtest() ->
     P0 = beamai_process:builder(my_workflow),
-    P1 = beamai_process:add_step(P0, step_a, test_steps, #{type => passthrough, output_event => a_done}),
-    P2 = beamai_process:add_step(P1, step_b, test_steps, #{type => passthrough, output_event => b_done}),
+    P1 = beamai_process:add_step(P0, step_a, beamai_test_steps, #{type => passthrough, output_event => a_done}),
+    P2 = beamai_process:add_step(P1, step_b, beamai_test_steps, #{type => passthrough, output_event => b_done}),
     P3 = beamai_process:on_event(P2, start, step_a, input),
     P4 = beamai_process:on_event(P3, a_done, step_b, input),
     P5 = beamai_process:set_initial_event(P4, start, #{msg => <<"go">>}),
@@ -50,9 +50,9 @@ facade_builder_subtest() ->
 
 end_to_end_sequential_subtest() ->
     P0 = beamai_process:builder(e2e_seq),
-    P1 = beamai_process:add_step(P0, producer, test_steps,
+    P1 = beamai_process:add_step(P0, producer, beamai_test_steps,
                                   #{type => passthrough, output_event => produced}),
-    P2 = beamai_process:add_step(P1, consumer, test_steps,
+    P2 = beamai_process:add_step(P1, consumer, beamai_test_steps,
                                   #{type => passthrough, output_event => consumed}),
     P3 = beamai_process:on_event(P2, trigger, producer, input),
     P4 = beamai_process:on_event(P3, produced, consumer, input),
@@ -70,9 +70,9 @@ end_to_end_sequential_subtest() ->
 
 facade_fanout_subtest() ->
     P0 = beamai_process:builder(facade_fanout),
-    P1 = beamai_process:add_step(P0, worker_a, test_steps,
+    P1 = beamai_process:add_step(P0, worker_a, beamai_test_steps,
                                   #{type => passthrough, output_event => a_done}),
-    P2 = beamai_process:add_step(P1, worker_b, test_steps,
+    P2 = beamai_process:add_step(P1, worker_b, beamai_test_steps,
                                   #{type => passthrough, output_event => b_done}),
     P3 = beamai_process:on_event(P2, dispatch, worker_a, input),
     P4 = beamai_process:on_event(P3, dispatch, worker_b, input),
@@ -90,7 +90,7 @@ facade_fanout_subtest() ->
 
 transform_binding_subtest() ->
     P0 = beamai_process:builder(transform),
-    P1 = beamai_process:add_step(P0, step_a, test_steps,
+    P1 = beamai_process:add_step(P0, step_a, beamai_test_steps,
                                   #{type => passthrough, output_event => done}),
     P2 = beamai_process:on_event(P1, start, step_a, input,
                                   fun(Data) -> #{transformed => Data} end),
@@ -107,7 +107,7 @@ transform_binding_subtest() ->
 
 facade_cycle_subtest() ->
     P0 = beamai_process:builder(facade_cycle),
-    P1 = beamai_process:add_step(P0, looper, test_steps,
+    P1 = beamai_process:add_step(P0, looper, beamai_test_steps,
                                   #{type => counter, max_count => 5,
                                     output_event => finished, loop_event => again}),
     P2 = beamai_process:on_event(P1, kick, looper, input),
@@ -126,11 +126,11 @@ facade_cycle_subtest() ->
 
 facade_fanin_subtest() ->
     P0 = beamai_process:builder(facade_fanin),
-    P1 = beamai_process:add_step(P0, left, test_steps,
+    P1 = beamai_process:add_step(P0, left, beamai_test_steps,
                                   #{type => passthrough, output_event => left_out}),
-    P2 = beamai_process:add_step(P1, right, test_steps,
+    P2 = beamai_process:add_step(P1, right, beamai_test_steps,
                                   #{type => passthrough, output_event => right_out}),
-    P3 = beamai_process:add_step(P2, joiner, test_steps,
+    P3 = beamai_process:add_step(P2, joiner, beamai_test_steps,
                                   #{type => passthrough, output_event => joined,
                                     required_inputs => [left_in, right_in]}),
     P4 = beamai_process:on_event(P3, go, left, input),
@@ -150,7 +150,7 @@ facade_fanin_subtest() ->
 
 facade_hitl_subtest() ->
     P0 = beamai_process:builder(facade_hitl),
-    P1 = beamai_process:add_step(P0, human_step, test_steps, #{type => pause}),
+    P1 = beamai_process:add_step(P0, human_step, beamai_test_steps, #{type => pause}),
     P2 = beamai_process:on_event(P1, ask, human_step, input),
     P3 = beamai_process:set_initial_event(P2, ask, #{question => <<"confirm?">>}),
     P4 = beamai_process:set_execution_mode(P3, sequential),
@@ -176,9 +176,9 @@ concurrent_test_() ->
 
 concurrent_fanout_subtest() ->
     P0 = beamai_process:builder(concurrent_test),
-    P1 = beamai_process:add_step(P0, w1, test_steps,
+    P1 = beamai_process:add_step(P0, w1, beamai_test_steps,
                                   #{type => passthrough, output_event => w1_done}),
-    P2 = beamai_process:add_step(P1, w2, test_steps,
+    P2 = beamai_process:add_step(P1, w2, beamai_test_steps,
                                   #{type => passthrough, output_event => w2_done}),
     P3 = beamai_process:on_event(P2, go, w1, input),
     P4 = beamai_process:on_event(P3, go, w2, input),

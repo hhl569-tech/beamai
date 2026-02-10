@@ -287,38 +287,38 @@ llm_client:provider_info(Provider).
 
 | Provider | 模块 | API 模式 | 特性 |
 |----------|------|----------|------|
-| `openai` | llm_provider_openai | OpenAI | 聊天、流式、工具调用 |
-| `anthropic` | llm_provider_anthropic | Anthropic | 聊天、流式、工具调用 |
-| `deepseek` | llm_provider_deepseek | OpenAI 兼容 | 聊天、流式、工具调用 |
-| `zhipu` | llm_provider_zhipu | OpenAI 兼容 | 聊天、流式、工具调用、异步 |
-| `bailian` | llm_provider_bailian | DashScope 原生 | 聊天、流式、工具调用、联网搜索 |
-| `ollama` | llm_provider_ollama | OpenAI 兼容 | 聊天、流式 |
+| `openai` | beamai_llm_provider_openai | OpenAI | 聊天、流式、工具调用 |
+| `anthropic` | beamai_llm_provider_anthropic | Anthropic | 聊天、流式、工具调用 |
+| `deepseek` | beamai_llm_provider_deepseek | OpenAI 兼容 | 聊天、流式、工具调用 |
+| `zhipu` | beamai_llm_provider_zhipu | OpenAI 兼容 | 聊天、流式、工具调用、异步 |
+| `bailian` | beamai_llm_provider_bailian | DashScope 原生 | 聊天、流式、工具调用、联网搜索 |
+| `ollama` | beamai_llm_provider_ollama | OpenAI 兼容 | 聊天、流式 |
 
-### Provider 公共模块 (llm_provider_common)
+### Provider 公共模块 (beamai_llm_provider_common)
 
 所有 Provider 共享的通用函数：
 
 ```erlang
 %% URL 构建
-llm_provider_common:build_url(Config, DefaultEndpoint, DefaultBaseUrl) -> binary().
+beamai_llm_provider_common:build_url(Config, DefaultEndpoint, DefaultBaseUrl) -> binary().
 
 %% Bearer 认证头构建
-llm_provider_common:build_bearer_auth_headers(Config) -> [{binary(), binary()}].
+beamai_llm_provider_common:build_bearer_auth_headers(Config) -> [{binary(), binary()}].
 
 %% 可选参数添加
-llm_provider_common:maybe_add_stream(Body, Request) -> map().
-llm_provider_common:maybe_add_tools(Body, Request) -> map().
-llm_provider_common:maybe_add_top_p(Body, Request) -> map().
+beamai_llm_provider_common:maybe_add_stream(Body, Request) -> map().
+beamai_llm_provider_common:maybe_add_tools(Body, Request) -> map().
+beamai_llm_provider_common:maybe_add_top_p(Body, Request) -> map().
 
 %% OpenAI 格式流式事件累加
-llm_provider_common:accumulate_openai_event(Event, Acc) -> map().
+beamai_llm_provider_common:accumulate_openai_event(Event, Acc) -> map().
 
 %% 工具调用解析
-llm_provider_common:parse_tool_calls(Message) -> [map()].
-llm_provider_common:parse_single_tool_call(Call) -> map().
+beamai_llm_provider_common:parse_tool_calls(Message) -> [map()].
+beamai_llm_provider_common:parse_single_tool_call(Call) -> map().
 
 %% 使用统计解析
-llm_provider_common:parse_usage(Usage) -> #{prompt_tokens, completion_tokens, total_tokens}.
+beamai_llm_provider_common:parse_usage(Usage) -> #{prompt_tokens, completion_tokens, total_tokens}.
 ```
 
 ### DeepSeek 详细说明
@@ -480,7 +480,7 @@ beamai_memory:search(Memory, Namespace, Filter).
 ### LLM 响应
 
 ```erlang
--type llm_response() :: #{
+-type beamai_llm_response() :: #{
     id := binary(),
     model := binary(),
     content := binary() | null,

@@ -36,11 +36,11 @@ cleanup(Pid) ->
 
 linear_pipeline_subtest() ->
     B0 = beamai_process_builder:new(linear),
-    B1 = beamai_process_builder:add_step(B0, step_a, test_steps,
+    B1 = beamai_process_builder:add_step(B0, step_a, beamai_test_steps,
                                           #{type => passthrough, output_event => a_out}),
-    B2 = beamai_process_builder:add_step(B1, step_b, test_steps,
+    B2 = beamai_process_builder:add_step(B1, step_b, beamai_test_steps,
                                           #{type => passthrough, output_event => b_out}),
-    B3 = beamai_process_builder:add_step(B2, step_c, test_steps,
+    B3 = beamai_process_builder:add_step(B2, step_c, beamai_test_steps,
                                           #{type => passthrough, output_event => c_out}),
     B4 = beamai_process_builder:add_binding(B3,
         beamai_process_event:binding(start, step_a, input)),
@@ -64,9 +64,9 @@ linear_pipeline_subtest() ->
 
 fanout_subtest() ->
     B0 = beamai_process_builder:new(fanout),
-    B1 = beamai_process_builder:add_step(B0, step_a, test_steps,
+    B1 = beamai_process_builder:add_step(B0, step_a, beamai_test_steps,
                                           #{type => passthrough, output_event => a_out}),
-    B2 = beamai_process_builder:add_step(B1, step_b, test_steps,
+    B2 = beamai_process_builder:add_step(B1, step_b, beamai_test_steps,
                                           #{type => passthrough, output_event => b_out}),
     B3 = beamai_process_builder:add_binding(B2,
         beamai_process_event:binding(start, step_a, input)),
@@ -87,11 +87,11 @@ fanout_subtest() ->
 
 fanin_subtest() ->
     B0 = beamai_process_builder:new(fanin),
-    B1 = beamai_process_builder:add_step(B0, src_a, test_steps,
+    B1 = beamai_process_builder:add_step(B0, src_a, beamai_test_steps,
                                           #{type => passthrough, output_event => out_a}),
-    B2 = beamai_process_builder:add_step(B1, src_b, test_steps,
+    B2 = beamai_process_builder:add_step(B1, src_b, beamai_test_steps,
                                           #{type => passthrough, output_event => out_b}),
-    B3 = beamai_process_builder:add_step(B2, target, test_steps,
+    B3 = beamai_process_builder:add_step(B2, target, beamai_test_steps,
                                           #{type => passthrough, output_event => done,
                                             required_inputs => [a, b]}),
     B4 = beamai_process_builder:add_binding(B3,
@@ -116,7 +116,7 @@ fanin_subtest() ->
 
 cycle_subtest() ->
     B0 = beamai_process_builder:new(cycle),
-    B1 = beamai_process_builder:add_step(B0, counter, test_steps,
+    B1 = beamai_process_builder:add_step(B0, counter, beamai_test_steps,
                                           #{type => counter, max_count => 3,
                                             output_event => done,
                                             loop_event => loop}),
@@ -139,7 +139,7 @@ cycle_subtest() ->
 
 pause_resume_subtest() ->
     B0 = beamai_process_builder:new(hitl),
-    B1 = beamai_process_builder:add_step(B0, pauser, test_steps,
+    B1 = beamai_process_builder:add_step(B0, pauser, beamai_test_steps,
                                           #{type => pause}),
     B2 = beamai_process_builder:add_binding(B1,
         beamai_process_event:binding(start, pauser, input)),
@@ -161,7 +161,7 @@ pause_resume_subtest() ->
 
 snapshot_subtest() ->
     B0 = beamai_process_builder:new(snap_test),
-    B1 = beamai_process_builder:add_step(B0, pauser, test_steps,
+    B1 = beamai_process_builder:add_step(B0, pauser, beamai_test_steps,
                                           #{type => pause}),
     B2 = beamai_process_builder:add_binding(B1,
         beamai_process_event:binding(start, pauser, input)),
@@ -182,7 +182,7 @@ snapshot_subtest() ->
 
 send_event_subtest() ->
     B0 = beamai_process_builder:new(ext_event),
-    B1 = beamai_process_builder:add_step(B0, step_a, test_steps,
+    B1 = beamai_process_builder:add_step(B0, step_a, beamai_test_steps,
                                           #{type => passthrough, output_event => done}),
     B2 = beamai_process_builder:add_binding(B1,
         beamai_process_event:binding(external, step_a, input)),
@@ -204,7 +204,7 @@ send_event_subtest() ->
 
 error_no_handler_subtest() ->
     B0 = beamai_process_builder:new(error_test),
-    B1 = beamai_process_builder:add_step(B0, step_a, test_steps,
+    B1 = beamai_process_builder:add_step(B0, step_a, beamai_test_steps,
                                           #{type => passthrough, output_event => done}),
     B2 = beamai_process_builder:add_binding(B1,
         beamai_process_event:binding(start, step_a, input)),
@@ -220,7 +220,7 @@ error_no_handler_subtest() ->
 
 get_status_subtest() ->
     B0 = beamai_process_builder:new(status_test),
-    B1 = beamai_process_builder:add_step(B0, step_a, test_steps,
+    B1 = beamai_process_builder:add_step(B0, step_a, beamai_test_steps,
                                           #{type => passthrough, output_event => done}),
     B2 = beamai_process_builder:add_binding(B1,
         beamai_process_event:binding(start, step_a, input)),

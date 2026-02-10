@@ -13,7 +13,7 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(graph_command_tests).
+-module(beamai_graph_command_tests).
 -include_lib("eunit/include/eunit.hrl").
 
 %%====================================================================

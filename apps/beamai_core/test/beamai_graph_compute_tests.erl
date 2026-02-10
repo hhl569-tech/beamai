@@ -9,7 +9,7 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(graph_compute_tests).
+-module(beamai_graph_compute_tests).
 -include_lib("eunit/include/eunit.hrl").
 
 %%====================================================================

@@ -5,7 +5,7 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_tool_adapter).
+-module(beamai_llm_tool_adapter).
 
 %% API
 -export([to_openai/1, from_openai/1]).

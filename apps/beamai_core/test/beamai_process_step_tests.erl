@@ -6,7 +6,7 @@
 %%====================================================================
 
 init_step_test() ->
-    StepSpec = make_step_spec(step_a, test_steps, #{type => passthrough}),
+    StepSpec = make_step_spec(step_a, beamai_test_steps, #{type => passthrough}),
     {ok, StepState} = beamai_process_step:init_step(StepSpec),
     ?assert(maps:get('__step_runtime__', StepState)),
     ?assertEqual(StepSpec, maps:get(step_spec, StepState)),
@@ -18,7 +18,7 @@ init_step_test() ->
 %%====================================================================
 
 collect_input_test() ->
-    StepSpec = make_step_spec(step_a, test_steps, #{type => passthrough}),
+    StepSpec = make_step_spec(step_a, beamai_test_steps, #{type => passthrough}),
     {ok, StepState} = beamai_process_step:init_step(StepSpec),
     StepsState = #{step_a => StepState},
     StepsState1 = beamai_process_step:collect_input(step_a, input, <<"data">>, StepsState),
@@ -26,7 +26,7 @@ collect_input_test() ->
     ?assertEqual(#{input => <<"data">>}, maps:get(collected_inputs, Updated)).
 
 collect_multiple_inputs_test() ->
-    StepSpec = make_step_spec(step_a, test_steps, #{type => accumulator,
+    StepSpec = make_step_spec(step_a, beamai_test_steps, #{type => accumulator,
                                                    required_inputs => [a, b]}),
     {ok, StepState} = beamai_process_step:init_step(StepSpec),
     StepsState0 = #{step_a => StepState},
@@ -45,7 +45,7 @@ collect_input_unknown_step_test() ->
 %%====================================================================
 
 check_activation_all_inputs_test() ->
-    StepSpec = make_step_spec(step_a, test_steps, #{type => passthrough,
+    StepSpec = make_step_spec(step_a, beamai_test_steps, #{type => passthrough,
                                                    required_inputs => [input]}),
     {ok, StepState0} = beamai_process_step:init_step(StepSpec),
     StepsState = beamai_process_step:collect_input(step_a, input, data, #{step_a => StepState0}),
@@ -53,7 +53,7 @@ check_activation_all_inputs_test() ->
     ?assert(beamai_process_step:check_activation(StepState, StepSpec)).
 
 check_activation_missing_inputs_test() ->
-    StepSpec = make_step_spec(step_a, test_steps, #{type => passthrough,
+    StepSpec = make_step_spec(step_a, beamai_test_steps, #{type => passthrough,
                                                    required_inputs => [a, b]}),
     {ok, StepState0} = beamai_process_step:init_step(StepSpec),
     StepsState = beamai_process_step:collect_input(step_a, a, 1, #{step_a => StepState0}),
@@ -65,7 +65,7 @@ check_activation_missing_inputs_test() ->
 %%====================================================================
 
 execute_passthrough_test() ->
-    StepSpec = make_step_spec(step_a, test_steps, #{type => passthrough,
+    StepSpec = make_step_spec(step_a, beamai_test_steps, #{type => passthrough,
                                                    output_event => done}),
     {ok, StepState} = beamai_process_step:init_step(StepSpec),
     Inputs = #{input => <<"hello">>},
@@ -78,7 +78,7 @@ execute_passthrough_test() ->
     ?assertEqual(1, maps:get(activation_count, NewState)).
 
 execute_pause_test() ->
-    StepSpec = make_step_spec(step_a, test_steps, #{type => pause}),
+    StepSpec = make_step_spec(step_a, beamai_test_steps, #{type => pause}),
     {ok, StepState} = beamai_process_step:init_step(StepSpec),
     Inputs = #{input => trigger},
     Context = beamai_context:new(),
@@ -90,7 +90,7 @@ execute_pause_test() ->
 %%====================================================================
 
 clear_inputs_test() ->
-    StepSpec = make_step_spec(step_a, test_steps, #{type => passthrough}),
+    StepSpec = make_step_spec(step_a, beamai_test_steps, #{type => passthrough}),
     {ok, StepState0} = beamai_process_step:init_step(StepSpec),
     StepsState = beamai_process_step:collect_input(step_a, input, data, #{step_a => StepState0}),
     #{step_a := StepState} = StepsState,

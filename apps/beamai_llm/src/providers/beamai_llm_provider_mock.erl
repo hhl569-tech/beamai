@@ -6,8 +6,8 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_provider_mock).
--behaviour(llm_provider_behaviour).
+-module(beamai_llm_provider_mock).
+-behaviour(beamai_llm_provider_behaviour).
 
 %% Behaviour 回调
 -export([name/0, default_config/0, validate_config/1]).

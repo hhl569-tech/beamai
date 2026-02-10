@@ -2,7 +2,7 @@
 %%% @doc Ollama 本地 LLM Provider 实现
 %%%
 %%% 支持 Ollama 本地运行的模型（Llama, Mistral, Qwen 等）。
-%%% 使用 llm_http_client 处理公共 HTTP 逻辑。
+%%% 使用 beamai_llm_http_client 处理公共 HTTP 逻辑。
 %%%
 %%% 特点：
 %%%   - 支持 OpenAI 兼容 API（/v1/chat/completions）
@@ -11,8 +11,8 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_provider_ollama).
--behaviour(llm_provider_behaviour).
+-module(beamai_llm_provider_ollama).
+-behaviour(beamai_llm_provider_behaviour).
 
 -include_lib("beamai_core/include/beamai_common.hrl").
 
@@ -63,7 +63,7 @@ chat(Config, Request) ->
     Headers = build_headers(),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?OLLAMA_TIMEOUT)},
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_ollama()).
+    beamai_llm_http_client:request(Url, Headers, Body, Opts, beamai_llm_response_parser:parser_ollama()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->
@@ -71,7 +71,7 @@ stream_chat(Config, Request, Callback) ->
     Headers = build_headers(),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?OLLAMA_TIMEOUT), stream_timeout => 120000},
-    llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event/2).
+    beamai_llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event/2).
 
 %%====================================================================
 %% 请求构建（Provider 特定）
@@ -79,7 +79,7 @@ stream_chat(Config, Request, Callback) ->
 
 %% @private 构建请求 URL（使用公共模块）
 build_url(Config, DefaultEndpoint) ->
-    llm_provider_common:build_url(Config, DefaultEndpoint, ?OLLAMA_BASE_URL).
+    beamai_llm_provider_common:build_url(Config, DefaultEndpoint, ?OLLAMA_BASE_URL).
 
 %% @private 构建请求头（Ollama 无需认证）
 build_headers() ->
@@ -90,7 +90,7 @@ build_request_body(Config, Request) ->
     Messages = maps:get(messages, Request, []),
     Base = #{
         <<"model">> => maps:get(model, Config, ?OLLAMA_MODEL),
-        <<"messages">> => llm_message_adapter:to_openai(Messages),
+        <<"messages">> => beamai_llm_message_adapter:to_openai(Messages),
         <<"stream">> => maps:get(stream, Request, false)
     },
     build_body_pipeline(Base, Config, Request).
@@ -124,7 +124,7 @@ build_options(Config) ->
 
 %% @private 添加工具定义（使用公共模块）
 maybe_add_tools(Body, Request) ->
-    llm_provider_common:maybe_add_tools(Body, Request).
+    beamai_llm_provider_common:maybe_add_tools(Body, Request).
 
 %%====================================================================
 %% 流式事件累加（支持两种格式）
@@ -135,6 +135,6 @@ accumulate_event(#{<<"message">> := #{<<"content">> := Content}}, Acc) ->
     Acc#{content => <<(maps:get(content, Acc))/binary, Content/binary>>};
 %% @private OpenAI 兼容格式事件累加（使用公共模块）
 accumulate_event(#{<<"choices">> := _} = Event, Acc) ->
-    llm_provider_common:accumulate_openai_event(Event, Acc);
+    beamai_llm_provider_common:accumulate_openai_event(Event, Acc);
 accumulate_event(_, Acc) ->
     Acc.

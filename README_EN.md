@@ -258,7 +258,7 @@ apps/
 ├── beamai_llm/         # LLM client
 │   ├── Chat           # beamai_chat_completion
 │   ├── Parser         # beamai_output_parser, beamai_parser_json
-│   ├── Adapters       # llm_message_adapter, llm_response_parser, llm_tool_adapter
+│   ├── Adapters       # beamai_llm_message_adapter, beamai_beamai_llm_response_parser, beamai_llm_tool_adapter
 │   └── Providers      # OpenAI, Anthropic, DeepSeek, Zhipu, Bailian, Ollama
 │
 ├── beamai_memory/      # Pure storage engine
@@ -420,12 +420,12 @@ LLM = beamai_chat_completion:create(anthropic, #{
 
 | Provider | Module | API Mode | Description |
 |----------|--------|----------|-------------|
-| `anthropic` | llm_provider_anthropic | Anthropic | Anthropic Claude API |
-| `openai` | llm_provider_openai | OpenAI | OpenAI API |
-| `deepseek` | llm_provider_deepseek | OpenAI compatible | DeepSeek API |
-| `zhipu` | llm_provider_zhipu | OpenAI compatible | Zhipu AI (GLM series) |
-| `bailian` | llm_provider_bailian | DashScope native | Alibaba Cloud Bailian (Qwen series) |
-| `ollama` | llm_provider_ollama | OpenAI compatible | Ollama local models |
+| `anthropic` | beamai_llm_provider_anthropic | Anthropic | Anthropic Claude API |
+| `openai` | beamai_llm_provider_openai | OpenAI | OpenAI API |
+| `deepseek` | beamai_llm_provider_deepseek | OpenAI compatible | DeepSeek API |
+| `zhipu` | beamai_llm_provider_zhipu | OpenAI compatible | Zhipu AI (GLM series) |
+| `bailian` | beamai_llm_provider_bailian | DashScope native | Alibaba Cloud Bailian (Qwen series) |
+| `ollama` | beamai_llm_provider_ollama | OpenAI compatible | Ollama local models |
 
 ### HTTP Backend Configuration
 

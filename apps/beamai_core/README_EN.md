@@ -22,7 +22,7 @@ Core abstraction based on Semantic Kernel concepts, managing Tool registration a
 
 Unified abstraction layer for LLM responses:
 
-- **llm_response** - Unified LLM response accessors (content, tool_calls, usage, etc.)
+- **beamai_llm_response** - Unified LLM response accessors (content, tool_calls, usage, etc.)
 
 ### Process Framework Subsystem
 

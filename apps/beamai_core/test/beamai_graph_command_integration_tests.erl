@@ -8,7 +8,7 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(graph_command_integration_tests).
+-module(beamai_graph_command_integration_tests).
 -include_lib("eunit/include/eunit.hrl").
 
 %%====================================================================

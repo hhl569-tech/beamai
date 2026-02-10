@@ -1,19 +1,19 @@
 %%%-------------------------------------------------------------------
 %%% @doc LLM 响应解析器模块
 %%%
-%%% 将不同 Provider 的原始 API 响应解析为统一的 llm_response 结构。
+%%% 将不同 Provider 的原始 API 响应解析为统一的 beamai_llm_response 结构。
 %%% 每个 Provider 有独立的解析逻辑，通过 parser_*/0 返回解析器函数，
-%%% 可直接传给 llm_http_client:request/5。
+%%% 可直接传给 beamai_llm_http_client:request/5。
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_response_parser).
+-module(beamai_llm_response_parser).
 
 %% 构造函数
 -export([from_provider/2, from_openai/1, from_anthropic/1]).
 -export([from_ollama/1, from_dashscope/1, from_zhipu/1]).
 
-%% HTTP Client 解析器（可直接传给 llm_http_client:request/5）
+%% HTTP Client 解析器（可直接传给 beamai_llm_http_client:request/5）
 -export([parser_openai/0, parser_anthropic/0, parser/1]).
 -export([parser_ollama/0, parser_dashscope/0, parser_zhipu/0]).
 
@@ -22,18 +22,18 @@
 %%====================================================================
 
 %% @doc 返回 OpenAI 格式的解析器函数
-%% 可直接用于 llm_http_client:request/5
--spec parser_openai() -> fun((map()) -> {ok, llm_response:response()} | {error, term()}).
+%% 可直接用于 beamai_llm_http_client:request/5
+-spec parser_openai() -> fun((map()) -> {ok, beamai_llm_response:response()} | {error, term()}).
 parser_openai() ->
     fun from_openai/1.
 
 %% @doc 返回 Anthropic 格式的解析器函数
--spec parser_anthropic() -> fun((map()) -> {ok, llm_response:response()} | {error, term()}).
+-spec parser_anthropic() -> fun((map()) -> {ok, beamai_llm_response:response()} | {error, term()}).
 parser_anthropic() ->
     fun from_anthropic/1.
 
 %% @doc 返回指定 Provider 的解析器函数
--spec parser(llm_response:provider()) -> fun((map()) -> {ok, llm_response:response()} | {error, term()}).
+-spec parser(beamai_llm_response:provider()) -> fun((map()) -> {ok, beamai_llm_response:response()} | {error, term()}).
 parser(openai) -> parser_openai();
 parser(anthropic) -> parser_anthropic();
 parser(deepseek) -> parser_openai();
@@ -43,17 +43,17 @@ parser(bailian) -> parser_dashscope();
 parser(_) -> parser_openai().
 
 %% @doc 返回 Ollama 格式的解析器函数
--spec parser_ollama() -> fun((map()) -> {ok, llm_response:response()} | {error, term()}).
+-spec parser_ollama() -> fun((map()) -> {ok, beamai_llm_response:response()} | {error, term()}).
 parser_ollama() ->
     fun from_ollama/1.
 
 %% @doc 返回 DashScope 格式的解析器函数
--spec parser_dashscope() -> fun((map()) -> {ok, llm_response:response()} | {error, term()}).
+-spec parser_dashscope() -> fun((map()) -> {ok, beamai_llm_response:response()} | {error, term()}).
 parser_dashscope() ->
     fun from_dashscope/1.
 
 %% @doc 返回智谱格式的解析器函数（OpenAI兼容 + reasoning_content）
--spec parser_zhipu() -> fun((map()) -> {ok, llm_response:response()} | {error, term()}).
+-spec parser_zhipu() -> fun((map()) -> {ok, beamai_llm_response:response()} | {error, term()}).
 parser_zhipu() ->
     fun from_zhipu/1.
 
@@ -62,7 +62,7 @@ parser_zhipu() ->
 %%====================================================================
 
 %% @doc 从指定 Provider 的原始响应创建统一响应
--spec from_provider(map(), llm_response:provider()) -> {ok, llm_response:response()} | {error, term()}.
+-spec from_provider(map(), beamai_llm_response:provider()) -> {ok, beamai_llm_response:response()} | {error, term()}.
 from_provider(Raw, openai) -> from_openai(Raw);
 from_provider(Raw, anthropic) -> from_anthropic(Raw);
 from_provider(Raw, deepseek) -> from_openai(Raw);  % DeepSeek 使用 OpenAI 格式
@@ -77,11 +77,11 @@ from_provider(Raw, Provider) ->
     end.
 
 %% @doc 从 OpenAI 格式响应创建
--spec from_openai(map()) -> {ok, llm_response:response()} | {error, term()}.
+-spec from_openai(map()) -> {ok, beamai_llm_response:response()} | {error, term()}.
 from_openai(#{<<"choices">> := [Choice | _]} = Raw) ->
     Message = maps:get(<<"message">>, Choice, #{}),
     ToolCalls = parse_tool_calls_openai(Message),
-    {ok, llm_response:new(#{
+    {ok, beamai_llm_response:new(#{
         id => maps:get(<<"id">>, Raw, <<>>),
         model => maps:get(<<"model">>, Raw, <<>>),
         provider => openai,
@@ -103,10 +103,10 @@ from_openai(Raw) ->
     {error, {invalid_response, Raw}}.
 
 %% @doc 从 Anthropic 格式响应创建
--spec from_anthropic(map()) -> {ok, llm_response:response()} | {error, term()}.
+-spec from_anthropic(map()) -> {ok, beamai_llm_response:response()} | {error, term()}.
 from_anthropic(#{<<"content">> := ContentBlocks} = Raw) when is_list(ContentBlocks) ->
     {Content, ToolCalls, Blocks} = extract_anthropic_content(ContentBlocks),
-    {ok, llm_response:new(#{
+    {ok, beamai_llm_response:new(#{
         id => maps:get(<<"id">>, Raw, <<>>),
         model => maps:get(<<"model">>, Raw, <<>>),
         provider => anthropic,
@@ -129,7 +129,7 @@ from_anthropic(Raw) ->
 
 %% @doc 从智谱 AI 格式响应创建
 %% 智谱使用 OpenAI 兼容格式，但有 reasoning_content 字段
--spec from_zhipu(map()) -> {ok, llm_response:response()} | {error, term()}.
+-spec from_zhipu(map()) -> {ok, beamai_llm_response:response()} | {error, term()}.
 from_zhipu(#{<<"choices">> := [Choice | _]} = Raw) ->
     Message = maps:get(<<"message">>, Choice, #{}),
     ToolCalls = parse_tool_calls_openai(Message),
@@ -140,7 +140,7 @@ from_zhipu(#{<<"choices">> := [Choice | _]} = Raw) ->
         <<>> -> case ReasoningContent of null -> null; _ -> ReasoningContent end;
         C -> C
     end,
-    {ok, llm_response:new(#{
+    {ok, beamai_llm_response:new(#{
         id => maps:get(<<"id">>, Raw, <<>>),
         model => maps:get(<<"model">>, Raw, <<>>),
         provider => zhipu,
@@ -162,12 +162,12 @@ from_zhipu(Raw) ->
 
 %% @doc 从 Ollama 格式响应创建
 %% 支持 Ollama 原生格式和 OpenAI 兼容格式
--spec from_ollama(map()) -> {ok, llm_response:response()} | {error, term()}.
+-spec from_ollama(map()) -> {ok, beamai_llm_response:response()} | {error, term()}.
 from_ollama(#{<<"message">> := Message} = Raw) ->
     %% Ollama 原生格式
     ToolCalls = parse_tool_calls_openai(Message),
     Content = maps:get(<<"content">>, Message, <<>>),
-    {ok, llm_response:new(#{
+    {ok, beamai_llm_response:new(#{
         id => maps:get(<<"created_at">>, Raw, <<>>),
         model => maps:get(<<"model">>, Raw, <<>>),
         provider => ollama,
@@ -198,7 +198,7 @@ from_ollama(Raw) ->
 
 %% @doc 从阿里云 DashScope 格式响应创建
 %% DashScope 使用 {output: {choices: [...]}, usage: {...}} 格式
--spec from_dashscope(map()) -> {ok, llm_response:response()} | {error, term()}.
+-spec from_dashscope(map()) -> {ok, beamai_llm_response:response()} | {error, term()}.
 from_dashscope(#{<<"output">> := Output} = Raw) ->
     parse_dashscope_output(Output, Raw);
 from_dashscope(#{<<"error">> := Error}) ->
@@ -389,7 +389,7 @@ parse_dashscope_output(#{<<"choices">> := [Choice | _]}, Raw) ->
     Message = maps:get(<<"message">>, Choice, #{}),
     ToolCalls = parse_tool_calls_openai(Message),
     Content = maps:get(<<"content">>, Message, null),
-    {ok, llm_response:new(#{
+    {ok, beamai_llm_response:new(#{
         id => maps:get(<<"request_id">>, Raw, <<>>),
         model => <<>>,  %% DashScope 响应不包含 model
         provider => bailian,
@@ -405,7 +405,7 @@ parse_dashscope_output(#{<<"choices">> := [Choice | _]}, Raw) ->
     })};
 %% 兼容旧格式：text + finish_reason 直接在 output 下
 parse_dashscope_output(#{<<"text">> := Text, <<"finish_reason">> := FinishReason}, Raw) ->
-    {ok, llm_response:new(#{
+    {ok, beamai_llm_response:new(#{
         id => maps:get(<<"request_id">>, Raw, <<>>),
         model => <<>>,
         provider => bailian,

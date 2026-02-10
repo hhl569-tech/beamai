@@ -17,20 +17,20 @@ new_builder_test() ->
 
 add_step_test() ->
     B0 = beamai_process_builder:new(test),
-    B1 = beamai_process_builder:add_step(B0, step_a, test_steps),
+    B1 = beamai_process_builder:add_step(B0, step_a, beamai_test_steps),
     Steps = maps:get(steps, B1),
     ?assert(maps:is_key(step_a, Steps)),
     #{step_a := StepDef} = Steps,
     ?assert(maps:get('__step_spec__', StepDef)),
     ?assertEqual(step_a, maps:get(id, StepDef)),
-    ?assertEqual(test_steps, maps:get(module, StepDef)),
+    ?assertEqual(beamai_test_steps, maps:get(module, StepDef)),
     ?assertEqual(#{}, maps:get(config, StepDef)),
     ?assertEqual([input], maps:get(required_inputs, StepDef)).
 
 add_step_with_config_test() ->
     B0 = beamai_process_builder:new(test),
     Config = #{type => passthrough, required_inputs => [a, b]},
-    B1 = beamai_process_builder:add_step(B0, my_step, test_steps, Config),
+    B1 = beamai_process_builder:add_step(B0, my_step, beamai_test_steps, Config),
     #{my_step := StepDef} = maps:get(steps, B1),
     ?assertEqual([a, b], maps:get(required_inputs, StepDef)),
     ?assertEqual(Config, maps:get(config, StepDef)).
@@ -58,7 +58,7 @@ set_execution_mode_test() ->
 
 compile_valid_test() ->
     B0 = beamai_process_builder:new(test),
-    B1 = beamai_process_builder:add_step(B0, step_a, test_steps,
+    B1 = beamai_process_builder:add_step(B0, step_a, beamai_test_steps,
                                           #{type => passthrough}),
     Binding = beamai_process_event:binding(start, step_a, input),
     B2 = beamai_process_builder:add_binding(B1, Binding),
@@ -78,7 +78,7 @@ compile_invalid_module_test() ->
 
 compile_invalid_binding_target_test() ->
     B0 = beamai_process_builder:new(test),
-    B1 = beamai_process_builder:add_step(B0, step_a, test_steps,
+    B1 = beamai_process_builder:add_step(B0, step_a, beamai_test_steps,
                                           #{type => passthrough}),
     Binding = beamai_process_event:binding(ev, nonexistent_step, input),
     B2 = beamai_process_builder:add_binding(B1, Binding),

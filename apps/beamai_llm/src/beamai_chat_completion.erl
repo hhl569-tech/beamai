@@ -94,13 +94,13 @@ stream_chat(Config, Messages, Callback, Opts) ->
 %% Internal - Provider Routing
 %%====================================================================
 
-provider_module(openai) -> llm_provider_openai;
-provider_module(anthropic) -> llm_provider_anthropic;
-provider_module(ollama) -> llm_provider_ollama;
-provider_module(zhipu) -> llm_provider_zhipu;
-provider_module(bailian) -> llm_provider_bailian;
-provider_module(deepseek) -> llm_provider_deepseek;
-provider_module(mock) -> llm_provider_mock;
+provider_module(openai) -> beamai_llm_provider_openai;
+provider_module(anthropic) -> beamai_llm_provider_anthropic;
+provider_module(ollama) -> beamai_llm_provider_ollama;
+provider_module(zhipu) -> beamai_llm_provider_zhipu;
+provider_module(bailian) -> beamai_llm_provider_bailian;
+provider_module(deepseek) -> beamai_llm_provider_deepseek;
+provider_module(mock) -> beamai_llm_provider_mock;
 provider_module({custom, Module}) -> Module.
 
 %%====================================================================

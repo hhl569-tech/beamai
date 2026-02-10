@@ -2,7 +2,7 @@
 %%% @doc 阿里云百炼 (Bailian/DashScope) LLM Provider 实现
 %%%
 %%% 支持阿里云百炼平台的 DashScope 原生 API。
-%%% 使用 llm_http_client 处理公共 HTTP 逻辑。
+%%% 使用 beamai_llm_http_client 处理公共 HTTP 逻辑。
 %%%
 %%% API 文档: https://help.aliyun.com/zh/model-studio/text-generation
 %%%
@@ -35,8 +35,8 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_provider_bailian).
--behaviour(llm_provider_behaviour).
+-module(beamai_llm_provider_bailian).
+-behaviour(beamai_llm_provider_behaviour).
 
 -include_lib("beamai_core/include/beamai_common.hrl").
 
@@ -88,7 +88,7 @@ chat(Config, Request) ->
     Headers = build_headers(Config, false),
     Body = build_request_body(Config, Request),
     Opts = build_request_opts(Config),
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_dashscope()).
+    beamai_llm_http_client:request(Url, Headers, Body, Opts, beamai_llm_response_parser:parser_dashscope()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->
@@ -96,7 +96,7 @@ stream_chat(Config, Request, Callback) ->
     Headers = build_headers(Config, true),
     Body = build_request_body(Config, Request#{stream => true}),
     Opts = build_request_opts(Config),
-    llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event/2).
+    beamai_llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event/2).
 
 %%====================================================================
 %% 请求构建（DashScope 原生格式）
@@ -123,7 +123,7 @@ is_multimodal_model(_) ->
 
 %% @private 构建请求 URL（使用公共模块）
 build_url(Config, DefaultEndpoint) ->
-    llm_provider_common:build_url(Config, DefaultEndpoint, ?DASHSCOPE_BASE_URL).
+    beamai_llm_provider_common:build_url(Config, DefaultEndpoint, ?DASHSCOPE_BASE_URL).
 
 %% @private 构建请求头
 %% DashScope 原生 API 流式输出需要 X-DashScope-SSE 头
@@ -151,7 +151,7 @@ build_request_body(Config, Request) ->
 
     %% 构建 input 对象
     Input = #{
-        <<"messages">> => llm_message_adapter:to_openai(Messages)
+        <<"messages">> => beamai_llm_message_adapter:to_openai(Messages)
     },
 
     %% 构建 parameters 对象
@@ -190,7 +190,7 @@ maybe_add_stream_param(Params, _) ->
 
 %% @private 添加工具定义
 maybe_add_tools_param(Params, #{tools := Tools}) when Tools =/= [] ->
-    FormattedTools = llm_tool_adapter:to_openai(Tools),
+    FormattedTools = beamai_llm_tool_adapter:to_openai(Tools),
     Params#{<<"tools">> => FormattedTools};
 maybe_add_tools_param(Params, _) ->
     Params.
@@ -285,7 +285,7 @@ merge_single_tool_call(Calls, Index, NewCall) ->
         true ->
             update_call_at_index(Calls, Index, NewCall);
         false ->
-            Calls ++ [llm_provider_common:parse_single_tool_call(NewCall)]
+            Calls ++ [beamai_llm_provider_common:parse_single_tool_call(NewCall)]
     end.
 
 %% @private 更新指定索引位置的工具调用

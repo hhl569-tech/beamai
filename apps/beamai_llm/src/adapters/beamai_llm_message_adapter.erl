@@ -12,7 +12,7 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_message_adapter).
+-module(beamai_llm_message_adapter).
 
 %% API
 -export([to_openai/1, from_openai/1]).

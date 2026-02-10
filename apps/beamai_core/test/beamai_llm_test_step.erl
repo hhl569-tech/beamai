@@ -7,7 +7,7 @@
 %%% - llm_pause: Calls LLM, then pauses for human review
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_test_step).
+-module(beamai_llm_test_step).
 
 -behaviour(beamai_step_behaviour).
 
@@ -19,7 +19,7 @@
 
 init(#{type := llm_call} = Config) ->
     LlmConfig = maps:get(llm_config, Config),
-    OutputEvent = maps:get(output_event, Config, llm_response),
+    OutputEvent = maps:get(output_event, Config, beamai_llm_response),
     PromptTemplate = maps:get(prompt_template, Config, <<"You are a helpful assistant.">>),
     {ok, #{type => llm_call,
            llm_config => LlmConfig,

@@ -215,15 +215,15 @@ application:set_env(beamai_core, http_backend, beamai_http_hackney).
 **Provides**:
 - LLM client (llm_client)
 - Multi-provider support
-  - OpenAI (llm_provider_openai)
-  - Anthropic (llm_provider_anthropic)
-  - DeepSeek (llm_provider_deepseek) - OpenAI compatible API
-  - Ollama (llm_provider_ollama)
-  - Zhipu AI (llm_provider_zhipu)
-  - Alibaba Cloud Bailian (llm_provider_bailian) - DashScope native API
-- Message adapter (llm_message_adapter)
-- Tool adapter (llm_tool_adapter)
-- Response parser (llm_response_parser)
+  - OpenAI (beamai_llm_provider_openai)
+  - Anthropic (beamai_llm_provider_anthropic)
+  - DeepSeek (beamai_llm_provider_deepseek) - OpenAI compatible API
+  - Ollama (beamai_llm_provider_ollama)
+  - Zhipu AI (beamai_llm_provider_zhipu)
+  - Alibaba Cloud Bailian (beamai_llm_provider_bailian) - DashScope native API
+- Message adapter (beamai_llm_message_adapter)
+- Tool adapter (beamai_llm_tool_adapter)
+- Response parser (beamai_llm_response_parser)
 
 #### beamai_rag (RAG System)
 

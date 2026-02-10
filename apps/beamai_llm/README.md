@@ -8,39 +8,39 @@
 
 | 提供商 | 模块 | API 模式 | 说明 |
 |--------|------|----------|------|
-| OpenAI | `llm_provider_openai` | OpenAI | GPT-4, GPT-3.5-turbo 等 |
-| Anthropic | `llm_provider_anthropic` | Anthropic | Claude 3, Claude 2 等 |
-| DeepSeek | `llm_provider_deepseek` | OpenAI 兼容 | deepseek-chat, deepseek-reasoner |
-| Ollama | `llm_provider_ollama` | OpenAI 兼容 | 本地模型部署 |
-| 智谱 AI | `llm_provider_zhipu` | OpenAI 兼容 | GLM-4.7 等国产模型 |
-| 阿里云百炼 | `llm_provider_bailian` | DashScope 原生 | 通义千问系列 (qwen-plus, qwen-max 等) |
+| OpenAI | `beamai_llm_provider_openai` | OpenAI | GPT-4, GPT-3.5-turbo 等 |
+| Anthropic | `beamai_llm_provider_anthropic` | Anthropic | Claude 3, Claude 2 等 |
+| DeepSeek | `beamai_llm_provider_deepseek` | OpenAI 兼容 | deepseek-chat, deepseek-reasoner |
+| Ollama | `beamai_llm_provider_ollama` | OpenAI 兼容 | 本地模型部署 |
+| 智谱 AI | `beamai_llm_provider_zhipu` | OpenAI 兼容 | GLM-4.7 等国产模型 |
+| 阿里云百炼 | `beamai_llm_provider_bailian` | DashScope 原生 | 通义千问系列 (qwen-plus, qwen-max 等) |
 
 ## 模块概览
 
 ### 客户端
 
 - **llm_client** - LLM 客户端主入口
-- **llm_http_client** - HTTP 请求处理
-- **llm_helper** - 辅助函数
+- **beamai_llm_http_client** - HTTP 请求处理
+- **beamai_llm_helper** - 辅助函数
 
 ### 提供商
 
-- **llm_provider_behaviour** - 提供商行为定义
-- **llm_provider_common** - 提供商公共函数（URL 构建、认证头、事件累加等）
-- **llm_provider_openai** - OpenAI 实现
-- **llm_provider_anthropic** - Anthropic 实现
-- **llm_provider_deepseek** - DeepSeek 实现 (OpenAI 兼容 API)
-- **llm_provider_ollama** - Ollama 实现
-- **llm_provider_zhipu** - 智谱 AI 实现
-- **llm_provider_bailian** - 阿里云百炼实现 (DashScope 原生 API)
+- **beamai_llm_provider_behaviour** - 提供商行为定义
+- **beamai_llm_provider_common** - 提供商公共函数（URL 构建、认证头、事件累加等）
+- **beamai_llm_provider_openai** - OpenAI 实现
+- **beamai_llm_provider_anthropic** - Anthropic 实现
+- **beamai_llm_provider_deepseek** - DeepSeek 实现 (OpenAI 兼容 API)
+- **beamai_llm_provider_ollama** - Ollama 实现
+- **beamai_llm_provider_zhipu** - 智谱 AI 实现
+- **beamai_llm_provider_bailian** - 阿里云百炼实现 (DashScope 原生 API)
 
 ### 适配器
 
-- **llm_message_adapter** - 消息格式适配
-- **llm_tool_adapter** - 工具格式适配
-- **llm_response_parser** - Provider 响应解析（OpenAI/Anthropic/DashScope 等格式 → 统一 `llm_response` 结构）
+- **beamai_llm_message_adapter** - 消息格式适配
+- **beamai_llm_tool_adapter** - 工具格式适配
+- **beamai_llm_response_parser** - Provider 响应解析（OpenAI/Anthropic/DashScope 等格式 → 统一 `beamai_llm_response` 结构）
 
-> **注意**: 核心响应数据结构 `llm_response` 位于 `beamai_core`，提供统一的类型定义和访问器。
+> **注意**: 核心响应数据结构 `beamai_llm_response` 位于 `beamai_core`，提供统一的类型定义和访问器。
 
 ## API 文档
 
@@ -363,52 +363,52 @@ DeepSeek API 完全兼容 OpenAI API 格式，使用相同的请求/响应结构
 
 ## 架构说明
 
-### Provider 公共模块 (llm_provider_common)
+### Provider 公共模块 (beamai_llm_provider_common)
 
-所有 Provider 共享的通用函数已抽取到 `llm_provider_common` 模块：
+所有 Provider 共享的通用函数已抽取到 `beamai_llm_provider_common` 模块：
 
 ```erlang
 %% URL 构建
-llm_provider_common:build_url(Config, DefaultEndpoint, DefaultBaseUrl) -> URL.
+beamai_llm_provider_common:build_url(Config, DefaultEndpoint, DefaultBaseUrl) -> URL.
 
 %% Bearer 认证头
-llm_provider_common:build_bearer_auth_headers(Config) -> Headers.
+beamai_llm_provider_common:build_bearer_auth_headers(Config) -> Headers.
 
 %% 可选参数处理
-llm_provider_common:maybe_add_stream(Body, Request) -> NewBody.
-llm_provider_common:maybe_add_tools(Body, Request) -> NewBody.
-llm_provider_common:maybe_add_top_p(Body, Request) -> NewBody.
+beamai_llm_provider_common:maybe_add_stream(Body, Request) -> NewBody.
+beamai_llm_provider_common:maybe_add_tools(Body, Request) -> NewBody.
+beamai_llm_provider_common:maybe_add_top_p(Body, Request) -> NewBody.
 
 %% OpenAI 格式事件累加（流式响应）
-llm_provider_common:accumulate_openai_event(Event, Acc) -> NewAcc.
+beamai_llm_provider_common:accumulate_openai_event(Event, Acc) -> NewAcc.
 
 %% 工具调用解析
-llm_provider_common:parse_tool_calls(Message) -> [ToolCall].
-llm_provider_common:parse_single_tool_call(Call) -> ToolCall.
+beamai_llm_provider_common:parse_tool_calls(Message) -> [ToolCall].
+beamai_llm_provider_common:parse_single_tool_call(Call) -> ToolCall.
 
 %% 使用统计解析
-llm_provider_common:parse_usage(Usage) -> #{prompt_tokens, completion_tokens, total_tokens}.
+beamai_llm_provider_common:parse_usage(Usage) -> #{prompt_tokens, completion_tokens, total_tokens}.
 ```
 
-### LLM 响应结构 (llm_response)
+### LLM 响应结构 (beamai_llm_response)
 
-> **注意**: `llm_response` 模块已移至 `beamai_core`，作为核心数据结构被 Kernel 层消费。
+> **注意**: `beamai_llm_response` 模块已移至 `beamai_core`，作为核心数据结构被 Kernel 层消费。
 
 统一的 LLM 响应结构，抽象不同 Provider 的响应差异：
 
 ```erlang
-%% 通过 Parser 函数解析响应（由 llm_http_client 内部使用）
-llm_response_parser:parser_openai()      %% OpenAI/DeepSeek/Zhipu 格式
-llm_response_parser:parser_anthropic()   %% Anthropic 格式
-llm_response_parser:parser_dashscope()   %% 阿里云百炼 DashScope 格式
-llm_response_parser:parser_ollama()      %% Ollama 格式
-llm_response_parser:parser_zhipu()       %% 智谱特定格式（含 reasoning_content）
+%% 通过 Parser 函数解析响应（由 beamai_llm_http_client 内部使用）
+beamai_llm_response_parser:parser_openai()      %% OpenAI/DeepSeek/Zhipu 格式
+beamai_llm_response_parser:parser_anthropic()   %% Anthropic 格式
+beamai_llm_response_parser:parser_dashscope()   %% 阿里云百炼 DashScope 格式
+beamai_llm_response_parser:parser_ollama()      %% Ollama 格式
+beamai_llm_response_parser:parser_zhipu()       %% 智谱特定格式（含 reasoning_content）
 
 %% 统一访问接口
-Content = llm_response:content(Response),
-ToolCalls = llm_response:tool_calls(Response),
-HasTools = llm_response:has_tool_calls(Response),
-Usage = llm_response:usage(Response),
+Content = beamai_llm_response:content(Response),
+ToolCalls = beamai_llm_response:tool_calls(Response),
+HasTools = beamai_llm_response:has_tool_calls(Response),
+Usage = beamai_llm_response:usage(Response),
 
 %% 标准化响应格式
 #{

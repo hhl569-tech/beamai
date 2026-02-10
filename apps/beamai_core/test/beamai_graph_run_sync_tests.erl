@@ -8,7 +8,7 @@
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(graph_run_sync_tests).
+-module(beamai_graph_run_sync_tests).
 -include_lib("eunit/include/eunit.hrl").
 
 %%====================================================================

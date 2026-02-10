@@ -2,12 +2,12 @@
 %%% @doc OpenAI LLM Provider 实现
 %%%
 %%% 支持 OpenAI API 及兼容接口（如 Azure OpenAI、vLLM）。
-%%% 使用 llm_http_client 处理公共 HTTP 逻辑。
+%%% 使用 beamai_llm_http_client 处理公共 HTTP 逻辑。
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
--module(llm_provider_openai).
--behaviour(llm_provider_behaviour).
+-module(beamai_llm_provider_openai).
+-behaviour(beamai_llm_provider_behaviour).
 
 -include_lib("beamai_core/include/beamai_common.hrl").
 
@@ -57,7 +57,7 @@ chat(Config, Request) ->
     Headers = build_headers(Config),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?OPENAI_TIMEOUT)},
-    llm_http_client:request(Url, Headers, Body, Opts, llm_response_parser:parser_openai()).
+    beamai_llm_http_client:request(Url, Headers, Body, Opts, beamai_llm_response_parser:parser_openai()).
 
 %% @doc 发送流式聊天请求
 stream_chat(Config, Request, Callback) ->
@@ -65,7 +65,7 @@ stream_chat(Config, Request, Callback) ->
     Headers = build_headers(Config),
     Body = build_request_body(Config, Request),
     Opts = #{timeout => maps:get(timeout, Config, ?OPENAI_TIMEOUT)},
-    llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event/2).
+    beamai_llm_http_client:stream_request(Url, Headers, Body, Opts, Callback, fun accumulate_event/2).
 
 %%====================================================================
 %% 请求构建（Provider 特定）
@@ -73,24 +73,24 @@ stream_chat(Config, Request, Callback) ->
 
 %% @private 构建请求 URL（使用公共模块）
 build_url(Config, DefaultEndpoint) ->
-    llm_provider_common:build_url(Config, DefaultEndpoint, ?OPENAI_BASE_URL).
+    beamai_llm_provider_common:build_url(Config, DefaultEndpoint, ?OPENAI_BASE_URL).
 
 %% @private 构建请求头（使用公共模块）
 build_headers(Config) ->
-    llm_provider_common:build_bearer_auth_headers(Config).
+    beamai_llm_provider_common:build_bearer_auth_headers(Config).
 
 %% @private 构建请求体（使用管道模式）
 build_request_body(Config, Request) ->
     Messages = maps:get(messages, Request, []),
     Base = #{
         <<"model">> => maps:get(model, Config, ?OPENAI_MODEL),
-        <<"messages">> => llm_message_adapter:to_openai(Messages),
+        <<"messages">> => beamai_llm_message_adapter:to_openai(Messages),
         <<"max_tokens">> => maps:get(max_tokens, Config, ?OPENAI_MAX_TOKENS),
         <<"temperature">> => maps:get(temperature, Config, ?OPENAI_TEMPERATURE)
     },
     ?BUILD_BODY_PIPELINE(Base, [
-        fun(B) -> llm_provider_common:maybe_add_stream(B, Request) end,
-        fun(B) -> llm_provider_common:maybe_add_tools(B, Request) end
+        fun(B) -> beamai_llm_provider_common:maybe_add_stream(B, Request) end,
+        fun(B) -> beamai_llm_provider_common:maybe_add_tools(B, Request) end
     ]).
 
 %%====================================================================
@@ -99,4 +99,4 @@ build_request_body(Config, Request) ->
 
 %% @private OpenAI 格式事件累加器（委托给公共模块）
 accumulate_event(Event, Acc) ->
-    llm_provider_common:accumulate_openai_event(Event, Acc).
+    beamai_llm_provider_common:accumulate_openai_event(Event, Acc).
