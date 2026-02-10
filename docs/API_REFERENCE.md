@@ -19,77 +19,52 @@ This document provides the main API reference for the core modules of the BeamAI
 ### Graph Execution Engine
 
 ```erlang
-%% Build Graph
-Graph = graph_builder:new()
-    |> graph_builder:add_node(NodeName, {Module, Opts})
-    |> graph_builder:add_edge(From, To, Condition)
-    |> graph_builder:set_entry(EntryNode)
-    |> graph_builder:build().
+%% DSL Build (declarative)
+-spec build([term()]) -> {ok, graph()} | {error, term()}.
+{ok, Graph} = beamai_graph:build([
+    {node, NodeName, fun(State, Ctx) -> {ok, NewState} end},
+    {edge, From, To},
+    {conditional_edge, From, fun(State, Ctx) -> TargetNode end},
+    {entry, EntryNode}
+]).
 
-%% Execute Graph
--spec run(graph(), state()) -> {ok, state()} | {error, term()}.
-graph_runner:run(Graph, InitialState).
+%% Builder API (imperative)
+Builder = beamai_graph:builder(),
+Builder1 = beamai_graph:add_node(Builder, NodeName, NodeFun),
+Builder2 = beamai_graph:add_edge(Builder1, From, To),
+Builder3 = beamai_graph:set_entry(Builder2, EntryNode),
+{ok, Graph} = beamai_graph:compile(Builder3).
 
-%% Graph DSL
-Graph = graph_dsl:compile(#{
-    nodes => #{...},
-    edges => [...],
-    entry => atom()
+%% Execute Graph (async)
+-spec run(graph(), state()) -> {ok, pid()}.
+{ok, Pid} = beamai_graph:run(Graph, InitialState).
+
+%% Execute Graph (sync, supports interrupt/resume)
+-spec run_sync(graph(), state()) -> {ok, state()} | {interrupted, [vertex()], snapshot()}.
+{ok, FinalState} = beamai_graph:run_sync(Graph, InitialState).
+
+%% Resume from interrupt
+{ok, FinalState} = beamai_graph:run_sync(Graph, State, #{
+    snapshot => Snapshot,
+    resume_data => #{review => approved}
 }).
 ```
 
 ### Graph State
 
-```erlang
-%% Create state
--spec new(map()) -> state().
-graph_state:new(Data).
-
-%% Read/Write state
--spec get(state(), key()) -> value().
--spec set(state(), key(), value()) -> state().
-graph_state:get(State, Key).
-graph_state:set(State, Key, Value).
-
-%% User context operations
--spec get_context(state()) -> map().
--spec get_context(state(), key()) -> value() | undefined.
--spec set_context(state(), map()) -> state().
--spec update_context(state(), map()) -> state().
-graph_state:get_context(State).
-graph_state:get_context(State, Key).
-graph_state:set_context(State, Context).
-graph_state:update_context(State, Updates).
-```
-
-### Graph State Reducer
-
-Field-level reducers for merging node-returned deltas into global state.
+Graph state is a plain Erlang map. Node functions receive `(State, Context)`:
 
 ```erlang
-%% Apply delta
--spec apply_delta(state(), delta(), field_reducers()) -> state().
--spec apply_deltas(state(), [delta()], field_reducers()) -> state().
-graph_state_reducer:apply_delta(State, Delta, FieldReducers).
-graph_state_reducer:apply_deltas(State, Deltas, FieldReducers).
+%% Node function signature (2-arity)
+fun(State :: map(), Context :: map()) -> {ok, NewState :: map()}.
 
-%% Built-in Reducers
-graph_state_reducer:append_reducer(Old, New) -> list().
-graph_state_reducer:merge_reducer(Old, New) -> map().
-graph_state_reducer:increment_reducer(Old, Delta) -> number().
-graph_state_reducer:last_write_win_reducer(Old, New) -> term().
-```
+%% Node function with interrupt support (3-arity)
+fun(State :: map(), Input :: map(), ResumeData :: undefined | map()) ->
+    {ok, NewState :: map()} | {interrupt, InterruptData :: map()}.
 
-**Reducer Configuration Format:**
-
-```erlang
-FieldReducers = #{
-    %% Normal reducer
-    <<"messages">> => fun graph_state_reducer:append_reducer/2,
-
-    %% Transform reducer: accumulate counter_incr to counter
-    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
-}.
+%% Read/Write state (plain map operations)
+Value = maps:get(Key, State, Default).
+NewState = State#{Key => Value}.
 ```
 
 ### Pregel Distributed Computing
@@ -227,68 +202,45 @@ LLM client with multi-provider support.
 
 ### LLM Configuration Management
 
-LLM configuration must be created using `llm_client:create/2`, achieving separation of configuration from Agent:
+LLM configuration must be created using `beamai_chat_completion:create/2`, achieving separation of configuration from Agent:
 
 ```erlang
-%% Create LLM configuration (must use llm_client:create/2)
-LLM = llm_client:create(anthropic, #{
+%% Create LLM configuration
+LLM = beamai_chat_completion:create(anthropic, #{
     model => <<"glm-4.7">>,
     api_key => list_to_binary(os:getenv("ZHIPU_API_KEY")),
     base_url => <<"https://open.bigmodel.cn/api/anthropic">>,
     temperature => 0.7
 }).
 
-%% Configuration reuse: multiple Agents share the same configuration
-{ok, Agent1} = beamai_agent:start_link(<<"agent1">>, #{llm => LLM, ...}),
-{ok, Agent2} = beamai_agent:start_link(<<"agent2">>, #{llm => LLM, ...}).
-
-%% Configuration merging: create new configuration based on existing one
-HighTempLLM = llm_client:merge_config(LLM, #{temperature => 0.9}).
-
-%% Validate configuration
-true = llm_client:is_valid_config(LLM).
+%% Configuration reuse: multiple components share the same LLM configuration
+%% LLM config is a plain map with '__llm_config__' => true marker
 ```
 
 **Advantages:**
-- Configuration reuse: multiple Agents share the same LLM configuration
+- Configuration reuse: multiple components share the same LLM configuration
 - Centralized management: API Key, model parameters unified configuration
-- Type safety: Agent validates configuration at startup
+- Type safety: configuration contains `'__llm_config__' => true` marker
 - Easy testing: LLM configuration can be validated independently
 
 ### Configuration and Chat
 
 ```erlang
 %% Create configuration
--spec create(provider(), map()) -> llm_config().
-llm_client:create(Provider, Opts).
-
-%% Validate configuration
--spec is_valid_config(term()) -> boolean().
-llm_client:is_valid_config(Config).
+-spec create(provider(), map()) -> config().
+beamai_chat_completion:create(Provider, Opts).
 
 %% Chat
--spec chat(llm_config(), [message()]) -> {ok, response()} | {error, term()}.
-llm_client:chat(Config, Messages).
+-spec chat(config(), [message()]) -> {ok, response()} | {error, term()}.
+-spec chat(config(), [message()], opts()) -> {ok, response()} | {error, term()}.
+beamai_chat_completion:chat(Config, Messages).
+beamai_chat_completion:chat(Config, Messages, Opts).
 
 %% Streaming chat
--spec stream_chat(llm_config(), [message()], callback()) -> {ok, response()} | {error, term()}.
-llm_client:stream_chat(Config, Messages, Callback).
-
-%% Chat with tools
--spec with_tools(llm_config(), [message()], [tool()]) -> {ok, response()} | {error, term()}.
-llm_client:with_tools(Config, Messages, Tools).
-```
-
-### Provider Management
-
-```erlang
-%% List Providers
--spec list_providers() -> [atom()].
-llm_client:list_providers().
-
-%% Provider info
--spec provider_info(atom()) -> map().
-llm_client:provider_info(Provider).
+-spec stream_chat(config(), [message()], callback()) -> {ok, response()} | {error, term()}.
+-spec stream_chat(config(), [message()], callback(), opts()) -> {ok, response()} | {error, term()}.
+beamai_chat_completion:stream_chat(Config, Messages, Callback).
+beamai_chat_completion:stream_chat(Config, Messages, Callback, Opts).
 ```
 
 ### Supported Providers
@@ -312,7 +264,7 @@ DeepSeek Provider uses OpenAI compatible API, supporting `deepseek-chat` and `de
 
 **Configuration Example:**
 ```erlang
-LLM = llm_client:create(deepseek, #{
+LLM = beamai_chat_completion:create(deepseek, #{
     model => <<"deepseek-chat">>,
     api_key => list_to_binary(os:getenv("DEEPSEEK_API_KEY")),
     max_tokens => 4096,
@@ -336,10 +288,10 @@ Bailian Provider uses DashScope native API, automatically selecting endpoints ba
 
 ### LLM Configuration Parameters
 
-`llm_client:create/2` supports the following parameters:
+`beamai_chat_completion:create/2` supports the following parameters:
 
 ```erlang
-LLM = llm_client:create(Provider, #{
+LLM = beamai_chat_completion:create(Provider, #{
     model => binary(),                   %% Model name (required)
     api_key => binary(),                 %% API Key (required, except ollama)
     base_url => binary(),                %% Optional: custom URL
@@ -355,54 +307,61 @@ LLM = llm_client:create(Provider, #{
 
 ## beamai_memory - Memory Management
 
-Unified memory and checkpoint management system.
+Snapshot-based storage engine with branching and time travel support.
 
-### Creation and Configuration
+### Store Setup
 
 ```erlang
-%% Create Memory instance
--spec new(map()) -> {ok, memory()} | {error, term()}.
-beamai_memory:new(Config).
+%% Create store backend
+{ok, _} = beamai_store_ets:start_link(StoreName, #{}).
+Store = {beamai_store_ets, StoreName}.
 
-Config = #{
-    checkpointer => #{backend => ets | sqlite},
-    store => #{backend => ets | sqlite},
-    context_store => {module(), term()}
-}.
+%% Create state store (namespaced KV abstraction)
+-spec new(store()) -> state_store().
+StateStore = beamai_state_store:new(Store).
 ```
 
-### Checkpoint Operations
+### Process Snapshot Operations
 
 ```erlang
-%% Save checkpoint
--spec save_checkpoint(memory(), config(), state_data()) -> {ok, memory()}.
-beamai_memory:save_checkpoint(Memory, Config, StateData).
+%% Create snapshot manager
+-spec new(state_store()) -> manager().
+-spec new(state_store(), opts()) -> manager().
+Mgr = beamai_process_snapshot:new(StateStore).
+Mgr = beamai_process_snapshot:new(StateStore, #{max_entries => 100}).
 
-%% Load checkpoint
--spec load_checkpoint(memory(), config()) -> {ok, state_data()} | {error, not_found}.
--spec load_latest_checkpoint(memory(), config()) -> {ok, state_data()} | {error, not_found}.
-beamai_memory:load_checkpoint(Memory, Config).
-beamai_memory:load_latest_checkpoint(Memory, Config).
+%% Save snapshot from process state
+-spec save_from_state(manager(), thread_id(), state_map()) -> {ok, snapshot(), manager()}.
+-spec save_from_state(manager(), thread_id(), state_map(), opts()) -> {ok, snapshot(), manager()}.
+{ok, Snapshot, Mgr1} = beamai_process_snapshot:save_from_state(Mgr, ThreadId, StateMap).
 
-%% List checkpoints
--spec list_checkpoints(memory(), config()) -> {ok, [checkpoint_info()]}.
-beamai_memory:list_checkpoints(Memory, Config).
+%% Load snapshot
+-spec load(manager(), snapshot_id()) -> {ok, snapshot()} | {error, not_found}.
+{ok, Loaded} = beamai_process_snapshot:load(Mgr, SnapshotId).
 
-%% Checkpoint count
--spec checkpoint_count(memory(), config()) -> non_neg_integer().
-beamai_memory:checkpoint_count(Memory, Config).
+%% Time travel
+-spec go_back(manager(), thread_id(), steps()) -> {ok, snapshot(), manager()}.
+-spec go_forward(manager(), thread_id(), steps()) -> {ok, snapshot(), manager()}.
+{ok, OlderSnapshot, Mgr2} = beamai_process_snapshot:go_back(Mgr1, ThreadId, 1).
+
+%% Branch management
+-spec fork_from(manager(), snapshot_id(), branch_name(), opts()) -> {ok, manager()}.
+-spec list_branches(manager()) -> [branch()].
+-spec switch_branch(manager(), branch_name()) -> {ok, manager()}.
 ```
 
-### Store Operations
+### Graph Snapshot Operations
 
 ```erlang
-%% Store data
--spec put(memory(), namespace(), key(), value()) -> {ok, memory()}.
-beamai_memory:put(Memory, Namespace, Key, Value).
+%% Create graph snapshot manager
+GraphMgr = beamai_graph_snapshot:new(StateStore).
 
-%% Search data
--spec search(memory(), namespace(), filter()) -> {ok, [item()]}.
-beamai_memory:search(Memory, Namespace, Filter).
+%% Save from Pregel state
+-spec save_from_pregel(manager(), run_id(), pregel_state()) -> {ok, snapshot(), manager()}.
+{ok, GraphSnapshot, GraphMgr1} = beamai_graph_snapshot:save_from_pregel(GraphMgr, RunId, PregelState).
+
+%% Load, time travel, branch — same API as process snapshot
+{ok, Loaded} = beamai_graph_snapshot:load(GraphMgr, SnapshotId).
 ```
 
 ---
@@ -467,6 +426,6 @@ All APIs return `{ok, Result}` or `{error, Reason}` format. Common error types:
 - [README.md](../README.md) - Project overview
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Architecture design
 - Module READMEs:
-  - [beamai_core](../apps/beamai_core/README.md)
-  - [beamai_llm](../apps/beamai_llm/README.md)
-  - [beamai_memory](../apps/beamai_memory/README.md)
+  - [beamai_core](../apps/beamai_core/README.md) - Kernel, Process, Graph, HTTP
+  - [beamai_llm](../apps/beamai_llm/README.md) - LLM providers
+  - [beamai_memory](../apps/beamai_memory/README.md) - Snapshot, Store

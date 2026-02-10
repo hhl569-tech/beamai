@@ -19,8 +19,7 @@
 - **beamai_core** - Kernel/Tool 架构、Process Framework、Graph 引擎、HTTP 客户端
 - **beamai_llm** - 统一的 LLM 客户端（支持 OpenAI、Anthropic、DeepSeek、Zhipu、Bailian、Ollama）
 - **beamai_memory** - 纯存储引擎（快照、Store、状态存储）
-- **beamai_cognition** - 认知架构（语义/情景/程序记忆 + 算法）
-- **beamai_context** - LLM 上下文管理（对话缓冲、摘要）
+- **beamai_cognition** - 认知架构（语义/情景/程序记忆 + 算法 + 对话缓冲/摘要）
 
 ### 扩展项目 ([beamai_extra](https://github.com/TTalkPro/beamai_extra))
 基于核心库构建的高级功能：
@@ -138,49 +137,60 @@ K3 = beamai:add_filter(K2, <<"transform">>, post_invocation,
 ### 5. Process Framework（流程编排）
 
 ```erlang
-%% 使用 Process Builder 构建流程
-{ok, Process} = beamai_process_builder:new(<<"pipeline">>)
-    |> beamai_process_builder:add_step(<<"step1">>, #{
-        handler => fun(Input, _Ctx) -> {ok, Input#{step => 1}} end
-    })
-    |> beamai_process_builder:add_step(<<"step2">>, #{
-        handler => fun(Input, _Ctx) -> {ok, Input#{step => 2}} end
-    })
-    |> beamai_process_builder:build(),
+%% 使用 Builder 构建流程
+Spec = beamai_process:builder(<<"pipeline">>),
+Spec1 = beamai_process:add_step(Spec, <<"step1">>, my_step_module, #{
+    type => transform,
+    config => #{handler => fun(Input, _State) -> {ok, Input#{step => 1}} end}
+}),
+Spec2 = beamai_process:add_step(Spec1, <<"step2">>, my_step_module, #{
+    type => transform,
+    config => #{handler => fun(Input, _State) -> {ok, Input#{step => 2}} end}
+}),
+Spec3 = beamai_process:set_initial_event(Spec2, <<"step1">>, #{data => <<"test"/utf8>>}),
+{ok, Built} = beamai_process:build(Spec3),
 
-%% 执行流程
-{ok, Result} = beamai_process_executor:run(Process, #{data => <<"test"/utf8>>}).
+%% 同步执行
+{ok, Result} = beamai_process:run_sync(Built, #{timeout => 30000}).
 ```
 
 ### 6. Graph 引擎
 
 ```erlang
-%% 创建图
-Builder = graph_builder:new(),
-Builder1 = graph_builder:add_node(Builder, start, fun(State) ->
-    {ok, State#{step => 1}}
-end),
-Builder2 = graph_builder:add_node(Builder1, finish, fun(State) ->
-    {ok, State}
-end),
-Builder3 = graph_builder:add_edge(Builder2, start, finish),
-Builder4 = graph_builder:set_entry_point(Builder3, start),
-Builder5 = graph_builder:set_finish_point(Builder4, finish),
+%% 使用 DSL 构建图
+{ok, Graph} = beamai_graph:build([
+    {node, start, fun(State, _Ctx) ->
+        {ok, State#{step => 1}}
+    end},
+    {node, finish, fun(State, _Ctx) ->
+        {ok, State}
+    end},
+    {edge, start, finish},
+    {edge, finish, '__end__'},
+    {entry, start}
+]),
 
-{ok, Graph} = graph_builder:compile(Builder5),
-{ok, Result} = graph_runner:run(Graph, #{}).
+%% 运行图
+{ok, Result} = beamai_graph:run_sync(Graph, #{}).
 ```
 
-### 7. Memory 持久化
+### 7. Memory 快照
 
 ```erlang
 %% 创建存储后端
 {ok, _} = beamai_store_ets:start_link(my_store, #{}),
-{ok, Memory} = beamai_memory:new(#{context_store => {beamai_store_ets, my_store}}),
+Store = {beamai_store_ets, my_store},
+StateStore = beamai_state_store:new(Store),
 
-%% 保存和加载状态
-ok = beamai_memory:save(Memory, <<"key1">>, #{value => 123}),
-{ok, #{value := 123}} = beamai_memory:load(Memory, <<"key1">>).
+%% 创建 Process 快照管理器
+Mgr = beamai_process_snapshot:new(StateStore),
+
+%% 保存快照
+StateMap = #{fsm_state => completed, steps => #{<<"step1">> => #{result => ok}}},
+{ok, Snapshot, Mgr1} = beamai_process_snapshot:save_from_state(Mgr, <<"thread-1">>, StateMap),
+
+%% 加载快照
+{ok, Loaded} = beamai_process_snapshot:load(Mgr1, beamai_process_snapshot:get_id(Snapshot)).
 ```
 
 ### 8. Output Parser（结构化输出）
@@ -212,14 +222,16 @@ apps/
 │   ├── Kernel         # beamai_kernel, beamai_tool, beamai_context,
 │   │                  # beamai_filter, beamai_prompt, beamai_result
 │   ├── Process        # beamai_process, beamai_process_builder,
-│   │                  # beamai_process_runtime, beamai_process_step,
-│   │                  # beamai_process_executor, beamai_process_event
+│   │                  # beamai_process_engine, beamai_process_runtime,
+│   │                  # beamai_process_step, beamai_process_executor,
+│   │                  # beamai_process_event, beamai_process_state,
+│   │                  # beamai_process_worker, beamai_process_sup
 │   ├── HTTP           # beamai_http, beamai_http_gun, beamai_http_hackney,
 │   │                  # beamai_http_pool
 │   ├── Behaviours     # beamai_chat_behaviour, beamai_http_behaviour,
 │   │                  # beamai_step_behaviour, beamai_process_store_behaviour
-│   ├── Graph          # graph, graph_node, graph_edge, graph_builder, graph_dsl,
-│   │                  # graph_runner, graph_snapshot, graph_state, graph_command
+│   ├── Graph          # beamai_graph, beamai_graph_node, beamai_graph_edge,
+│   │                  # beamai_graph_sup
 │   ├── Pregel         # pregel, pregel_master, pregel_worker, pregel_vertex,
 │   │                  # pregel_dispatch_worker
 │   └── Utils          # beamai_id, beamai_jsonrpc, beamai_sse, beamai_utils
@@ -231,16 +243,17 @@ apps/
 │   └── Providers      # OpenAI, Anthropic, DeepSeek, Zhipu, Bailian, Ollama
 │
 ├── beamai_memory/      # 纯存储引擎
-│   ├── Store          # ETS/SQLite 存储后端
-│   └── Snapshot       # 快照、分支、时间旅行
+│   ├── Store          # beamai_store_ets, beamai_store_sqlite,
+│   │                  # beamai_state_store, beamai_store_manager
+│   ├── Snapshot       # beamai_snapshot (通用引擎/behaviour),
+│   │                  # beamai_process_snapshot, beamai_graph_snapshot
+│   ├── Process        # beamai_process_memory_store
+│   └── Graph          # beamai_graph_memory_store
 │
-├── beamai_cognition/   # 认知架构
-│   ├── Memory         # 语义/情景/程序记忆
-│   └── Algorithms     # 记忆检索与整合算法
-│
-└── beamai_context/     # LLM 上下文管理
-    ├── Buffer         # 对话缓冲
-    └── Summarizer     # 上下文摘要
+└── beamai_cognition/   # 认知架构
+    ├── Memory         # 语义/情景/程序记忆
+    ├── Algorithms     # 记忆检索与整合算法
+    └── Context        # 对话缓冲、上下文摘要
 ```
 
 ### 依赖关系
@@ -253,7 +266,7 @@ apps/
                          │
 ┌────────────────────────┴────────────────────────┐
 │   存储/认知层                                     │
-│  (beamai_memory, beamai_cognition, beamai_context)│
+│  (beamai_memory, beamai_cognition)                │
 └────────────────────────┬────────────────────────┘
                          │
 ┌────────────────────────┴────────────────────────┐
@@ -302,15 +315,16 @@ Kernel2 = beamai_kernel:add_tool(Kernel1, Tool),
 可编排的流程引擎，支持步骤定义、分支、并行和时间旅行：
 
 ```erlang
-%% 构建流程
-Process = beamai_process_builder:new(<<"my_process">>),
-Process1 = beamai_process_builder:add_step(Process, <<"step1">>, #{
-    handler => fun(Input, Ctx) -> {ok, transform(Input)} end
+%% 构建流程（Builder 模式）
+Spec = beamai_process:builder(<<"my_process">>),
+Spec1 = beamai_process:add_step(Spec, <<"step1">>, my_step_module, #{
+    type => transform
 }),
-{ok, Built} = beamai_process_builder:build(Process1),
+Spec2 = beamai_process:set_initial_event(Spec1, <<"step1">>, #{data => <<"hello">>}),
+{ok, Built} = beamai_process:build(Spec2),
 
-%% 执行
-{ok, Result} = beamai_process_executor:run(Built, InitialInput).
+%% 同步执行
+{ok, Result} = beamai_process:run_sync(Built, #{timeout => 30000}).
 ```
 
 ### 3. Graph 执行引擎
@@ -318,38 +332,63 @@ Process1 = beamai_process_builder:add_step(Process, <<"step1">>, #{
 基于 LangGraph 理念的图计算引擎（已整合到 beamai_core）：
 
 ```erlang
-%% 创建图
-Builder = graph_builder:new(),
-Builder1 = graph_builder:add_node(Builder, start, fun(State) ->
-    {ok, State#{step => 1}}
-end),
-Builder2 = graph_builder:add_node(Builder1, finish, fun(State) ->
-    {ok, State}
-end),
-Builder3 = graph_builder:add_edge(Builder2, start, finish),
-Builder4 = graph_builder:set_entry_point(Builder3, start),
-Builder5 = graph_builder:set_finish_point(Builder4, finish),
+%% 使用 DSL 构建图
+{ok, Graph} = beamai_graph:build([
+    {node, start, fun(State, _Ctx) ->
+        {ok, State#{step => 1}}
+    end},
+    {node, finish, fun(State, _Ctx) ->
+        {ok, State}
+    end},
+    {edge, start, finish},
+    {edge, finish, '__end__'},
+    {entry, start}
+]),
 
-{ok, Graph} = graph_builder:compile(Builder5),
-{ok, Result} = graph_runner:run(Graph, #{}).
+%% 运行图
+{ok, Result} = beamai_graph:run_sync(Graph, #{}).
+
+%% 条件边路由
+{ok, Graph2} = beamai_graph:build([
+    {node, analyze, AnalyzeFun},
+    {conditional_edge, analyze, fun(State, _Ctx) ->
+        case maps:get(sentiment, State, positive) of
+            positive -> positive_path;
+            negative -> negative_path
+        end
+    end},
+    {node, positive_path, PositiveFun},
+    {node, negative_path, NegativeFun},
+    {edge, positive_path, '__end__'},
+    {edge, negative_path, '__end__'},
+    {entry, analyze}
+]).
 ```
 
-### 4. Memory 持久化
+### 4. Memory 快照引擎
 
-使用 beamai_memory 实现状态持久化和时间旅行：
+使用 beamai_memory 实现状态快照、分支和时间旅行：
 
 ```erlang
-%% 创建 Memory
+%% 创建存储后端和状态存储
 {ok, _} = beamai_store_ets:start_link(my_store, #{}),
-{ok, Memory} = beamai_memory:new(#{context_store => {beamai_store_ets, my_store}}),
+Store = {beamai_store_ets, my_store},
+StateStore = beamai_state_store:new(Store),
 
-%% 保存和加载状态
-ok = beamai_memory:save(Memory, <<"session1">>, #{data => <<"test"/utf8>>}),
-{ok, #{data := <<"test"/utf8>>}} = beamai_memory:load(Memory, <<"session1">>).
+%% 创建快照管理器（Process 或 Graph）
+ProcessMgr = beamai_process_snapshot:new(StateStore),
+GraphMgr = beamai_graph_snapshot:new(StateStore),
 
-%% 创建快照和分支
-{ok, SnapshotId} = beamai_memory:create_snapshot(Memory),
-{ok, _} = beamai_memory:create_branch(Memory, SnapshotId, <<"experiment">>).
+%% 保存和加载 Process 快照
+StateMap = #{fsm_state => completed, steps => #{<<"s1">> => #{result => ok}}},
+{ok, Snapshot, Mgr1} = beamai_process_snapshot:save_from_state(ProcessMgr, <<"thread-1">>, StateMap),
+{ok, Loaded} = beamai_process_snapshot:load(Mgr1, beamai_process_snapshot:get_id(Snapshot)),
+
+%% 时间旅行
+{ok, OlderSnapshot, Mgr2} = beamai_process_snapshot:go_back(Mgr1, <<"thread-1">>, 1),
+
+%% 分支管理
+{ok, BranchMgr} = beamai_process_snapshot:fork_from(Mgr1, SnapshotId, <<"experiment">>, #{}).
 ```
 
 ## 配置
@@ -421,8 +460,7 @@ BeamAI 支持 Gun 和 Hackney 两种 HTTP 后端，默认使用 Gun（支持 HTT
 | **beamai_core** | 核心框架：Kernel、Process Framework、Graph 引擎、HTTP、Behaviours | [README](apps/beamai_core/README.md) |
 | **beamai_llm** | LLM 客户端：支持 OpenAI、Anthropic、DeepSeek、Zhipu、Bailian、Ollama | [README](apps/beamai_llm/README.md) |
 | **beamai_memory** | 纯存储引擎：快照管理、Store 后端、状态存储 | [README](apps/beamai_memory/README.md) |
-| **beamai_cognition** | 认知架构：语义/情景/程序记忆、检索与整合算法 | - |
-| **beamai_context** | LLM 上下文管理：对话缓冲、上下文摘要 | - |
+| **beamai_cognition** | 认知架构：语义/情景/程序记忆、检索与整合算法、对话缓冲/摘要 | - |
 
 ## 运行示例
 
@@ -438,7 +476,7 @@ rebar3 shell
 
 | 指标 | 数量 |
 |------|------|
-| **OTP 应用** | 5 个 |
+| **OTP 应用** | 4 个 |
 | **源代码模块** | ~60 个 |
 | **测试文件** | ~20 个 |
 | **代码行数 | ~20,000 行 |

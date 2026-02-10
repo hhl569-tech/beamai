@@ -28,8 +28,9 @@ LLM 响应的统一抽象层：
 
 可编排的流程引擎，支持步骤定义、条件分支、并行执行和时间旅行：
 
-- **beamai_process** - 流程定义和核心数据结构
+- **beamai_process** - 统一 Facade API（Builder + Runtime + Time Travel + Branch）
 - **beamai_process_builder** - 流程构建器（Builder 模式）
+- **beamai_process_engine** - 流程执行引擎
 - **beamai_process_runtime** - 流程运行时
 - **beamai_process_step** - 步骤定义
 - **beamai_process_step_transform** - 步骤转换
@@ -43,14 +44,10 @@ LLM 响应的统一抽象层：
 
 基于 LangGraph 理念的声明式图执行引擎：
 
-- **graph** - 图定义和构建器
-- **graph_node** - 节点定义
-- **graph_edge** - 边定义
-- **graph_builder** - 图构建器
-- **graph_dsl** - 声明式 DSL
-- **graph_runner** - 图执行引擎
-- **graph_state** - 图状态管理
-- **graph_snapshot** - 图状态快照
+- **beamai_graph** - 图构建（DSL + Builder）、编译和执行（run/run_sync）
+- **beamai_graph_node** - 节点定义
+- **beamai_graph_edge** - 边定义（普通边、条件边、扇出边）
+- **beamai_graph_sup** - 图执行监督树
 
 ### Pregel 子系统
 
@@ -149,25 +146,29 @@ ToolSpec = #{
 beamai_tool:to_tool_schema(ToolSpec, openai | anthropic) -> map().
 ```
 
-### beamai_process_builder
+### beamai_process（统一 Facade API）
 
 ```erlang
-%% 创建流程构建器
-beamai_process_builder:new(Name) -> builder().
+%% Builder API
+beamai_process:builder(Name) -> spec().
+beamai_process:add_step(Spec, StepName, Module, Config) -> spec().
+beamai_process:on_event(Spec, StepName, EventName, TargetStep) -> spec().
+beamai_process:set_initial_event(Spec, StepName, Data) -> spec().
+beamai_process:set_execution_mode(Spec, Mode) -> spec().
+beamai_process:build(Spec) -> {ok, ProcessSpec} | {error, Reason}.
 
-%% 添加步骤
-beamai_process_builder:add_step(Builder, StepName, StepOpts) -> builder().
+%% Runtime API
+beamai_process:start(ProcessSpec) -> {ok, pid()} | {error, Reason}.
+beamai_process:run_sync(ProcessSpec) -> {ok, Result} | {paused, Reason, Snapshot} | {error, Reason}.
+beamai_process:run_sync(ProcessSpec, Opts) -> {ok, Result} | {paused, Reason, Snapshot} | {error, Reason}.
+beamai_process:resume(Pid, Data) -> ok.
+beamai_process:snapshot(Pid) -> {ok, Snapshot}.
+beamai_process:restore(Snapshot) -> {ok, pid()}.
 
-%% 构建流程
-beamai_process_builder:build(Builder) -> {ok, Process} | {error, Reason}.
-```
-
-### beamai_process_executor
-
-```erlang
-%% 执行流程
-beamai_process_executor:run(Process, Input) -> {ok, Result} | {error, Reason}.
-beamai_process_executor:run(Process, Input, Opts) -> {ok, Result} | {error, Reason}.
+%% Time Travel & Branch API
+beamai_process:go_back(Store, Steps, ProcessSpec) -> {ok, pid()} | {error, Reason}.
+beamai_process:branch_from(Store, BranchName, Opts) -> {ok, Info} | {error, Reason}.
+beamai_process:list_history(Store) -> {ok, [map()]} | {error, Reason}.
 ```
 
 ## 使用示例
@@ -210,54 +211,45 @@ Kernel1 = beamai_kernel:add_tool(Kernel, ReadFile),
 
 ```erlang
 %% 构建多步流程
-Builder = beamai_process_builder:new(<<"data_pipeline">>),
+Spec = beamai_process:builder(<<"data_pipeline">>),
+Spec1 = beamai_process:add_step(Spec, <<"fetch">>, my_step_module, #{type => fetch}),
+Spec2 = beamai_process:add_step(Spec1, <<"transform">>, my_step_module, #{type => transform}),
+Spec3 = beamai_process:add_step(Spec2, <<"save">>, my_step_module, #{type => save}),
 
-Builder1 = beamai_process_builder:add_step(Builder, <<"fetch">>, #{
-    handler => fun(Input, _Ctx) ->
-        {ok, Input#{data => fetch_data()}}
-    end
-}),
+%% 设置事件驱动链路
+Spec4 = beamai_process:on_event(Spec3, <<"fetch">>, <<"fetch_done">>, <<"transform">>),
+Spec5 = beamai_process:on_event(Spec4, <<"transform">>, <<"transform_done">>, <<"save">>),
 
-Builder2 = beamai_process_builder:add_step(Builder1, <<"transform">>, #{
-    handler => fun(#{data := Data} = Input, _Ctx) ->
-        {ok, Input#{data => transform(Data)}}
-    end
-}),
+%% 设置初始事件和构建
+Spec6 = beamai_process:set_initial_event(Spec5, <<"fetch">>, #{}),
+{ok, Built} = beamai_process:build(Spec6),
 
-Builder3 = beamai_process_builder:add_step(Builder2, <<"save">>, #{
-    handler => fun(#{data := Data} = Input, _Ctx) ->
-        ok = save_data(Data),
-        {ok, Input#{saved => true}}
-    end
-}),
-
-{ok, Process} = beamai_process_builder:build(Builder3),
-{ok, Result} = beamai_process_executor:run(Process, #{}).
+%% 同步执行
+{ok, Result} = beamai_process:run_sync(Built, #{timeout => 30000}).
 ```
 
 ### Graph Engine
 
 ```erlang
 %% 使用 DSL 构建简单图
-{ok, Graph} = graph:build([
+{ok, Graph} = beamai_graph:build([
     {node, greeting, fun(State, _Ctx) ->
-        Name = graph_state:get(State, name, <<"World">>),
+        Name = maps:get(name, State, <<"World">>),
         Message = <<"Hello, ", Name/binary, "!">>,
-        {ok, graph_state:set(State, message, Message)}
+        {ok, State#{message => Message}}
     end},
     {node, uppercase, fun(State, _Ctx) ->
-        Message = graph_state:get(State, message, <<>>),
+        Message = maps:get(message, State, <<>>),
         Upper = string:uppercase(Message),
-        {ok, graph_state:set(State, message, Upper)}
+        {ok, State#{message => Upper}}
     end},
     {edge, greeting, uppercase},
     {edge, uppercase, '__end__'},
     {entry, greeting}
 ]),
 
-%% 运行图
-InitialState = graph:state(#{name => <<"Erlang">>}),
-Result = graph:run(Graph, InitialState).
+%% 运行图（同步模式，支持中断/恢复）
+{ok, Result} = beamai_graph:run_sync(Graph, #{name => <<"Erlang">>}).
 ```
 
 ### 加载工具模块
