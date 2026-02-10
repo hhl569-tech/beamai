@@ -230,10 +230,17 @@ apps/
 │   │                  # beamai_http_pool
 │   ├── Behaviours     # beamai_chat_behaviour, beamai_http_behaviour,
 │   │                  # beamai_step_behaviour, beamai_process_store_behaviour
-│   ├── Graph          # beamai_graph, beamai_graph_node, beamai_graph_edge,
+│   ├── Graph          # 三层架构：
+│   │   ├── builder    # beamai_graph_builder, beamai_graph_dsl,
+│   │   │              # beamai_graph_node, beamai_graph_edge,
+│   │   │              # beamai_graph_command, beamai_graph_dispatch
+│   │   ├── pregel     # beamai_graph_compute, beamai_graph_pool_worker,
+│   │   │              # beamai_pregel_graph, beamai_pregel_vertex,
+│   │   │              # beamai_pregel_utils
+│   │   └── runtime    # beamai_graph_engine, beamai_graph_engine_task,
+│   │                  # beamai_graph_engine_utils, beamai_graph_runner,
+│   │                  # beamai_graph_runtime, beamai_graph_state,
 │   │                  # beamai_graph_sup
-│   ├── Pregel         # pregel, pregel_master, pregel_worker, pregel_vertex,
-│   │                  # pregel_dispatch_worker
 │   └── Utils          # beamai_id, beamai_jsonrpc, beamai_sse, beamai_utils
 │
 ├── beamai_llm/         # LLM 客户端

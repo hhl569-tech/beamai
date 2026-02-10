@@ -18,6 +18,8 @@ This document provides the main API reference for the core modules of the BeamAI
 
 ### Graph Execution Engine
 
+The graph engine is organized in three layers: **Builder** (construction), **Pregel** (algorithm primitives), **Runtime** (execution lifecycle).
+
 ```erlang
 %% DSL Build (declarative)
 -spec build([term()]) -> {ok, graph()} | {error, term()}.
@@ -65,20 +67,6 @@ fun(State :: map(), Input :: map(), ResumeData :: undefined | map()) ->
 %% Read/Write state (plain map operations)
 Value = maps:get(Key, State, Default).
 NewState = State#{Key => Value}.
-```
-
-### Pregel Distributed Computing
-
-```erlang
-%% Create Pregel graph
-{ok, Graph} = pregel_graph:new(Config).
-
-%% Add vertices and edges
-pregel_graph:add_vertex(Graph, VertexId, Data).
-pregel_graph:add_edge(Graph, From, To, Weight).
-
-%% Run computation
-{ok, Result} = pregel:run(Graph, ComputeFn, MaxIterations).
 ```
 
 ### Process Branch & Time Travel API

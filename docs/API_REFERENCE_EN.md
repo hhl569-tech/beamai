@@ -18,66 +18,72 @@
 
 ### Graph 执行引擎
 
+图引擎分为三层：**Builder**（构建层）、**Pregel**（算法层）、**Runtime**（执行层）。
+
 ```erlang
-%% 构建 Graph
-Graph = graph_builder:new()
-    |> graph_builder:add_node(NodeName, {Module, Opts})
-    |> graph_builder:add_edge(From, To, Condition)
-    |> graph_builder:set_entry(EntryNode)
-    |> graph_builder:build().
+%% DSL 构建（声明式）
+{ok, Graph} = beamai_graph:build([
+    {node, NodeName, fun(State, Ctx) -> {ok, NewState} end},
+    {edge, From, To},
+    {conditional_edge, From, fun(State, Ctx) -> TargetNode end},
+    {entry, EntryNode}
+]).
 
-%% 执行 Graph
--spec run(graph(), state()) -> {ok, state()} | {error, term()}.
-graph_runner:run(Graph, InitialState).
+%% Builder API（命令式）
+Builder = beamai_graph:builder(),
+Builder1 = beamai_graph:add_node(Builder, NodeName, NodeFun),
+Builder2 = beamai_graph:add_edge(Builder1, From, To),
+Builder3 = beamai_graph:set_entry(Builder2, EntryNode),
+{ok, Graph} = beamai_graph:compile(Builder3).
 
-%% Graph DSL
-Graph = graph_dsl:compile(#{
-    nodes => #{...},
-    edges => [...],
-    entry => atom()
+%% 执行 Graph（异步）
+-spec run(graph(), state()) -> {ok, pid()}.
+{ok, Pid} = beamai_graph:run(Graph, InitialState).
+
+%% 执行 Graph（同步，支持中断/恢复）
+-spec run_sync(graph(), state()) -> {ok, state()} | {interrupted, [vertex()], snapshot()}.
+{ok, FinalState} = beamai_graph:run_sync(Graph, InitialState).
+
+%% 从中断恢复
+{ok, FinalState} = beamai_graph:run_sync(Graph, State, #{
+    snapshot => Snapshot,
+    resume_data => #{review => approved}
 }).
 ```
 
 ### Graph State
 
+Graph 状态是普通 Erlang map。节点函数接收 `(State, Context)`：
+
 ```erlang
-%% 创建状态
--spec new(map()) -> state().
-graph_state:new(Data).
+%% 节点函数签名（2-arity）
+fun(State :: map(), Context :: map()) -> {ok, NewState :: map()}.
 
-%% 读写状态
--spec get(state(), key()) -> value().
--spec set(state(), key(), value()) -> state().
-graph_state:get(State, Key).
-graph_state:set(State, Key, Value).
+%% 节点函数（含中断支持，3-arity）
+fun(State :: map(), Input :: map(), ResumeData :: undefined | map()) ->
+    {ok, NewState :: map()} | {interrupt, InterruptData :: map()}.
 
-%% 用户上下文操作
--spec get_context(state()) -> map().
--spec get_context(state(), key()) -> value() | undefined.
--spec set_context(state(), map()) -> state().
--spec update_context(state(), map()) -> state().
-graph_state:get_context(State).
-graph_state:get_context(State, Key).
-graph_state:set_context(State, Context).
-graph_state:update_context(State, Updates).
+%% 读写状态（纯 map 操作）
+Value = maps:get(Key, State, Default).
+NewState = State#{Key => Value}.
 ```
 
-### Graph State Reducer
+### Context Reducer
 
 字段级 Reducer，用于合并节点返回的 delta 到全局状态。
 
 ```erlang
 %% 应用 delta
--spec apply_delta(state(), delta(), field_reducers()) -> state().
--spec apply_deltas(state(), [delta()], field_reducers()) -> state().
-graph_state_reducer:apply_delta(State, Delta, FieldReducers).
-graph_state_reducer:apply_deltas(State, Deltas, FieldReducers).
+-spec apply_delta(context(), delta(), field_reducers()) -> context().
+-spec apply_deltas(context(), [delta()], field_reducers()) -> context().
+beamai_context_reducer:apply_delta(Context, Delta, FieldReducers).
+beamai_context_reducer:apply_deltas(Context, Deltas, FieldReducers).
 
 %% 内置 Reducer
-graph_state_reducer:append_reducer(Old, New) -> list().
-graph_state_reducer:merge_reducer(Old, New) -> map().
-graph_state_reducer:increment_reducer(Old, Delta) -> number().
-graph_state_reducer:last_write_win_reducer(Old, New) -> term().
+beamai_context_reducer:append_reducer(Old, New) -> list().
+beamai_context_reducer:merge_reducer(Old, New) -> map().
+beamai_context_reducer:increment_reducer(Old, Delta) -> number().
+beamai_context_reducer:last_write_win_reducer(Old, New) -> term().
 ```
 
 **Reducer 配置格式：**
@@ -85,25 +91,11 @@ graph_state_reducer:last_write_win_reducer(Old, New) -> term().
 ```erlang
 FieldReducers = #{
     %% 普通 reducer
-    <<"messages">> => fun graph_state_reducer:append_reducer/2,
+    <<"messages">> => fun beamai_context_reducer:append_reducer/2,
 
     %% 转换型 reducer：从 counter_incr 累加到 counter
-    <<"counter_incr">> => {transform, <<"counter">>, fun graph_state_reducer:increment_reducer/2}
+    <<"counter_incr">> => {transform, <<"counter">>, fun beamai_context_reducer:increment_reducer/2}
 }.
-```
-
-### Pregel 分布式计算
-
-```erlang
-%% 创建 Pregel 图
-{ok, Graph} = pregel_graph:new(Config).
-
-%% 添加顶点和边
-pregel_graph:add_vertex(Graph, VertexId, Data).
-pregel_graph:add_edge(Graph, From, To, Weight).
-
-%% 运行计算
-{ok, Result} = pregel:run(Graph, ComputeFn, MaxIterations).
 ```
 
 ### Process 分支与时间旅行 API

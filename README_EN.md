@@ -246,10 +246,13 @@ apps/
 │   │                  # beamai_http_pool
 │   ├── Behaviours     # beamai_chat_behaviour, beamai_http_behaviour,
 │   │                  # beamai_step_behaviour, beamai_process_store_behaviour
-│   ├── Graph          # graph, graph_node, graph_edge, graph_builder, graph_dsl,
-│   │                  # graph_runner, graph_snapshot, graph_state, graph_command
-│   ├── Pregel         # pregel, pregel_master, pregel_worker, pregel_vertex,
-│   │                  # pregel_dispatch_worker
+│   ├── Graph          # Three-layer architecture:
+│   │   ├── builder    # graph_builder, graph_dsl, graph_node, graph_edge,
+│   │   │              # graph_command, graph_dispatch
+│   │   ├── pregel     # graph_compute, graph_pool_worker,
+│   │   │              # pregel_graph, pregel_vertex, pregel_utils
+│   │   └── runtime    # graph_engine, graph_engine_task, graph_engine_utils,
+│   │                  # graph_runner, graph_runtime, graph_state, graph_sup
 │   └── Utils          # beamai_id, beamai_jsonrpc, beamai_sse, beamai_utils
 │
 ├── beamai_llm/         # LLM client

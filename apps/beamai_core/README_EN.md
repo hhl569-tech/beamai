@@ -41,26 +41,32 @@ Orchestratable process engine supporting step definitions, conditional branching
 
 ### Graph Engine Subsystem
 
-Declarative graph-based workflow engine:
+Declarative graph-based workflow engine, organized in three layers:
 
-- **graph** - Graph definitions and builder
-- **graph_node** - Node definitions
-- **graph_edge** - Edge definitions
-- **graph_builder** - Graph builder
-- **graph_dsl** - Declarative DSL
-- **graph_runner** - Graph execution engine
-- **graph_state** - Graph state management
-- **graph_snapshot** - Graph state snapshots
+**Builder** — Graph construction and behavior definition:
+- **beamai_graph** - Unified API facade (DSL + Builder + run/run_sync)
+- **beamai_graph_builder** - Graph builder (Builder pattern)
+- **beamai_graph_dsl** - Declarative DSL
+- **beamai_graph_node** - Node definitions
+- **beamai_graph_edge** - Edge definitions (direct, conditional, fan-out)
+- **beamai_graph_command** - Command definitions
+- **beamai_graph_dispatch** - Fan-out dispatch
 
-### Pregel Subsystem
+**Pregel** — Pregel BSP computation primitives:
+- **beamai_pregel_graph** - Graph topology data structure
+- **beamai_pregel_vertex** - Vertex definition and state
+- **beamai_pregel_utils** - Utility functions
+- **beamai_graph_compute** - Compute function factory
+- **beamai_graph_pool_worker** - Poolboy worker process
 
-Distributed graph computation based on Pregel model:
-
-- **pregel** - Pregel master and worker
-- **pregel_master** - Master node
-- **pregel_worker** - Worker nodes
-- **pregel_vertex** - Vertex computation
-- **pregel_dispatch_worker** - Dispatch pool worker
+**Runtime** — Graph execution and lifecycle:
+- **beamai_graph_engine** - Pure function engine core (do_step, execute)
+- **beamai_graph_engine_task** - Task building and parallel execution
+- **beamai_graph_engine_utils** - Vertex management, activation processing
+- **beamai_graph_runner** - High-level run API (snapshot + store management)
+- **beamai_graph_runtime** - gen_server runtime (OTP process shell)
+- **beamai_graph_state** - Graph snapshot serialization/deserialization
+- **beamai_graph_sup** - Graph execution supervisor
 
 ### HTTP Subsystem
 

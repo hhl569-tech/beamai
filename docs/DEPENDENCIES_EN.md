@@ -137,8 +137,7 @@ application:set_env(beamai_core, http_backend, beamai_http_hackney).
 **Dependencies**: No internal dependencies
 
 **Provides**:
-- Graph execution engine (Pregel model)
-- State management (graph_state)
+- Graph execution engine (three-layer architecture: Builder / Pregel / Runtime)
 - Type definitions (beamai_types)
 - Common utility functions (beamai_utils)
 - JSON-RPC support (beamai_jsonrpc)

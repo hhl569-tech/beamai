@@ -88,18 +88,25 @@ run(LLMConfig) ->
     P11 = beamai_process:set_initial_event(P10, question, #{user_message => Question}),
 
     %% 使用并行执行模式（fan-out 的三个步骤将并行执行）
-    %% 注意: 并行模式需要 poolboy 已启动
+    %% 注意: 并行模式需要使用 start 进程形式，run_sync 不支持 concurrent
     P12 = beamai_process:set_execution_mode(P11, concurrent),
 
     {ok, Def} = beamai_process:build(P12),
     io:format("开始并行执行...~n~n"),
     T0 = erlang:system_time(millisecond),
-    case beamai_process:run_sync(Def, #{timeout => 120000, context => Context}) of
-        {ok, _Result} ->
+    {ok, Pid} = beamai_process:start(Def, #{
+        context => Context,
+        caller => self()
+    }),
+    receive
+        {process_completed, Pid, _StepsState} ->
             T1 = erlang:system_time(millisecond),
             io:format("~n并行执行完成! 耗时: ~pms~n~n", [T1 - T0]);
-        {error, Reason} ->
+        {process_failed, Pid, Reason} ->
             io:format("错误: ~p~n", [Reason])
+    after 120000 ->
+        beamai_process:stop(Pid),
+        io:format("错误: 超时~n")
     end,
     ok.
 
