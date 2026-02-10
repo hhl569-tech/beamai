@@ -228,7 +228,7 @@ from_restored(Restored, Opts) ->
 %% @doc 执行单个超步（纯函数）
 -spec do_step(engine()) -> {step_result(), engine()}.
 do_step(#engine{halted = true} = Engine) ->
-    Info = beamai_graph_executor_utils:build_superstep_info(final, Engine#engine.last_results),
+    Info = beamai_graph_engine_utils:build_superstep_info(final, Engine#engine.last_results),
     {{done, get_done_reason(Engine), Info}, Engine};
 do_step(#engine{initialized = false} = Engine) ->
     EngineReady = inject_restore_activations(Engine),
@@ -237,7 +237,7 @@ do_step(#engine{initialized = false} = Engine) ->
         initial_returned = true,
         restore_from = undefined
     },
-    Info = beamai_graph_executor_utils:build_superstep_info(initial, undefined),
+    Info = beamai_graph_engine_utils:build_superstep_info(initial, undefined),
     {{continue, Info}, EngineFinal};
 do_step(Engine) ->
     execute_superstep(Engine).
@@ -245,7 +245,7 @@ do_step(Engine) ->
 %% @doc 重试失败顶点（纯函数）
 -spec do_retry([vertex_id()], engine()) -> {step_result(), engine()}.
 do_retry(_VertexIds, #engine{halted = true} = Engine) ->
-    Info = beamai_graph_executor_utils:build_superstep_info(final, Engine#engine.last_results),
+    Info = beamai_graph_engine_utils:build_superstep_info(final, Engine#engine.last_results),
     {{done, get_done_reason(Engine), Info}, Engine};
 do_retry(_VertexIds, #engine{last_results = undefined} = Engine) ->
     {{error, no_previous_step}, Engine};
@@ -313,10 +313,10 @@ last_results(#engine{last_results = LR}) -> LR.
 %% @doc 获取上次超步信息（从 last_results 构建）
 -spec last_info(engine()) -> superstep_info().
 last_info(#engine{last_results = undefined}) ->
-    beamai_graph_executor_utils:build_superstep_info(step, undefined);
+    beamai_graph_engine_utils:build_superstep_info(step, undefined);
 last_info(#engine{last_results = Results}) ->
-    Type = beamai_graph_executor_utils:determine_snapshot_type(Results),
-    beamai_graph_executor_utils:build_superstep_info(Type, Results).
+    Type = beamai_graph_engine_utils:determine_snapshot_type(Results),
+    beamai_graph_engine_utils:build_superstep_info(Type, Results).
 
 %% @doc 获取快照数据（委托到 graph_snapshot）
 -spec take_snapshot(engine()) -> beamai_graph_state:snapshot().
@@ -372,7 +372,7 @@ build_result(#engine{
     context = Context,
     cumulative_failures = CumulativeFailures
 } = Engine) ->
-    FinalGraph = beamai_graph_executor_utils:rebuild_graph(OriginalGraph, Vertices),
+    FinalGraph = beamai_graph_engine_utils:rebuild_graph(OriginalGraph, Vertices),
     FailedCount = length(CumulativeFailures),
     #{
         status => get_done_reason(Engine),
@@ -428,27 +428,27 @@ execute_superstep(#engine{
     NumVertices = maps:size(Vertices),
 
     %% 1. 获取 activations
-    Activations = beamai_graph_executor_utils:get_activations_for_superstep(PendingActivations, LastResults),
+    Activations = beamai_graph_engine_utils:get_activations_for_superstep(PendingActivations, LastResults),
 
     %% 2. 分离 dispatch 项与普通激活
-    {DispatchItems, NormalActivations} = beamai_graph_executor_utils:separate_dispatches(Activations),
-    VertexInputs = beamai_graph_executor_utils:build_vertex_inputs(DispatchItems),
+    {DispatchItems, NormalActivations} = beamai_graph_engine_utils:separate_dispatches(Activations),
+    VertexInputs = beamai_graph_engine_utils:build_vertex_inputs(DispatchItems),
     DispatchNodeIds = maps:keys(VertexInputs),
     AllActivationIds = lists:usort(NormalActivations ++ DispatchNodeIds),
 
     %% 3. 筛选活跃顶点
-    ActiveVertices = beamai_graph_executor_utils:filter_active_vertices(Vertices, AllActivationIds),
+    ActiveVertices = beamai_graph_engine_utils:filter_active_vertices(Vertices, AllActivationIds),
 
     %% 4. 构建扁平任务列表
-    Tasks = beamai_graph_executor_task:build_task_list(ActiveVertices, VertexInputs),
+    Tasks = beamai_graph_engine_task:build_task_list(ActiveVertices, VertexInputs),
 
     %% 5. 执行任务
     {Deltas, NewActivations, FailedVertices, InterruptedVertices} =
-        beamai_graph_executor_task:execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
+        beamai_graph_engine_task:execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
                       PoolName, PoolTimeout, Engine#engine.resume_data),
 
     %% 6. 更新顶点状态（halt 计算完成的顶点）
-    NewVertices = beamai_graph_executor_utils:update_vertex_states(Vertices, ActiveVertices, FailedVertices, InterruptedVertices),
+    NewVertices = beamai_graph_engine_utils:update_vertex_states(Vertices, ActiveVertices, FailedVertices, InterruptedVertices),
 
     %% 7. 检查错误并累积失败信息
     FailedCount = length(FailedVertices),
@@ -471,7 +471,7 @@ execute_superstep(#engine{
     end,
 
     %% 9. 更新结果映射
-    TotalActive = beamai_graph_executor_utils:count_active(NewVertices),
+    TotalActive = beamai_graph_engine_utils:count_active(NewVertices),
     UpdatedResults = #{
         active_count => TotalActive,
         deltas => Deltas,
@@ -492,9 +492,9 @@ execute_superstep(#engine{
     %% 11. 确定 snapshot 类型
     Type = case IsDone of
         true -> final;
-        false -> beamai_graph_executor_utils:determine_snapshot_type(UpdatedResults)
+        false -> beamai_graph_engine_utils:determine_snapshot_type(UpdatedResults)
     end,
-    Info = beamai_graph_executor_utils:build_superstep_info(Type, UpdatedResults),
+    Info = beamai_graph_engine_utils:build_superstep_info(Type, UpdatedResults),
 
     %% 12. 计算新超步号
     NewSuperstep = if IsDone -> Superstep; true -> Superstep + 1 end,
@@ -549,7 +549,7 @@ execute_retry_direct(VertexIds, #engine{
     Tasks = [{Id, V, undefined} || {Id, V} <- maps:to_list(RetryVertices)],
 
     {RetryDeltas, RetryActivations, StillFailed, StillInterrupted} =
-        beamai_graph_executor_task:execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
+        beamai_graph_engine_task:execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
                       PoolName, PoolTimeout, Engine#engine.resume_data),
 
     HasError = length(StillFailed) > 0 orelse length(StillInterrupted) > 0,
@@ -579,8 +579,8 @@ execute_retry_direct(VertexIds, #engine{
         superstep => Superstep
     },
 
-    Type = beamai_graph_executor_utils:determine_snapshot_type(UpdatedResults),
-    Info = beamai_graph_executor_utils:build_superstep_info(Type, UpdatedResults),
+    Type = beamai_graph_engine_utils:determine_snapshot_type(UpdatedResults),
+    Info = beamai_graph_engine_utils:build_superstep_info(Type, UpdatedResults),
 
     NewEngine = Engine#engine{
         context = NewContext,
@@ -610,7 +610,7 @@ execute_deferred_retry(VertexIds, #engine{
     Tasks = [{Id, V, undefined} || {Id, V} <- maps:to_list(RetryVertices)],
 
     {RetryDeltas, RetryActivations, StillFailed, StillInterrupted} =
-        beamai_graph_executor_task:execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
+        beamai_graph_engine_task:execute_tasks(Tasks, ComputeFn, Context, Superstep, NumVertices,
                       PoolName, PoolTimeout, Engine#engine.resume_data),
 
     HasError = length(StillFailed) > 0 orelse length(StillInterrupted) > 0,
@@ -652,8 +652,8 @@ execute_deferred_retry(VertexIds, #engine{
         active_count => 0
     },
 
-    Type = beamai_graph_executor_utils:determine_snapshot_type(UpdatedResults),
-    Info = beamai_graph_executor_utils:build_superstep_info(Type, UpdatedResults),
+    Type = beamai_graph_engine_utils:determine_snapshot_type(UpdatedResults),
+    Info = beamai_graph_engine_utils:build_superstep_info(Type, UpdatedResults),
 
     NewEngine = Engine#engine{
         context = NewContext,
@@ -733,7 +733,7 @@ new_engine(Graph, ComputeFn, Opts) ->
         _ -> #{}
     end,
 
-    Vertices = beamai_graph_executor_utils:get_all_vertices(Graph, RestoreOpts),
+    Vertices = beamai_graph_engine_utils:get_all_vertices(Graph, RestoreOpts),
     PoolTimeout = application:get_env(beamai_core, graph_pool_timeout, 30000),
 
     #engine{

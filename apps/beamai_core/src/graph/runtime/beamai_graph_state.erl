@@ -101,7 +101,7 @@ restore_from_snapshot(#{'__graph_snapshot__' := true} = Snapshot, Graph) ->
     #{pregel_graph := PregelGraph} = Graph,
 
     %% 从 Graph 获取完整顶点（含 fun_ 和 routing_edges）
-    BaseVertices = beamai_graph_executor_utils:vertices_to_map(
+    BaseVertices = beamai_graph_engine_utils:vertices_to_map(
         beamai_pregel_graph:vertices(PregelGraph)),
 
     %% 合并 snapshot 中的 halted 状态

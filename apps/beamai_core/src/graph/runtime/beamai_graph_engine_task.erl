@@ -1,11 +1,11 @@
 %%%-------------------------------------------------------------------
-%%% @doc 图执行器 - 任务构建、执行与结果处理
+%%% @doc 图引擎 - 任务构建、执行与结果处理
 %%%
-%%% 从 graph_executor 提取的纯函数模块。
+%%% engine 内部模块。
 %%% 负责任务列表构建、poolboy 并行执行、计算结果处理。
 %%% @end
 %%%-------------------------------------------------------------------
--module(beamai_graph_executor_task).
+-module(beamai_graph_engine_task).
 
 -export([make_context/6, make_context/7, build_task_list/2, execute_tasks/8,
          process_compute_result/3]).

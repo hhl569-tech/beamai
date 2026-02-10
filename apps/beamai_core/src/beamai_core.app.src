@@ -76,8 +76,8 @@
         beamai_graph_runtime,
         beamai_graph_state,
         beamai_graph_sup,
-        beamai_graph_executor_task,
-        beamai_graph_executor_utils,
+        beamai_graph_engine_task,
+        beamai_graph_engine_utils,
         beamai_graph_pool_worker,
         beamai_graph_compute,
         %% Pregel 数据结构（保留）

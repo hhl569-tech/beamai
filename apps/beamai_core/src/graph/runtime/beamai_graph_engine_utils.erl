@@ -1,11 +1,11 @@
 %%%-------------------------------------------------------------------
-%%% @doc 图执行器 - 顶点管理、activation 处理、snapshot 工具
+%%% @doc 图引擎 - 顶点管理、activation 处理、snapshot 工具
 %%%
-%%% 从 graph_executor 提取的纯函数模块。
+%%% engine 内部模块。
 %%% 负责顶点集合操作、activation 分离与聚合、snapshot 类型判定。
 %%% @end
 %%%-------------------------------------------------------------------
--module(beamai_graph_executor_utils).
+-module(beamai_graph_engine_utils).
 
 -export([get_all_vertices/2, vertices_to_map/1, merge_restored_vertices/2,
          filter_active_vertices/2, update_vertex_states/4, rebuild_graph/2,
