@@ -331,12 +331,9 @@ find_by_superstep([Snapshot | Rest], Superstep) ->
 %% @private 生成 run_id
 -spec generate_run_id() -> binary().
 generate_run_id() ->
-    Ts = integer_to_binary(erlang:system_time(microsecond)),
-    Rand = integer_to_binary(rand:uniform(1000000)),
-    <<"run_", Ts/binary, "_", Rand/binary>>.
+    beamai_id:gen_id(<<"run">>).
 
 %% @private 生成 branch_id
 -spec generate_branch_id(binary()) -> binary().
 generate_branch_id(BranchName) ->
-    Ts = integer_to_binary(erlang:system_time(microsecond)),
-    <<"branch_", BranchName/binary, "_", Ts/binary>>.
+    beamai_id:gen_id(<<"branch_", BranchName/binary>>).

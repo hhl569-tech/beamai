@@ -342,12 +342,10 @@ count_by_owner(#{backend := Backend, namespace := Namespace}, OwnerId) ->
 %% 辅助函数
 %%====================================================================
 
-%% @doc 生成唯一 ID
+%% @doc 生成唯一 ID（委托给 beamai_id）
 -spec generate_id(binary()) -> binary().
 generate_id(Prefix) ->
-    Uuid = uuid:get_v4(),
-    UuidBin = uuid:uuid_to_string(Uuid, binary_standard),
-    <<Prefix/binary, UuidBin/binary>>.
+    beamai_id:gen_id(Prefix).
 
 %% @doc 获取命名空间
 -spec get_namespace(store()) -> binary().

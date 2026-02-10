@@ -286,5 +286,4 @@ snapshot_to_info(Snapshot) ->
 %% @private 生成分支 thread_id
 -spec generate_branch_thread_id(binary(), binary()) -> binary().
 generate_branch_thread_id(ParentThreadId, BranchName) ->
-    Ts = integer_to_binary(erlang:system_time(microsecond)),
-    <<ParentThreadId/binary, "_branch_", BranchName/binary, "_", Ts/binary>>.
+    beamai_id:gen_id(<<ParentThreadId/binary, "_branch_", BranchName/binary>>).
